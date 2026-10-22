@@ -1,0 +1,17 @@
+diff --git a/dist/main.mjs b/dist/main.mjs
+index 797f925..c564fca 100644
+--- a/dist/main.mjs
++++ b/dist/main.mjs
+@@ -587,7 +587,11 @@ w = new WeakMap(), m = new WeakMap(), R = new WeakSet(), P = function({
+   for (const [i, a] of F(this, m).entries())
+     i.startsWith(`${r}-${e ?? ""}`) && (y("Closing subscription", i), a.unsubscribe(), F(this, m).delete(i));
+ }, T = new WeakSet(), Q = function(r) {
+-  r.webContents.on("did-start-navigation", ({ frame: e }) => {
++  r.webContents.on("did-start-navigation", ({ frame: e, isSameDocument: __omnidexSameDocumentNavigation }) => {
++    // Patched: a same-document navigation (hash change, pushState) keeps the
++    // renderer's JS context, so its subscriptions are still live. Closing them
++    // here left the renderer subscribed to nothing after the first route change.
++    if (__omnidexSameDocumentNavigation) return;
+     y(
+       "Handling webContents `did-start-navigation` event",
+       `webContentsId: ${r.webContents.id}`,

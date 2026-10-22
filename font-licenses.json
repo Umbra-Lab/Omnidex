@@ -1,0 +1,371 @@
+{
+  "licensePolicy": "Only fonts with verified free commercial-use licenses may ship. Keep copyright and OFL notices with each font. Generated static weights and format conversions preserve all encoded glyphs. Proprietary legacy font files must not be restored.",
+  "fonts": [
+    {
+      "file": "public/fonts/Archivo-Bold.ttf",
+      "sha256": "5fa8486ae5ee30f05e76f80e667e8f092b134a6530217f2e97895543c7fbf346",
+      "family": "archivo",
+      "weight": 700,
+      "italic": false,
+      "width": 100,
+      "license": "public/fonts/Archivo-OFL.txt",
+      "source": {
+        "commit": "2c605eeda2de57af2b34822b79986f5140299862",
+        "files": [
+          {
+            "file": "Archivo-Italic[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo-Italic%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+          },
+          {
+            "file": "Archivo[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+          },
+          {
+            "file": "METADATA.pb",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/METADATA.pb",
+            "sha256": "a2e8f63ffa4f9dfe43a65c349b4742e9cd85298802aed890a6315152f2ae231d"
+          },
+          {
+            "file": "OFL.txt",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/OFL.txt",
+            "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+          }
+        ]
+      },
+      "licenseSha256": "1778201b7bd33e8c08a2eda32a4ad2f69bc38ced9731b01cc3fc47f268c8ef3c",
+      "noticeEmbedded": true
+    },
+    {
+      "file": "public/fonts/Archivo-Light.ttf",
+      "sha256": "63a3942719e6cf468e3f1c769b2488cc4513b41cb6f2fb9bc2af716a256680a9",
+      "family": "archivo",
+      "weight": 300,
+      "italic": false,
+      "width": 100,
+      "license": "public/fonts/Archivo-OFL.txt",
+      "source": {
+        "commit": "2c605eeda2de57af2b34822b79986f5140299862",
+        "files": [
+          {
+            "file": "Archivo-Italic[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo-Italic%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+          },
+          {
+            "file": "Archivo[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+          },
+          {
+            "file": "METADATA.pb",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/METADATA.pb",
+            "sha256": "a2e8f63ffa4f9dfe43a65c349b4742e9cd85298802aed890a6315152f2ae231d"
+          },
+          {
+            "file": "OFL.txt",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/OFL.txt",
+            "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+          }
+        ]
+      },
+      "licenseSha256": "1778201b7bd33e8c08a2eda32a4ad2f69bc38ced9731b01cc3fc47f268c8ef3c",
+      "noticeEmbedded": true
+    },
+    {
+      "file": "public/fonts/Archivo-Medium.ttf",
+      "sha256": "f8a6ae829124559338296f0582e5f8400894ec7b1081a4c68eda84bcd6ed8cfa",
+      "family": "archivo",
+      "weight": 500,
+      "italic": false,
+      "width": 100,
+      "license": "public/fonts/Archivo-OFL.txt",
+      "source": {
+        "commit": "2c605eeda2de57af2b34822b79986f5140299862",
+        "files": [
+          {
+            "file": "Archivo-Italic[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo-Italic%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+          },
+          {
+            "file": "Archivo[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+          },
+          {
+            "file": "METADATA.pb",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/METADATA.pb",
+            "sha256": "a2e8f63ffa4f9dfe43a65c349b4742e9cd85298802aed890a6315152f2ae231d"
+          },
+          {
+            "file": "OFL.txt",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/OFL.txt",
+            "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+          }
+        ]
+      },
+      "licenseSha256": "1778201b7bd33e8c08a2eda32a4ad2f69bc38ced9731b01cc3fc47f268c8ef3c",
+      "noticeEmbedded": true
+    },
+    {
+      "file": "public/fonts/Archivo-Regular.ttf",
+      "sha256": "3280427c36d6caa060a6c898263ce6cb01bd602a989e8edfd2de8ffa3eb20993",
+      "family": "archivo",
+      "weight": 400,
+      "italic": false,
+      "width": 100,
+      "license": "public/fonts/Archivo-OFL.txt",
+      "source": {
+        "commit": "2c605eeda2de57af2b34822b79986f5140299862",
+        "files": [
+          {
+            "file": "Archivo-Italic[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo-Italic%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+          },
+          {
+            "file": "Archivo[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+          },
+          {
+            "file": "METADATA.pb",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/METADATA.pb",
+            "sha256": "a2e8f63ffa4f9dfe43a65c349b4742e9cd85298802aed890a6315152f2ae231d"
+          },
+          {
+            "file": "OFL.txt",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/OFL.txt",
+            "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+          }
+        ]
+      },
+      "licenseSha256": "1778201b7bd33e8c08a2eda32a4ad2f69bc38ced9731b01cc3fc47f268c8ef3c",
+      "noticeEmbedded": true
+    },
+    {
+      "file": "public/fonts/Archivo-SemiBold.ttf",
+      "sha256": "81d742085900fb9ab1665d1f8b821fdbc481420f17163d1339ff75549a33bb87",
+      "family": "archivo",
+      "weight": 600,
+      "italic": false,
+      "width": 100,
+      "license": "public/fonts/Archivo-OFL.txt",
+      "source": {
+        "commit": "2c605eeda2de57af2b34822b79986f5140299862",
+        "files": [
+          {
+            "file": "Archivo-Italic[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo-Italic%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+          },
+          {
+            "file": "Archivo[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+          },
+          {
+            "file": "METADATA.pb",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/METADATA.pb",
+            "sha256": "a2e8f63ffa4f9dfe43a65c349b4742e9cd85298802aed890a6315152f2ae231d"
+          },
+          {
+            "file": "OFL.txt",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/OFL.txt",
+            "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+          }
+        ]
+      },
+      "licenseSha256": "1778201b7bd33e8c08a2eda32a4ad2f69bc38ced9731b01cc3fc47f268c8ef3c",
+      "noticeEmbedded": true
+    },
+    {
+      "file": "renderer-react/src/assets/fonts/Archivo-Bold.ttf",
+      "sha256": "5fa8486ae5ee30f05e76f80e667e8f092b134a6530217f2e97895543c7fbf346",
+      "family": "archivo",
+      "weight": 700,
+      "italic": false,
+      "width": 100,
+      "license": "renderer-react/src/assets/fonts/Archivo-OFL.txt",
+      "source": {
+        "commit": "2c605eeda2de57af2b34822b79986f5140299862",
+        "files": [
+          {
+            "file": "Archivo-Italic[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo-Italic%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+          },
+          {
+            "file": "Archivo[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+          },
+          {
+            "file": "METADATA.pb",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/METADATA.pb",
+            "sha256": "a2e8f63ffa4f9dfe43a65c349b4742e9cd85298802aed890a6315152f2ae231d"
+          },
+          {
+            "file": "OFL.txt",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/OFL.txt",
+            "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+          }
+        ]
+      },
+      "licenseSha256": "1778201b7bd33e8c08a2eda32a4ad2f69bc38ced9731b01cc3fc47f268c8ef3c",
+      "noticeEmbedded": true
+    },
+    {
+      "file": "renderer-react/src/assets/fonts/Archivo-Light.ttf",
+      "sha256": "63a3942719e6cf468e3f1c769b2488cc4513b41cb6f2fb9bc2af716a256680a9",
+      "family": "archivo",
+      "weight": 300,
+      "italic": false,
+      "width": 100,
+      "license": "renderer-react/src/assets/fonts/Archivo-OFL.txt",
+      "source": {
+        "commit": "2c605eeda2de57af2b34822b79986f5140299862",
+        "files": [
+          {
+            "file": "Archivo-Italic[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo-Italic%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+          },
+          {
+            "file": "Archivo[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+          },
+          {
+            "file": "METADATA.pb",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/METADATA.pb",
+            "sha256": "a2e8f63ffa4f9dfe43a65c349b4742e9cd85298802aed890a6315152f2ae231d"
+          },
+          {
+            "file": "OFL.txt",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/OFL.txt",
+            "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+          }
+        ]
+      },
+      "licenseSha256": "1778201b7bd33e8c08a2eda32a4ad2f69bc38ced9731b01cc3fc47f268c8ef3c",
+      "noticeEmbedded": true
+    },
+    {
+      "file": "renderer-react/src/assets/fonts/Archivo-Medium.ttf",
+      "sha256": "f8a6ae829124559338296f0582e5f8400894ec7b1081a4c68eda84bcd6ed8cfa",
+      "family": "archivo",
+      "weight": 500,
+      "italic": false,
+      "width": 100,
+      "license": "renderer-react/src/assets/fonts/Archivo-OFL.txt",
+      "source": {
+        "commit": "2c605eeda2de57af2b34822b79986f5140299862",
+        "files": [
+          {
+            "file": "Archivo-Italic[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo-Italic%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+          },
+          {
+            "file": "Archivo[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+          },
+          {
+            "file": "METADATA.pb",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/METADATA.pb",
+            "sha256": "a2e8f63ffa4f9dfe43a65c349b4742e9cd85298802aed890a6315152f2ae231d"
+          },
+          {
+            "file": "OFL.txt",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/OFL.txt",
+            "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+          }
+        ]
+      },
+      "licenseSha256": "1778201b7bd33e8c08a2eda32a4ad2f69bc38ced9731b01cc3fc47f268c8ef3c",
+      "noticeEmbedded": true
+    },
+    {
+      "file": "renderer-react/src/assets/fonts/Archivo-Regular.ttf",
+      "sha256": "3280427c36d6caa060a6c898263ce6cb01bd602a989e8edfd2de8ffa3eb20993",
+      "family": "archivo",
+      "weight": 400,
+      "italic": false,
+      "width": 100,
+      "license": "renderer-react/src/assets/fonts/Archivo-OFL.txt",
+      "source": {
+        "commit": "2c605eeda2de57af2b34822b79986f5140299862",
+        "files": [
+          {
+            "file": "Archivo-Italic[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo-Italic%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+          },
+          {
+            "file": "Archivo[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+          },
+          {
+            "file": "METADATA.pb",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/METADATA.pb",
+            "sha256": "a2e8f63ffa4f9dfe43a65c349b4742e9cd85298802aed890a6315152f2ae231d"
+          },
+          {
+            "file": "OFL.txt",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/OFL.txt",
+            "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+          }
+        ]
+      },
+      "licenseSha256": "1778201b7bd33e8c08a2eda32a4ad2f69bc38ced9731b01cc3fc47f268c8ef3c",
+      "noticeEmbedded": true
+    },
+    {
+      "file": "renderer-react/src/assets/fonts/Archivo-SemiBold.ttf",
+      "sha256": "81d742085900fb9ab1665d1f8b821fdbc481420f17163d1339ff75549a33bb87",
+      "family": "archivo",
+      "weight": 600,
+      "italic": false,
+      "width": 100,
+      "license": "renderer-react/src/assets/fonts/Archivo-OFL.txt",
+      "source": {
+        "commit": "2c605eeda2de57af2b34822b79986f5140299862",
+        "files": [
+          {
+            "file": "Archivo-Italic[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo-Italic%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+          },
+          {
+            "file": "Archivo[wdth,wght].ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+            "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+          },
+          {
+            "file": "METADATA.pb",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/METADATA.pb",
+            "sha256": "a2e8f63ffa4f9dfe43a65c349b4742e9cd85298802aed890a6315152f2ae231d"
+          },
+          {
+            "file": "OFL.txt",
+            "url": "https://raw.githubusercontent.com/google/fonts/2c605eeda2de57af2b34822b79986f5140299862/ofl/archivo/OFL.txt",
+            "sha256": "108b4e57c9c796d3d38d0428ca7ee39de47ad93187302718d9b2d8864b9b716b"
+          }
+        ]
+      },
+      "licenseSha256": "1778201b7bd33e8c08a2eda32a4ad2f69bc38ced9731b01cc3fc47f268c8ef3c",
+      "noticeEmbedded": true
+    }
+  ],
+  "generation": {
+    "tool": "fontTools",
+    "version": "4.62.1",
+    "method": "Static variable-font instances preserve encoded glyphs; format conversion and complete license name-table embedding. Parameters are recorded per file.",
+    "noticeFormatting": "Bundled notice trailing whitespace normalized; upstream source hashes remain the original download hashes. Copyright and license wording preserved in full."
+  }
+}

@@ -1,0 +1,146 @@
+diff --git a/dist/main.mjs b/dist/main.mjs
+index 13084989f4aae704b5bf52dd841192ff04001eea..797f92501f20addf1f5852e376ce4a5708ee0a30 100644
+--- a/dist/main.mjs
++++ b/dist/main.mjs
+@@ -74,15 +74,54 @@ const Y = {
+ };
+ J(Y);
+ J(Y);
++// Patched: v10/v11 procedure-type check + transformer compat. v10 stored
++// boolean type flags on `procedure._def.query/mutation/subscription`; v11
++// stores `procedure._def.type === 'query' | 'mutation' | 'subscription'`.
++// Accept either shape.
++function __omnidexProcedureTypeMatches(proc, type) {
++  if (!proc || !proc._def) return false;
++  if (proc._def[type]) return true;
++  if (proc._def.type === type) return true;
++  return false;
++}
++function __omnidexTransformerInputDeserialize(cfg, input) {
++  const t = cfg && cfg.transformer;
++  if (!t) return input;
++  if (t.input && typeof t.input.deserialize === 'function') return t.input.deserialize(input);
++  if (typeof t.deserialize === 'function') return t.deserialize(input);
++  return input;
++}
++function __omnidexTransformerOutputSerialize(cfg, value) {
++  const t = cfg && cfg.transformer;
++  if (!t) return value;
++  if (t.output && typeof t.output.serialize === 'function') return t.output.serialize(value);
++  if (typeof t.serialize === 'function') return t.serialize(value);
++  return value;
++}
++function __omnidexErrorShape(router, args) {
++  if (router && typeof router.getErrorShape === 'function') return router.getErrorShape(args);
++  // v11 fallback — synthesise the default JSON-RPC-style shape.
++  const err = args && args.error;
++  return {
++    message: (err && err.message) || 'Internal server error',
++    code: (err && err.code) || 'INTERNAL_SERVER_ERROR',
++    data: { code: (err && err.code) || 'INTERNAL_SERVER_ERROR', httpStatus: 500, path: args && args.path },
++  };
++}
+ function te(n) {
+-  var a;
+   const { type: r, path: e } = n;
+-  if (!(e in n.procedures) || !((a = n.procedures[e]) != null && a._def[r]))
++  if (!(e in n.procedures) || !__omnidexProcedureTypeMatches(n.procedures[e], r))
+     throw new I({
+       code: "NOT_FOUND",
+       message: `No "${r}"-procedure on path "${e}"`
+     });
+   const i = n.procedures[e];
++  // v11 procedures throw "This is a client-only function" when invoked directly.
++  // The server-side resolver lives at `_def.resolver` and accepts the same
++  // arg shape that v10's direct-call expected.
++  if (i && i._def && typeof i._def.resolver === 'function') {
++    return i._def.resolver({ input: n.rawInput, ctx: n.ctx, type: n.type, path: n.path });
++  }
+   return i(n);
+ }
+ var j, H, z, W, B, V;
+@@ -93,12 +132,12 @@ function oe(n) {
+ function L(n, r) {
+   return "error" in r ? {
+     ...r,
+-    error: n.transformer.output.serialize(r.error)
++    error: __omnidexTransformerOutputSerialize(n, r.error)
+   } : "data" in r.result ? {
+     ...r,
+     result: {
+       ...r.result,
+-      data: n.transformer.output.serialize(r.result.data)
++      data: __omnidexTransformerOutputSerialize(n, r.result.data)
+     }
+   } : r;
+ }
+@@ -436,7 +475,7 @@ async function Ce({
+     d.unsubscribe(), C.delete(e);
+     return;
+   }
+-  const { type: p, input: g, path: c, id: u } = i.operation, t = g ? n._def._config.transformer.input.deserialize(g) : void 0, o = await (r == null ? void 0 : r({ event: a })) ?? {}, s = (d) => {
++  const { type: p, input: g, path: c, id: u } = i.operation, t = g ? __omnidexTransformerInputDeserialize(n._def._config, g) : void 0, o = await (r == null ? void 0 : r({ event: a })) ?? {}, s = (d) => {
+     a.sender.isDestroyed() || a.reply(x, se(n._def._config, d));
+   };
+   try {
+@@ -475,7 +514,7 @@ async function Ce({
+         const f = U(l);
+         s({
+           id: u,
+-          error: n.getErrorShape({
++          error: __omnidexErrorShape(n, {
+             error: f,
+             type: p,
+             path: c,
+@@ -498,7 +537,7 @@ async function Ce({
+     const h = U(d);
+     return s({
+       id: u,
+-      error: n.getErrorShape({
++      error: __omnidexErrorShape(n, {
+         error: h,
+         type: p,
+         path: c,
+diff --git a/dist/renderer.mjs b/dist/renderer.mjs
+index 2f1b91669144d5509e424cd422b53c1f55cf8583..23e01352626cddcae5481cd4b5e5b4a32c74c966 100644
+--- a/dist/renderer.mjs
++++ b/dist/renderer.mjs
+@@ -1,3 +1,11 @@
++// Patched: tRPC v11 dropped `transformer` from the client runtime config, so
++// `r.transformer` / `n.transformer` are undefined and every request errors
++// with "Cannot read properties of undefined (reading 'serialize')". Fall back
++// to a default transformer (superjson) when none is provided.
++import __defaultTransformer from "superjson";
++function __omnidexGetTransformer(cfg) {
++  return cfg && cfg.transformer ? cfg.transformer : __defaultTransformer;
++}
+ var _ = (r, n, e) => {
+   if (!n.has(r))
+     throw TypeError("Cannot " + e);
+@@ -147,7 +155,7 @@ class y extends Error {
+ }
+ function Z(r, n) {
+   if ("error" in r) {
+-    const s = n.transformer.deserialize(r.error);
++    const s = __omnidexGetTransformer(n).deserialize(r.error);
+     return {
+       ok: !1,
+       error: {
+@@ -160,7 +168,7 @@ function Z(r, n) {
+     ...r.result,
+     ...(!r.result.type || r.result.type === "data") && {
+       type: "data",
+-      data: n.transformer.deserialize(r.result.data)
++      data: __omnidexGetTransformer(n).deserialize(r.result.data)
+     }
+   } };
+ }
+@@ -509,7 +517,7 @@ function ue() {
+   return (r) => {
+     const n = new ne();
+     return ({ op: e }) => $((s) => {
+-      e.input = r.transformer.serialize(e.input);
++      e.input = __omnidexGetTransformer(r).serialize(e.input);
+       const c = n.request(e, {
+         error(a) {
+           s.error(a), c();

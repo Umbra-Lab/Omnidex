@@ -1,0 +1,36 @@
+[package]
+name = "omnidex-uasset"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Omnidex native uasset parser — napi-rs addon"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "3.8", default-features = false, features = ["napi9", "async"] }
+napi-derive = "3.5"
+
+# UE binary parsing
+uasset = "0.6"
+byteorder = "1.5"
+flate2 = "1.1"
+
+# Image processing for thumbnail resize / re-encode
+image = "0.25"
+
+# Error handling
+thiserror = "2.0"
+
+# Logging (napi bridge writes to stderr, renderer receives via main process)
+tracing = "0.1"
+
+[build-dependencies]
+napi-build = "2.3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"

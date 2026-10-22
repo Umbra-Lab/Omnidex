@@ -1,0 +1,268 @@
+{
+  "name": "omnidex",
+  "version": "2.0.7",
+  "private": true,
+  "type": "module",
+  "description": "Omnidex - Local Asset Organizer for Unreal Engine",
+  "main": "out/main/index.mjs",
+  "scripts": {
+    "dev": "node scripts/generate-capsize.mjs && node scripts/run-electron.mjs electron-vite dev",
+    "build": "node scripts/check-font-licenses.mjs && node scripts/generate-capsize.mjs && node scripts/run-electron.mjs electron-vite build",
+    "capsize": "node scripts/generate-capsize.mjs",
+    "preview": "node scripts/run-electron.mjs electron-vite preview",
+    "rebuild": "node scripts/run-electron.mjs electron-rebuild -f -w better-sqlite3,keytar",
+    "check": "tsc -p electron/tsconfig.main.json --noEmit && tsc -p electron/tsconfig.preload.json --noEmit && tsc -p renderer-react/tsconfig.json --noEmit",
+    "format": "biome format --write ./electron ./renderer-react ./shared ./scripts",
+    "lint": "biome lint ./electron ./renderer-react ./shared ./scripts",
+    "lint:fix": "biome check --write ./electron ./renderer-react ./shared ./scripts",
+    "lint:fix:unsafe": "biome check --write --unsafe ./electron ./renderer-react ./shared ./scripts",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:electron": "node scripts/run-electron.mjs playwright test",
+    "audit:dbs": "node scripts/run-electron.mjs electron scripts/audit-dbs.mjs",
+    "inspect-db": "node scripts/run-electron.mjs electron scripts/inspect-electron-db.mjs",
+    "smoke:scan": "node scripts/smoke-scan.mjs",
+    "gen:test-library": "node scripts/gen-test-library.mjs",
+    "remux": "node scripts/remux-unplayable.mjs",
+    "refresh-scans": "node scripts/run-electron.mjs electron . --refresh-scans",
+    "extract-thumbs": "node scripts/run-electron.mjs electron . --extract-missing-thumbs",
+    "enrich-orbital": "node scripts/run-electron.mjs electron . --enrich-orbital",
+    "enrich-fab": "node scripts/run-electron.mjs electron . --enrich-fab",
+    "bench:search": "node scripts/run-electron.mjs electron scripts/bench/search/run-all.mjs",
+    "postinstall": "node scripts/ensure-uasset.mjs --soft && node scripts/ensure-electron.mjs &&node scripts/run-electron.mjs electron-rebuild -f -w better-sqlite3,keytar && node scripts/apply-patches.mjs",
+    "prepare": "husky",
+    "apply-patches": "node scripts/apply-patches.mjs",
+    "ensure:uasset": "node scripts/ensure-uasset.mjs",
+    "notices": "node scripts/gen-third-party-notices.mjs",
+    "notices:check": "node scripts/gen-third-party-notices.mjs --check",
+    "package": "node scripts/package-win.mjs",
+    "release": "node scripts/package-win.mjs --publish",
+    "package:mac": "node scripts/package-mac.mjs",
+    "release:mac": "node scripts/package-mac.mjs --publish",
+    "build:uasset": "pnpm -C native/uasset install && pnpm -C native/uasset run build",
+    "backfill:course-sources": "node scripts/run-electron.mjs electron . --backfill-course-sources",
+    "check:fonts": "node scripts/check-font-licenses.mjs"
+  },
+  "keywords": [
+    "unreal-engine",
+    "asset-organizer",
+    "electron",
+    "react",
+    "desktop-app"
+  ],
+  "author": "Brandon Figarella (https://github.com/figgiee)",
+  "homepage": "https://github.com/Umbra-Lab/Omnidex",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Umbra-Lab/Omnidex.git"
+  },
+  "bugs": "https://github.com/Umbra-Lab/Omnidex/issues",
+  "funding": "https://github.com/sponsors/figgiee",
+  "license": "MIT",
+  "packageManager": "pnpm@11.1.3",
+  "engines": {
+    "node": ">=24.22.1"
+  },
+  "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@formkit/auto-animate": "^0.9.0",
+    "@hookform/resolvers": "^5.2.2",
+    "@omnidex/uasset": "file:native/uasset",
+    "@radix-ui/react-alert-dialog": "^1.1.15",
+    "@radix-ui/react-avatar": "^1.1.11",
+    "@radix-ui/react-checkbox": "^1.3.3",
+    "@radix-ui/react-context-menu": "^2.2.16",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-label": "^2.1.8",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-progress": "^1.1.8",
+    "@radix-ui/react-radio-group": "^1.3.8",
+    "@radix-ui/react-scroll-area": "^1.2.10",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slider": "^1.3.6",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-switch": "^1.2.6",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-toggle": "^1.1.10",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@react-aria/utils": "^3.34.0",
+    "@tanstack/react-query": "^5.100.1",
+    "@tanstack/react-router": "^1.168.23",
+    "@tanstack/react-virtual": "^3.13.24",
+    "@trpc/client": "^11.16.0",
+    "@trpc/react-query": "^11.16.0",
+    "@trpc/server": "^11.16.0",
+    "@types/uuid": "^11.0.0",
+    "better-sqlite3": "^12.9.0",
+    "chokidar": "^5.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "date-fns": "^4.1.0",
+    "electron-trpc": "1.0.0-alpha.0",
+    "electron-updater": "^6.8.3",
+    "fast-glob": "^3.3.3",
+    "fuse.js": "^7.3.0",
+    "keytar": "^7.9.0",
+    "lucide-react": "^1.9.0",
+    "motion": "^12.38.0",
+    "overlayscrollbars": "^2.13.0",
+    "p-limit": "^7.3.0",
+    "p-queue": "^9.1.2",
+    "p-retry": "^8.0.0",
+    "piscina": "^5.1.4",
+    "react": "^19.2.5",
+    "react-aria-components": "^1.17.0",
+    "react-dom": "^19.2.5",
+    "react-hook-form": "^7.73.1",
+    "readdirp": "^5.0.0",
+    "sharp": "^0.34.5",
+    "sonner": "^2.0.7",
+    "superjson": "^2.2.6",
+    "swiper": "^12.0.3",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.9.3",
+    "uuid": "^13.0.0",
+    "vaul": "^1.1.2",
+    "virtua": "^0.48.3",
+    "vite": "^7.3.1",
+    "zod": "^4.3.6",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.3.12",
+    "@capsizecss/core": "^4.1.3",
+    "@capsizecss/unpack": "^4.0.1",
+    "@electron/rebuild": "^4.0.4",
+    "@playwright/test": "^1.58.0",
+    "@tailwindcss/postcss": "^4.2.2",
+    "@tanstack/react-query-devtools": "^5.100.1",
+    "@tanstack/react-router-devtools": "^1.166.13",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.0.10",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "autoprefixer": "^10.4.23",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "electron": "^41.3.0",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^5.0.0",
+    "husky": "^9.1.7",
+    "jsdom": "^27.4.0",
+    "playwright": "^1.58.0",
+    "postcss": "^8.5.6",
+    "rollup-plugin-visualizer": "^6.0.5",
+    "sql.js": "^1.14.1",
+    "tailwindcss": "^4.1.18",
+    "tw-animate-css": "^1.4.0",
+    "vitest": "^4.0.18"
+  },
+  "build": {
+    "appId": "com.umbralab.omnidex",
+    "productName": "Omnidex",
+    "copyright": "Copyright © 2025-2026 Brandon Figarella",
+    "directories": {
+      "output": "dist-installer",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json",
+      "!**/{.DS_Store,Thumbs.db}",
+      "!**/{*.md,*.markdown,LICENSE,LICENCE,license,licence,CHANGELOG*,changelog*,HISTORY*,history*,NOTICE,AUTHORS,CONTRIBUTORS}",
+      "!**/{test,tests,__tests__,example,examples,docs,doc,coverage}/**",
+      "!**/{.eslintrc*,.prettierrc*,.babelrc*,tsconfig*.json,*.tsbuildinfo,.editorconfig,.npmignore,.gitignore,.travis.yml,.github,.vscode}",
+      "!**/*.{ts,tsx,map,d.ts.map}",
+      "!**/{*.test.js,*.spec.js}"
+    ],
+    "extraResources": [
+      {
+        "from": "THIRD-PARTY-NOTICES.md",
+        "to": "THIRD-PARTY-NOTICES.md"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE"
+      }
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
+    "nodeGypRebuild": false,
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/better-sqlite3/**",
+      "node_modules/keytar/**",
+      "node_modules/sharp/**",
+      "node_modules/@omnidex/uasset/**",
+      "node_modules/@img/**"
+    ],
+    "extraMetadata": {
+      "main": "out/main/index.mjs"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Omnidex-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "darkModeSupport": true,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "artifactName": "Omnidex-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "Omnidex-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Omnidex",
+      "uninstallDisplayName": "Omnidex ${version}",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Umbra-Lab",
+        "repo": "Omnidex",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+target/
+node_modules/
+# Platform-specific compiled addon — never commit.
+*.node
+# NOTE: index.js and index.d.ts are NAPI-RS-generated but ARCHITECTURE-INDEPENDENT
+# (the loader dispatches to the correct *.node at runtime by process.platform/arch).
+# They are intentionally COMMITTED so a fresh clone can `pnpm check` (tsc) without
+# a Rust toolchain. Do NOT re-add them here. Regenerate with `pnpm run build:uasset`.

@@ -1,0 +1,46 @@
+/* Archivo — primary typeface (Omnibus-Type, SIL OFL 1.1).
+   Self-hosted via Vite's asset pipeline: these relative url()s are hashed and
+   emitted into out/renderer-react/assets/, so they resolve under the packaged
+   app's file:// origin (base: './'). Five static instances from the pinned
+   variable source each have their own @font-face.
+   See DESIGN.md (Typography) for the type system. */
+
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("../assets/fonts/Archivo-Light.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/Archivo-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../assets/fonts/Archivo-Medium.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../assets/fonts/Archivo-SemiBold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/Archivo-Bold.ttf") format("truetype");
+}

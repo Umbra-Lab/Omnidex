@@ -1,0 +1,63 @@
+/* Devbook theme tweaks. Kept small on purpose — mdBook's navy theme is the base. */
+
+:root {
+  --devbook-accent: #6ea8fe;
+}
+
+/* Tables carry most of the reference content, so they get the most attention. */
+.content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.2rem 0;
+  display: table;
+}
+
+.content table th {
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--table-border-color);
+}
+
+.content table td,
+.content table th {
+  padding: 0.45rem 0.7rem;
+  vertical-align: top;
+}
+
+/* Wide tables and diagrams scroll inside themselves rather than pushing the page. */
+.content table,
+.content pre,
+.mermaid {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* Counts, sizes, and timings appear constantly; keep the columns from jittering. */
+.content table td code {
+  font-variant-numeric: tabular-nums;
+}
+
+.content code {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Section dividers in the sidebar read as labels, not links. */
+.chapter li.part-title {
+  text-transform: uppercase;
+  font-size: 0.75em;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+  margin-top: 1.4em;
+}
+
+/* Mermaid diagrams sit in a lot of pages; give them room and centre them. */
+.mermaid {
+  margin: 1.5rem auto;
+  text-align: center;
+}
+
+/* The first paragraph of a page is the answer. Make it read as the lead. */
+.content > main > p:first-of-type {
+  font-size: 1.05em;
+  line-height: 1.65;
+}

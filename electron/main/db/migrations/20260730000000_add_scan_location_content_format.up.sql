@@ -1,0 +1,20 @@
+-- Let a scan location declare what KIND of content it holds.
+--
+-- `assets.content_format` (migration 20260409000000) is what separates Learn
+-- content from regular assets: every Learn query filters on
+-- `content_format IS NOT NULL`, and the asset buckets exclude those rows. But
+-- nothing in the scan path ever WROTE that column — it was only read by the
+-- query layer and set by tests. So the Learn tab had a schema and a UI and no
+-- way to get data into it: scanning a folder full of courses filed them as
+-- ordinary assets and diluted the pack library.
+--
+-- A per-location default fixes that at the right altitude. The scanner cannot
+-- infer "this is a course" from a folder — course libraries are named after
+-- their authors and topics, not after their content type, and hardcoding path
+-- patterns would only ever match the maintainer's own library. The person
+-- adding the folder already knows what is in it, so let them say so once.
+--
+-- Values match the vocabulary in 20260409000000: course, workshop, ebook,
+-- reference, bookmark. NULL means "regular assets", which is the pre-existing
+-- behaviour every current location keeps.
+ALTER TABLE scan_locations ADD COLUMN content_format TEXT;

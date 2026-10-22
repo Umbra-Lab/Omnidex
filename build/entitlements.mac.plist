@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Electron/V8 needs JIT + writable-executable memory under the hardened
+         runtime. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <!-- Omnidex loads unsigned/ad-hoc native addons (better-sqlite3, keytar,
+         @omnidex/uasset). Library validation must be relaxed so the hardened
+         runtime accepts them. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <!-- Orbital Market enrichment, FAB library sync, and the auto-updater all
+         make outbound HTTPS requests. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- The app is not App-Sandboxed, but declaring user-selected file access
+         keeps scan-folder pickers working if a future build opts in. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>

@@ -1,0 +1,31 @@
+[book]
+title = "Omnidex Devbook"
+description = "Developer handbook for Omnidex — architecture, guides, and reference for the local-first asset and course library"
+authors = ["Umbra Lab"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/Umbra-Lab/Omnidex"
+edit-url-template = "https://github.com/Umbra-Lab/Omnidex/edit/main/docs/devbook/{path}"
+no-section-label = false
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
+additional-css = ["./mdbook-admonish.css", "theme/custom.css"]
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.search]
+enable = true
+limit-results = 20
+use-boolean-and = true
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[preprocessor.admonish]
+command = "mdbook-admonish"
+assets_version = "3.1.0" # do not edit: managed by `mdbook-admonish install`

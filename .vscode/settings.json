@@ -1,0 +1,23 @@
+{
+  // Make Biome the default formatter for these file types
+  "[javascript][typescript][vue][json][jsonc]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+
+  // Enable format on save
+  "editor.formatOnSave": false,
+
+  // Enable Biome code actions on save (organize imports and quick fixes)
+  "editor.codeActionsOnSave": {
+    "source.organizeImports.biome": "explicit",
+    "source.fixAll.biome": "explicit"
+  },
+
+  // Disable conflicting formatters to avoid issues
+  "prettier.enable": false,
+  "vetur.format.enable": false,
+
+  // Debug settings (temporary)
+  "biome.lsp.trace.server": "verbose",
+  "biome.enabled": true
+}

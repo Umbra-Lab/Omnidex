@@ -1,0 +1,13 @@
+-- A human title for a course whose folder name is not one.
+--
+-- 21 courses in this library are named after their download id (`7792580`),
+-- which tells the user nothing; in 18 of them the real title is the single
+-- named folder one level in. Others arrive concatenated
+-- (`UdemyMegascansSceneBlackAlderForest`) or carry a vendor prefix that Learn
+-- already shows in its own column.
+--
+-- Kept separate from `name` because `name` is the folder on disk and the scan
+-- upsert rewrites it every pass — overwriting it would lose the only record of
+-- what the directory is actually called, which is what "Open folder" needs.
+-- Also distinct from `orbital_title`, which means "a marketplace matched this".
+ALTER TABLE assets ADD COLUMN display_title TEXT;

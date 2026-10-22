@@ -1,0 +1,3 @@
+# Generated benchmark artifacts: live DB snapshot, synthetic DBs, raw JSON.
+# RESULTS.md is committed; the heavy DBs and per-run JSON are not.
+.work/

@@ -1,0 +1,172 @@
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+
+/* Scope class detection to the React app only. Tailwind v4 otherwise
+   auto-scans the whole project root (incl. .planning/*.md and docs), where
+   prose examples like `text-[color:var(--color-*)]` get picked up as real
+   utilities and emit invalid CSS. */
+@source "../**/*.{ts,tsx}";
+@source "../../index.html";
+
+/* Omnidex design tokens — see .planning/FRONTEND-VISION.md for rationale.
+   OKLCH color space for perceptually uniform ramps. */
+
+@theme {
+  --font-sans: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Code", "Fira Code", monospace;
+
+  /* Sub-xs typographic scale — single source of truth for the micro labels,
+     badges, and metadata chips that previously hardcoded 9/10/11px sizes.
+     Use these utilities instead of arbitrary px values:
+       text-micro  9px  · tightest count/overflow badges
+       text-3xs   10px  · metadata chips, dense table cells
+       text-2xs   11px  · secondary labels, captions
+     (text-xs 12px and up remain Tailwind defaults.) */
+  --text-micro: 9px;
+  --text-micro--line-height: 12px;
+  --text-3xs: 10px;
+  --text-3xs--line-height: 14px;
+  --text-2xs: 11px;
+  --text-2xs--line-height: 15px;
+
+  /* Neutral surface ramp — 14 steps, OKLCH.
+     50 = lightest text on dark · 950 = near-black surface.
+     Depth order, deepest first: 950 page · 935 list column · 925 panel
+     (sidebar/header/toolbar/footer) · 900 input + table header · 850 status
+     bar · 800 elevated (selected row, active nav, floating chrome).
+     DESIGN.md: adjacent layers stay >= 5 OKLCH lightness points apart where
+     they meet — this is why cards are opaque surface-900 and not 900/40. */
+  --color-surface-50: oklch(0.97 0.003 250);
+  --color-surface-100: oklch(0.93 0.004 250);
+  --color-surface-200: oklch(0.86 0.005 250);
+  --color-surface-300: oklch(0.74 0.006 250);
+  --color-surface-400: oklch(0.62 0.006 250);
+  --color-surface-500: oklch(0.5 0.007 250);
+  --color-surface-600: oklch(0.4 0.008 250);
+  --color-surface-700: oklch(0.32 0.009 250);
+  --color-surface-800: oklch(0.25 0.01 250);
+  --color-surface-850: oklch(0.21 0.01 250);
+  --color-surface-900: oklch(0.17 0.011 250);
+  --color-surface-925: oklch(0.145 0.012 250);
+  --color-surface-935: oklch(0.135 0.012 250);
+  --color-surface-950: oklch(0.12 0.012 250);
+
+  /* Single reserved accent — near-orange, used only on active state,
+     primary CTA, focus ring. Never on inactive chrome. */
+  --color-accent-50: oklch(0.96 0.03 55);
+  --color-accent-100: oklch(0.92 0.06 55);
+  --color-accent-200: oklch(0.85 0.12 55);
+  --color-accent-300: oklch(0.78 0.16 55);
+  --color-accent-400: oklch(0.72 0.18 55);
+  --color-accent-500: oklch(0.66 0.2 55);
+  --color-accent-600: oklch(0.58 0.2 55);
+  --color-accent-700: oklch(0.5 0.18 55);
+  --color-accent-800: oklch(0.4 0.14 55);
+  --color-accent-900: oklch(0.3 0.1 55);
+
+  /* Text/icon color for anything sitting ON an accent-500 fill. */
+  --color-accent-on: oklch(0.14 0.02 55);
+
+  /* Semantic scales. -500 is the fill; -300 is the text color to use when
+     that semantic sits on its own tinted (/0.16) fill. */
+  --color-success-500: oklch(0.65 0.14 150);
+  --color-warning-300: oklch(0.78 0.15 75);
+  --color-warning-500: oklch(0.72 0.16 75);
+  --color-danger-300: oklch(0.68 0.19 25);
+  --color-danger-500: oklch(0.62 0.2 25);
+
+  /* Ecosystem channel — the only place color encodes data. Rendered as an
+     8x8px rounded-xs mark before the label, never as a fill or a text color.
+     One hue per DCC; Maya/Houdini/ZBrush claim the next hues on first scan.
+     This replaces the cyan "secondary accent" DESIGN.md v1 reserved and never
+     spent — "which DCC" is a real category, "data values" never was. */
+  --color-eco-unreal: oklch(0.7 0.13 220);
+  --color-eco-blender: oklch(0.76 0.15 75);
+  --color-eco-agnostic: oklch(0.45 0.008 250);
+  --color-eco-unclassified: oklch(0.62 0.2 25);
+
+  /* Radius scale — DESIGN.md v2. Nothing in this app is rounder than 6px.
+     Map: marks/progress 2 (xs), badges/pills 3 (sm), STRUCTURAL DEFAULT 4 (md
+     — cards, buttons, inputs, table rows, panels, nav items), floating
+     surfaces 6 (lg — modal, dropdown, popover, palette, bulk bar).
+     v1 shipped 4/6/10/14/18 against a doc that said 2/4/6/8/12; both are gone. */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+
+  /* Three-speed motion scale */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0.24, 1);
+  --duration-micro: 120ms;
+  --duration-macro: 280ms;
+  --duration-page: 380ms;
+}
+
+:root {
+  color-scheme: dark;
+  background-color: var(--color-surface-950);
+  color: var(--color-surface-50);
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+/* All numeric metadata gets tabular-nums by default — sizes, counts, prices.
+   Override with `normal-nums` where proportional is intentional. */
+.font-mono,
+.tabular,
+table,
+[data-tabular] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reserved focus ring — 2px accent + 3px offset. Never outline:none. */
+:focus-visible {
+  outline: 2px solid var(--color-accent-500);
+  outline-offset: 3px;
+  border-radius: var(--radius-md);
+}
+
+/* Reduce CSS-driven animation/transition for prefers-reduced-motion.
+   JS spring animations are handled separately by Framer's <MotionConfig
+   reducedMotion="user"> in App.tsx — this block only covers plain CSS. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Custom scrollbar — thin, restrained, accent-free. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-800);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--color-surface-950);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-surface-700);
+}

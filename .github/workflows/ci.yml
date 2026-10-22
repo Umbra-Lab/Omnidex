@@ -1,0 +1,87 @@
+name: CI
+
+# Manual + on push/PR to the default branch, which is `main`.
+#
+# This said `master` until now, and `master` stopped existing when the default
+# branch was renamed — so every trigger here pointed at a branch no name
+# resolved to and CI silently stopped firing. The last run was 2026-06-29;
+# everything merged since went in unchecked. A workflow pinned to a branch name
+# fails open, quietly, which is the worst way for a safety net to fail.
+#
+# The comment here used to warn about older Tauri-era workflows targeting
+# `main`. Those files are gone, and `main` is now the real branch, so the
+# warning was inverted as well as stale.
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# CI is intentionally CHEAP: a single Ubuntu job (lint + type-check + unit
+# tests). Release installers are built MANUALLY/LOCALLY, not in CI, to conserve
+# our limited GitHub Actions minutes — `pnpm package:mac` on macOS and
+# `pnpm package` (scripts/package-win.mjs) on Windows. Do NOT add a
+# mac/windows build/package matrix here.
+jobs:
+  test:
+    name: Lint + type-check + unit tests + coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # No `version:` input on purpose. The action derives the pnpm version from
+      # the `packageManager` field in package.json (pnpm@11.1.3), which is the
+      # single source of truth. Passing an explicit `version` that differs from
+      # `packageManager` makes action-setup@v4 throw ERR_PNPM_BAD_PM_VERSION
+      # ("Multiple versions of pnpm specified") and abort before install/check.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.1
+          cache: pnpm
+
+      # `--ignore-scripts` skips the `electron-rebuild` postinstall: the unit
+      # suite uses Node's built-in `node:sqlite`, not the Electron-ABI
+      # `better-sqlite3`/`keytar` binaries, so rebuilding them in CI is pure
+      # overhead (and a libsecret/headers failure surface). esbuild ships a
+      # prebuilt platform binary that needs no build step, and the React
+      # Compiler is plain JavaScript.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Lint (Biome)
+        run: pnpm lint
+
+      # Type-check only (`tsc --noEmit` across the main/preload/renderer
+      # tsconfigs). Pure TypeScript — needs no native build, so it runs fine
+      # after the `--ignore-scripts` install and stays cheap.
+      - name: Type-check (tsc)
+        run: pnpm check
+
+      # node:sqlite powers the in-memory DB tests. Scope the flag to THIS step
+      # only — setting it job-wide leaks into the runner's internal node20
+      # (checkout / upload-artifact), which rejects it ("--experimental-sqlite is
+      # not allowed in NODE_OPTIONS") and fails the job before tests run. It's
+      # required on Node 22 and a harmless no-op on the pinned Node 24.
+      - name: Unit tests + coverage
+        run: pnpm test:coverage
+        env:
+          NODE_OPTIONS: --experimental-sqlite
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore

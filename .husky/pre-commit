@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+# Auto-fix what Biome can (--write), but DO NOT swallow failures: any error Biome
+# cannot auto-fix (or any lint/format violation that remains) must block the
+# commit. The previous `|| true` masked every failure and let broken code land.
+#
+# `--no-errors-on-unmatched` is the one thing we DO tolerate. Without it Biome
+# exits 1 when a commit stages nothing it handles — a workflow yaml, a
+# migration, .gitignore, .husky/*, a docs-only change — and the hook blocks a
+# commit containing no code at all. That is a hook failure, not a lint failure.
+# Every real violation still blocks.
+pnpm biome check --write --staged --no-errors-on-unmatched
