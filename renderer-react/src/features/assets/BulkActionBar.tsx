@@ -49,7 +49,7 @@ export function BulkActionBar({
       // on the window it drifted over the inspector and covered its action
       // footer — the buttons were visible but unclickable. The bar acts on the
       // grid selection, so it belongs over the grid.
-      className="-translate-x-1/2 absolute bottom-4 left-1/2 z-40 flex items-center gap-1 rounded-lg border border-surface-700 bg-surface-800 px-3 py-2 shadow-xl shadow-black/60"
+      className="-translate-x-1/2 absolute bottom-4 left-1/2 z-40 flex items-center gap-1 whitespace-nowrap rounded-lg border border-surface-700 bg-surface-800 px-3 py-2 shadow-xl shadow-black/60"
     >
       <span className="pr-2 font-mono tabular-nums cap-14 font-semibold text-surface-50">
         {formatCount(count)} selected
