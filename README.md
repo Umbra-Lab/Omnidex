@@ -17,6 +17,10 @@
   <a href="https://github.com/sponsors/figgiee">Sponsor</a>
 </p>
 
+<p align="center">
+  <img src="docs/images/library.png" alt="The Omnidex library view showing six Epic Games and Quixel Megascans packs with thumbnails, marketplace categories, sellers and ratings" width="100%">
+</p>
+
 ## Why Omnidex exists
 
 If you make games or 3D work, you collect tools fast: Fab and Unreal Marketplace packs, Blender add-ons, Houdini digital assets, Substance materials, ZBrush brushes, and the video courses that taught you to use them. They pile up across drives as folders with names you no longer remember, and the only search is your memory. You rebuy things you already own and rewatch an hour of course to find one minute.
@@ -30,6 +34,10 @@ Omnidex turns all of it into one library on your own machine. It is built for th
 **See Unreal assets without opening the engine.** Omnidex reads thumbnails straight out of `.uasset` files with its own Rust parser, so a pack shows real previews before you import it.
 
 **Know what you have before you buy it again.** Packs are matched against the Orbital Market catalog and your own Fab library, filling in seller, category, description and gallery images.
+
+<p align="center">
+  <img src="docs/images/inspector.png" alt="The inspector open on Paragon: Kwang, with its marketplace gallery, rating, release dates, supported engine versions, size on disk and a private notes field" width="100%">
+</p>
 
 **Learn from the courses you already paid for.** Course folders become a player with resume and notes. Subtitles are indexed as timestamped transcripts, so searching "niagara ribbon" lands on the exact moment an instructor said it.
 
@@ -81,7 +89,7 @@ An Electron main process owns the SQLite database, the file scanner and every ne
 
 ## Third-party services
 
-Omnidex is an unofficial community tool. It is not affiliated with, endorsed by, or supported by Epic Games, Fab, Unreal Engine or Orbital Market. Fab library sync signs in to your own Epic account and reads only your own library. Orbital enrichment reads public product listings at a throttled rate. Neither service offers a public API, so either feature can stop working without notice.
+Omnidex is an unofficial community tool. The screenshots above show Epic Games' own Paragon, Game Animation Sample and MetaHuman samples and Quixel Megascans assets, indexed from a local Epic launcher download. It is not affiliated with, endorsed by, or supported by Epic Games, Fab, Unreal Engine or Orbital Market. Fab library sync signs in to your own Epic account and reads only your own library. Orbital enrichment reads public product listings at a throttled rate. Neither service offers a public API, so either feature can stop working without notice.
 
 ## Support the project
 
