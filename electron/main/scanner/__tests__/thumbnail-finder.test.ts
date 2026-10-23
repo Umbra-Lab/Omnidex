@@ -39,7 +39,7 @@ afterAll(() => {
 });
 
 describe('findThumbnailSource — uasset branch', () => {
-  it('returns a uasset result and ignores images alongside it', async () => {
+  it('prefers a uasset over an image alongside it', async () => {
     const root = tree({ '.': { 'SM_Rock.uasset': 10, 'preview.png': BIG } });
     const found = await findThumbnailSource(root);
     expect(found?.kind).toBe('uasset');
@@ -61,6 +61,52 @@ describe('findThumbnailSource — uasset branch', () => {
     });
     const found = await findThumbnailSource(root);
     expect(found?.kind).toBe('uasset');
+  });
+});
+
+describe('findThumbnailSource — preview fallback for a uasset', () => {
+  it('attaches a preview image beside the uasset as the fallback', async () => {
+    // Megascans layout: material instance and textures next to a preview jpg.
+    const root = tree({ Tier1: { 'MI_Bread_4K.uasset': 10, 'bread.jpg': BIG, 'bread.json': 10 } });
+    expect(await findThumbnailSource(root)).toEqual({
+      kind: 'uasset',
+      path: join(root, 'Tier1/MI_Bread_4K.uasset'),
+      fallback: join(root, 'Tier1/bread.jpg'),
+    });
+  });
+
+  it('attaches a shallower preview image as the fallback', async () => {
+    const root = tree({ '.': { 'preview.png': BIG }, 'Content/Meshes': { 'SM_Rock.uasset': 10 } });
+    const found = await findThumbnailSource(root);
+    expect(found).toMatchObject({ kind: 'uasset', fallback: join(root, 'preview.png') });
+  });
+
+  it('omits the fallback when no preview image is near the uasset', async () => {
+    const root = tree({ Content: { 'SM_Rock.uasset': 10 }, 'Content/Textures/Deep/Deeper': { 'T_Rock.png': BIG } });
+    expect(await findThumbnailSource(root)).toEqual({
+      kind: 'uasset',
+      path: join(root, 'Content/SM_Rock.uasset'),
+    });
+  });
+});
+
+describe('findThumbnailSource — utility textures', () => {
+  it('skips a solid-colour swatch for a real asset deeper in the pack', async () => {
+    const root = tree({
+      'Characters/Global': { 'Black.uasset': 10, 'Black_Linear.uasset': 10 },
+      'Characters/Heroes/Kwang/Meshes': { 'SK_Kwang.uasset': 10 },
+    });
+    expect((await findThumbnailSource(root))?.path).toBe(
+      join(root, 'Characters/Heroes/Kwang/Meshes/SK_Kwang.uasset'),
+    );
+  });
+
+  it('falls back to the swatch when the pack holds nothing else', async () => {
+    const root = tree({ Textures: { 'T_White.uasset': 10 } });
+    expect(await findThumbnailSource(root)).toEqual({
+      kind: 'uasset',
+      path: join(root, 'Textures/T_White.uasset'),
+    });
   });
 });
 

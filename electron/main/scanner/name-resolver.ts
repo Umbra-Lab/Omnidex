@@ -72,9 +72,13 @@ export async function resolveDeepestPath(root: string): Promise<string> {
     const childName = childDirs[0].name;
     const childLower = childName.toLowerCase();
 
-    // Reject repetition — FooPack/FooPack_2 or parent already contains child
+    // Reject repetition — FooPack/FooPack_2 or parent already contains child.
+    // Compared without spaces and punctuation, so `Paragon Kwang/ParagonKwang`
+    // keeps the readable outer name.
+    const parentKey = squash(parentName);
+    const childKey = squash(childLower);
     const isRepetition =
-      parentName.length > 0 && (childLower.includes(parentName) || parentName.includes(childLower));
+      parentKey.length > 0 && (childKey.includes(parentKey) || parentKey.includes(childKey));
     if (isRepetition) break;
 
     const isGeneric = GENERIC_CONTAINER_NAMES.has(childLower);
@@ -93,6 +97,10 @@ export async function resolveDeepestPath(root: string): Promise<string> {
   }
 
   return bestPath;
+}
+
+function squash(name: string): string {
+  return name.replace(/[^a-z0-9]+/g, '');
 }
 
 function countMeaningfulWords(name: string): number {

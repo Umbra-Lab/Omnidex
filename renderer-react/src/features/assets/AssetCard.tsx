@@ -59,15 +59,23 @@ function firstFromJsonArray(raw: string | null): string | null {
 }
 
 // Convert "weapons", "vehicles_air", "3D Asset", "unreal_pack" → "Weapons",
-// "Vehicles Air", "3D Asset", "Unreal Pack". Trims to a card-friendly
-// length so a long FAB category doesn't blow out the metadata row.
+// "Vehicles Air", "3D Asset", "Unreal Pack". A label longer than 16
+// characters keeps its whole leading words ("Tutorials Examples" →
+// "Tutorials") so the metadata row never shows a cut-off word.
 function formatCardLabel(raw: string): string {
   const cleaned = raw.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
   const titled = cleaned
     .split(' ')
     .map((w) => (w.length === 0 ? w : w[0].toUpperCase() + w.slice(1)))
     .join(' ');
-  return titled.length > 16 ? `${titled.slice(0, 15)}…` : titled;
+  if (titled.length <= 16) return titled;
+  const words = titled.split(' ');
+  let short = words[0];
+  for (const w of words.slice(1)) {
+    if (`${short} ${w}`.length > 16) break;
+    short = `${short} ${w}`;
+  }
+  return short.length <= 16 ? short : `${short.slice(0, 15)}…`;
 }
 
 // Priority: FAB tag (most descriptive) → orbital category → asset_type.
@@ -293,7 +301,7 @@ export function AssetCard({
             {engine !== '—' ? <span className="tabular-nums">UE {engine}</span> : null}
           </div>
         ) : null}
-        <div className="flex items-center justify-between gap-2 cap-11 text-surface-400">
+        <div className="flex items-center gap-2 cap-11 text-surface-400">
           <div className="flex min-w-0 items-center gap-1.5">
             {label ? (
               <Badge variant="outline" className="shrink-0 px-1.5 py-0 cap-9 uppercase">
@@ -308,7 +316,7 @@ export function AssetCard({
             </span>
           </div>
           {rating != null ? (
-            <span className="flex shrink-0 items-center gap-0.5 font-mono tabular-nums text-surface-300">
+            <span className="ml-auto flex shrink-0 items-center gap-0.5 font-mono tabular-nums text-surface-300">
               <Star size={9} className="fill-accent-400 text-accent-400" strokeWidth={0} />
               {formatRating(rating)}
               {asset.orbital_rating_count != null && asset.orbital_rating_count > 0 ? (

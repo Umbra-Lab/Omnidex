@@ -193,7 +193,10 @@ export async function walkRootWithDiagnostics(
           fileSize: stats.size,
           fileCount: stats.count,
           hasUassetFiles: stats.hasUasset,
-          ecosystem: detectEcosystem(signals),
+          // The ecosystem sample is two levels deep; launcher and Fab downloads
+          // (`<Pack>/Content/<Pack>/<Category>/…`) keep every file below that.
+          // The full-tree stats already know whether a .uasset exists.
+          ecosystem: ecosystemOf(signals, stats.hasUasset),
           sizeIsPartial: stats.truncated,
           stats,
         };
@@ -239,6 +242,14 @@ export async function walkRoot(root: string): Promise<DetectedAssetFolder[]> {
  * Every immediate subfolder of the root, and nothing below it. Used for
  * content locations (courses), where the folder handed to you IS the unit.
  */
+/** Megascans quality-tier folder names: `Tier0` … `Tier3`. */
+const MEGASCANS_TIER_RE = /^tier\d$/i;
+
+function ecosystemOf(signals: Parameters<typeof detectEcosystem>[0], hasUasset: boolean) {
+  const detected = detectEcosystem(signals);
+  return detected === 'unknown' && hasUasset ? 'unreal_engine' : detected;
+}
+
 async function findTopLevelFolders(root: string): Promise<{
   packs: string[];
   diagnostics: ScanDiagnostic[];
@@ -293,6 +304,14 @@ async function findPackFolders(root: string): Promise<{
     // Materials, Textures, …) is the pack root itself. Record it and
     // stop — the internals are pack contents, not separate packs.
     if (interiorSignals >= MIN_INTERIOR_SIGNALS) {
+      packs.push(dir);
+      return true;
+    }
+
+    // Quixel Megascans exports keep their files in quality-tier folders
+    // (`<asset>/Tier1/…`) next to a preview image and metadata. The asset is
+    // the folder holding the tiers, not the tier itself.
+    if (subdirs.some((name) => MEGASCANS_TIER_RE.test(name))) {
       packs.push(dir);
       return true;
     }

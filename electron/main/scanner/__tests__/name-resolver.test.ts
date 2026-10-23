@@ -57,6 +57,13 @@ describe('resolveDeepestPath', () => {
     expect(basename(resolved)).toBe('Stylized Castle Pack');
   });
 
+  it('keeps the readable outer name when the inner folder only drops its spaces', async () => {
+    // Epic launcher layout: <Paragon Kwang>/Content/ParagonKwang/<files>
+    const root = tree({ 'Paragon Kwang/Content/ParagonKwang/Characters': ['SK_Kwang.uasset'] });
+    const resolved = await resolveDeepestPath(join(root, 'Paragon Kwang'));
+    expect(basename(resolved)).toBe('Paragon Kwang');
+  });
+
   it('never returns a bare generic container name', async () => {
     const root = tree({
       'Content/Materials': ['M_A.uasset'],
