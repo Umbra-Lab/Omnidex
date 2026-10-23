@@ -1,20 +1,43 @@
-# Omnidex
+<p align="center">
+  <img src="docs/images/omnidex-mark.svg" width="96" height="96" alt="Omnidex logo">
+</p>
 
-**Find any asset you own.** Omnidex indexes the Unreal Engine and Fab asset packs on your drives, and the video courses beside them, into one searchable local library. Free, open source, Windows and macOS.
+<h1 align="center">Omnidex</h1>
 
-[Download](https://github.com/Umbra-Lab/Omnidex/releases) · [Developer handbook](docs/devbook/src/SUMMARY.md) · [Contributing](CONTRIBUTING.md) · [Sponsor](https://github.com/sponsors/figgiee)
+<p align="center">
+  <b>Every asset pack and course you own, in one searchable library that your AI agents can read too.</b><br>
+  For Unreal Engine, Fab, Blender, Houdini and the rest of your toolkit. Local, free and open source.
+</p>
 
-## What it does
+<p align="center">
+  <a href="https://github.com/Umbra-Lab/Omnidex/releases">Download</a> ·
+  <a href="docs/devbook/src/SUMMARY.md">Developer handbook</a> ·
+  <a href="AGENTS.md">For AI agents</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="https://github.com/sponsors/figgiee">Sponsor</a>
+</p>
 
-- **Scans your folders** for `.uasset`/`.umap` packs and course folders, and keeps the index current as you rescan.
-- **Shows real thumbnails** extracted straight from the `.uasset` files, with no Unreal Editor running.
-- **Fills in metadata** (category, seller, description, images) by matching packs against Orbital Market and your own Fab library.
-- **Searches everything** with full-text search, filters and sorting across thousands of packs.
-- **Organizes** packs into collections, and the health page lists every folder a scan skipped, with the reason and the fix.
-- **Plays your courses** with resume, notes, and searchable transcripts from subtitle files.
-- **Answers questions** about your library and courses through a local model server you run, or the Claude CLI.
+## Why Omnidex exists
 
-Everything stays on your machine. There is no telemetry and no account. [`PRIVACY.md`](PRIVACY.md) lists exactly what the optional enrichment sends and where.
+If you make games or 3D work, you collect tools fast: Fab and Unreal Marketplace packs, Blender add-ons, Houdini digital assets, Substance materials, ZBrush brushes, and the video courses that taught you to use them. They pile up across drives as folders with names you no longer remember, and the only search is your memory. You rebuy things you already own and rewatch an hour of course to find one minute.
+
+Omnidex turns all of it into one library on your own machine. It is built for three readers: you, browsing and searching; your courses, made searchable down to the sentence; and the AI agents you work with, which can query what you own through a standard protocol.
+
+## What you can do with it
+
+**Find anything you own, across every tool.** Point Omnidex at your folders. It recognizes Unreal, Blender, ZBrush, Houdini, Unity, Maya, 3ds Max, Cinema 4D, Substance, After Effects and Marvelous Designer content, plus generic 3D and audio packs, and indexes them into one full-text search with filters and collections.
+
+**See Unreal assets without opening the engine.** Omnidex reads thumbnails straight out of `.uasset` files with its own Rust parser, so a pack shows real previews before you import it.
+
+**Know what you have before you buy it again.** Packs are matched against the Orbital Market catalog and your own Fab library, filling in seller, category, description and gallery images.
+
+**Learn from the courses you already paid for.** Course folders become a player with resume and notes. Subtitles are indexed as timestamped transcripts, so searching "niagara ribbon" lands on the exact moment an instructor said it.
+
+**Give your AI agents your library.** A built-in [MCP server](docs/devbook/src/subsystems/oracle-mcp.md) lets Claude Code, Cursor or any MCP client search your assets, lessons and transcripts while they work, and cite a course at a timestamp in place of generic training data.
+
+**Ask questions in the app.** The Ask panel answers questions about your library and courses through a local model server you run, or the Claude CLI.
+
+**Keep it private.** Everything lives in a local SQLite database. There is no account and no telemetry; [`PRIVACY.md`](PRIVACY.md) lists exactly what the optional enrichment sends and where.
 
 ## Install
 

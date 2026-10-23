@@ -103,7 +103,6 @@ Range parsing is in `electron/main/asset-protocol.ts`, deliberately separated so
 | `playwright.config.ts` | End-to-end config |
 | `.nvmrc` | Node 24 |
 | `patches/` | Applied by `pnpm apply-patches` |
-| `.husky/pre-commit` | `biome check --write --staged` |
 
 ## Next steps
 

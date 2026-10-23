@@ -58,21 +58,11 @@ Enforced by `biome.json`:
 
 ### IDE integration (optional)
 
-Install the official `biomejs.biome` extension for VS Code or Cursor to get format-on-save, organize-imports-on-save, and inline lint diagnostics. The repo ships workspace settings in `.vscode/settings.json` that set Biome as the default formatter.
+Install the official `biomejs.biome` extension for VS Code or Cursor to get format-on-save, organize-imports-on-save, and inline lint diagnostics.
 
-## Git hooks
+## Before you commit
 
-`pnpm install` wires the pre-commit hook. The root `prepare` script runs `husky`, which sets `core.hooksPath` to `.husky/_`; that directory forwards each Git hook to the matching script in `.husky/`. `.husky/pre-commit` runs:
-
-```bash
-pnpm biome check --write --staged --no-errors-on-unmatched
-```
-
-Any lint or format violation that Biome cannot fix **blocks the commit**. `--no-errors-on-unmatched` lets a commit through when it stages no file Biome handles, such as a docs-only or migration-only change.
-
-Biome writes its safe fixes to your working tree but does not stage them. A commit that needed a fix still goes through with the original text, and the fix shows up afterward as an unstaged change. Run `pnpm lint:fix` before you commit, or stage the fixes and amend.
-
-`prepare` runs after `postinstall`, and `pnpm install --ignore-scripts` skips it. If either leaves the hook unwired (`git config core.hooksPath` prints nothing), run `pnpm exec husky`.
+There is no commit hook. Run `pnpm lint:fix`, `pnpm check` and `pnpm test:run` before you commit; CI runs the same checks on every pull request and blocks a merge that fails them.
 
 ## Tests
 
@@ -118,7 +108,7 @@ Scanning, enrichment, and thumbnail extraction run from the UI (Settings → Fol
 2. Make your changes.
 3. Run `pnpm check` (type-check) and `pnpm lint`.
 4. Run `pnpm test:run`.
-5. Commit. With the hook enabled (see [Git hooks](#git-hooks)), Biome runs automatically and blocks on unfixable issues.
+5. Commit.
 6. Push to your fork and open a PR against `main`.
 7. Wait for CI to pass.
 

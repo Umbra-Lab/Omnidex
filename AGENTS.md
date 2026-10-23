@@ -79,6 +79,6 @@ A change is done when `pnpm lint`, `pnpm check` and `pnpm test:run` all pass, pl
 ## Git and pull requests
 
 - Branch from `main`; commit with Conventional Commits (`feat(scope):`, `fix(scope):`, `docs(scope):`).
-- The pre-commit hook runs `biome check --write` on staged files and blocks on unfixable issues. Its fixes land unstaged, so run `pnpm lint:fix` before committing.
+- There is no commit hook. Run `pnpm lint:fix` before committing; CI runs lint, typecheck and tests on every pull request.
 - One change per pull request. Follow `.github/pull_request_template.md`, including the AI-assistance disclosure described in `CONTRIBUTING.md`.
 - Do not edit `LICENSE`, `font-licenses.json`, `.github/workflows/` or the release settings in `package.json` unless the task is about them.

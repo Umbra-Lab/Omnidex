@@ -58,7 +58,7 @@ pnpm release:mac        # signed + notarized + uploaded (needs Apple creds + GH_
 
 Intel and universal builds are deferred. `scripts/package-mac.mjs` accepts a `--universal` flag that adds the `x86_64-apple-darwin` Rust target and builds a dual-arch `.dmg`, but the default and shipped artifact is host-arch arm64.
 
-Full prerequisites, the unsigned-launch Gatekeeper workaround, signing/notarization env vars, and the macOS-specific code changes are in **[docs/MACOS-BUILD.md](docs/MACOS-BUILD.md)**.
+Full prerequisites, the unsigned-launch Gatekeeper workaround, signing/notarization env vars, and the macOS-specific code changes are in **[docs/MACOS-BUILD.md](MACOS-BUILD.md)**.
 
 ---
 
@@ -124,7 +124,7 @@ pnpm release                  # on Windows, for the NSIS installer
 
 ## Code signing
 
-**macOS** — signing and notarization are wired and run when the `APPLE_*` and `CSC_*` env vars are present during `pnpm release:mac`. `build.mac` enables `hardenedRuntime` with `build/entitlements.mac.plist`, and electron-builder invokes `@electron/notarize` automatically. See [docs/MACOS-BUILD.md](docs/MACOS-BUILD.md) for the full env list. Unsigned local builds (`pnpm package:mac`) are Gatekeeper-quarantined on first launch; clear with `xattr -dr com.apple.quarantine` or right-click → Open.
+**macOS** — signing and notarization are wired and run when the `APPLE_*` and `CSC_*` env vars are present during `pnpm release:mac`. `build.mac` enables `hardenedRuntime` with `build/entitlements.mac.plist`, and electron-builder invokes `@electron/notarize` automatically. See [docs/MACOS-BUILD.md](MACOS-BUILD.md) for the full env list. Unsigned local builds (`pnpm package:mac`) are Gatekeeper-quarantined on first launch; clear with `xattr -dr com.apple.quarantine` or right-click → Open.
 
 **Windows** — installers are currently unsigned, so SmartScreen warns first-time users. To sign, set `WIN_CSC_LINK` (path or URL to a `.pfx`) and `WIN_CSC_KEY_PASSWORD` before `pnpm release`. EV certs skip SmartScreen; OV/IV certs build reputation over time.
 
