@@ -314,6 +314,8 @@ async function backgroundThumbnails(args: BackgroundThumbnailArgs): Promise<void
   // Phase 1 — decide each pack's source. Pure filesystem reads, no addon, so
   // nothing here can take the process down.
   const uassetPacks = new Map<string, string[]>();
+  // Preview image to use when a pack's `.uasset` yields no thumbnail.
+  const fallbacks = new Map<string, string>();
   for (let i = 0; i < targets.length; i += CONCURRENCY) {
     if (controller.signal.aborted) break;
     await Promise.all(
@@ -341,6 +343,7 @@ async function backgroundThumbnails(args: BackgroundThumbnailArgs): Promise<void
         const packs = uassetPacks.get(source.path) ?? [];
         packs.push(folderPath);
         uassetPacks.set(source.path, packs);
+        if (source.fallback) fallbacks.set(folderPath, source.fallback);
       }),
     );
   }
@@ -356,8 +359,11 @@ async function backgroundThumbnails(args: BackgroundThumbnailArgs): Promise<void
     signal: controller.signal,
     onResult: (uassetPath, png) => {
       for (const folderPath of uassetPacks.get(uassetPath) ?? []) {
+        const fallback = fallbacks.get(folderPath);
         if (png) {
           thumbStmt.run(png, folderPath);
+        } else if (fallback) {
+          thumbStmt.run(fallback, folderPath);
         } else {
           failures.push({
             kind: 'thumbnail-failed',
@@ -373,6 +379,11 @@ async function backgroundThumbnails(args: BackgroundThumbnailArgs): Promise<void
       // the extractor, and in-process it used to abort the entire scan.
       console.warn(`[scan] thumbnail extractor crashed on ${uassetPath} — skipped`);
       for (const folderPath of uassetPacks.get(uassetPath) ?? []) {
+        const fallback = fallbacks.get(folderPath);
+        if (fallback) {
+          thumbStmt.run(fallback, folderPath);
+          continue;
+        }
         failures.push({
           kind: 'thumbnail-failed',
           path: folderPath,

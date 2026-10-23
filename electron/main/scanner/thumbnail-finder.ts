@@ -31,12 +31,27 @@ const IGNORE = new Set([
   '.git',
 ]);
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
+/**
+ * Utility textures whose embedded thumbnail is a flat swatch: a pack card that
+ * shows a black square is worse than one that keeps looking. Matches names like
+ * `Black.uasset`, `T_White_Linear.uasset`, `Default_Mask.uasset`.
+ */
+const UTILITY_ASSET_RE =
+  /^(t_)?(black|white|gr[ae]y|default|flat|blank|empty|null|dummy|placeholder|mask|noise|checker)(_(linear|srgb|mask|normal|n))?\.uasset$/i;
 /** Stop collecting past this many images — BFS order means the ones we keep are the shallowest. */
 const MAX_IMAGE_CANDIDATES = 64;
 /** Below this, an image is almost certainly a UI icon rather than a pack preview. */
 const MIN_IMAGE_BYTES = 4096;
 
-export type ThumbnailSource = { kind: 'uasset'; path: string } | { kind: 'image'; path: string };
+/**
+ * `fallback` on a `uasset` source is a preview image found at the same or a
+ * shallower depth. Many `.uasset` files carry no embedded thumbnail (material
+ * instances, textures, cooked or very new engine versions), and the pack's own
+ * preview image is a better card than a blank one.
+ */
+export type ThumbnailSource =
+  | { kind: 'uasset'; path: string; fallback?: string }
+  | { kind: 'image'; path: string };
 
 export async function findThumbnailSource(root: string): Promise<ThumbnailSource | null> {
   const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
@@ -47,6 +62,8 @@ export async function findThumbnailSource(root: string): Promise<ThumbnailSource
   // the cap above discards the deepest candidates, which are the least likely
   // to be the pack's hero image.
   const images: Array<{ path: string; depth: number }> = [];
+  // First utility swatch seen, used only if the walk finds no real asset.
+  let utilityAsset: string | null = null;
   let visited = 0;
 
   while (queue.length > 0) {
@@ -59,15 +76,24 @@ export async function findThumbnailSource(root: string): Promise<ThumbnailSource
       continue;
     }
     // Check files at this level first — pack thumbnails usually live near the top.
+    // The whole level is read even after a `.uasset` turns up, so a preview
+    // image sitting beside it can serve as the fallback.
+    let uasset: string | null = null;
     for (const entry of entries) {
       if (!entry.isFile()) continue;
       const lower = entry.name.toLowerCase();
       if (lower.endsWith('.uasset')) {
-        return { kind: 'uasset', path: join(dir, entry.name) };
+        if (UTILITY_ASSET_RE.test(entry.name)) utilityAsset ??= join(dir, entry.name);
+        else uasset ??= join(dir, entry.name);
+        continue;
       }
       if (images.length < MAX_IMAGE_CANDIDATES && IMAGE_EXTENSIONS.some((e) => lower.endsWith(e))) {
         images.push({ path: join(dir, entry.name), depth });
       }
+    }
+    if (uasset) {
+      const hero = await pickHeroImage(images);
+      return hero ? { kind: 'uasset', path: uasset, fallback: hero.path } : { kind: 'uasset', path: uasset };
     }
     if (depth >= MAX_DEPTH) continue;
     for (const entry of entries) {
@@ -77,6 +103,12 @@ export async function findThumbnailSource(root: string): Promise<ThumbnailSource
     }
   }
 
+  if (utilityAsset) {
+    const hero = await pickHeroImage(images);
+    return hero
+      ? { kind: 'uasset', path: utilityAsset, fallback: hero.path }
+      : { kind: 'uasset', path: utilityAsset };
+  }
   return pickHeroImage(images);
 }
 
