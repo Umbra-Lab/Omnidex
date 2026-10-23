@@ -114,17 +114,27 @@ Scanning, enrichment, and thumbnail extraction run from the UI (Settings → Fol
 
 ## Development workflow
 
-1. Create a feature branch from `main`.
+1. Fork the repository and create a branch from `main` in your fork.
 2. Make your changes.
 3. Run `pnpm check` (type-check) and `pnpm lint`.
 4. Run `pnpm test:run`.
 5. Commit. With the hook enabled (see [Git hooks](#git-hooks)), Biome runs automatically and blocks on unfixable issues.
-6. Push and open a PR against `main`.
+6. Push to your fork and open a PR against `main`.
 7. Wait for CI to pass.
 
 For anything larger than a bug fix, open an issue first so the approach can be agreed before you write the code. Keep each PR to one change, describe what it does and how you tested it, and include screenshots for UI changes.
 
 By submitting a pull request you agree that your contribution is licensed under the project's [MIT License](./LICENSE). Everyone taking part is expected to follow the [Code of Conduct](./CODE_OF_CONDUCT.md).
+
+## AI-assisted contributions
+
+Coding agents are welcome here, and [`AGENTS.md`](./AGENTS.md) exists to make them effective. A person is still responsible for every pull request:
+
+- **Disclose it.** Tick the AI-assistance box in the PR template and name the tool. One line is enough.
+- **Review it yourself first.** You must be able to explain every change in the diff without asking the agent. Pull requests that read as unreviewed agent output are closed without review.
+- **Show the checks.** Paste the commands from the definition of done in `AGENTS.md` and their summary lines. "The agent said tests pass" is not evidence.
+- **Keep it small.** One change per pull request. Agents make large diffs cheap to write but not cheap to review.
+- **Write issues and comments yourself.** Use an agent to investigate, but the text you post should be yours.
 
 ## CI
 

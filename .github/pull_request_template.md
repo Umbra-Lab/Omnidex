@@ -1,13 +1,23 @@
 ## What this changes
 
-<!-- One or two sentences. Link the issue if there is one: Fixes #123 -->
+<!-- One or two sentences. Link the issue: Fixes #123 -->
 
 ## How it was tested
 
-<!-- Commands you ran (pnpm check, pnpm lint, pnpm test:run) and what you checked in the app. Add screenshots for UI changes. -->
+<!-- Paste the commands you ran and their summary lines (pnpm lint, pnpm check, pnpm test:run, plus any area checks from AGENTS.md). Add screenshots for UI changes. -->
+
+```text
+
+```
+
+## AI assistance
+
+- [ ] No AI tools were used
+- [ ] An AI tool helped write this change: <!-- name the tool and what it did -->
 
 ## Checklist
 
-- [ ] `pnpm check`, `pnpm lint` and `pnpm test:run` pass locally
+- [ ] I reviewed the full diff and can explain every change
+- [ ] `pnpm lint`, `pnpm check` and `pnpm test:run` pass locally (output above)
 - [ ] Docs updated if behavior or setup changed
 - [ ] I agree my contribution is licensed under the MIT License
