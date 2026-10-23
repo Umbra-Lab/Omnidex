@@ -29,7 +29,7 @@ pnpm lint:fix
 
 `pnpm lint:fix` is `biome check --write`: safe fixes, formatting, and import sorting. `pnpm lint:fix:unsafe` adds `--unsafe`, which can change behavior, so read the diff.
 
-`pnpm install` wires `.husky/pre-commit` through the `prepare` script. The hook runs `biome check --write --staged --no-errors-on-unmatched` and blocks the commit on anything unfixable. Biome writes its fixes to the working tree without staging them, so run `pnpm lint:fix` before you commit. See [Commands](../reference/commands.md#native-and-install) if the hook is not wired.
+There is no commit hook. Run `pnpm lint:fix` before you commit; CI runs `pnpm lint` on every pull request.
 
 ```admonish note title="pnpm check is not a linter"
 `pnpm check` is `tsc --noEmit` across three tsconfigs. It type-checks and does nothing else. Run both.
