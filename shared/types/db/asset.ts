@@ -13,6 +13,8 @@ export interface Asset {
   id: number | null;
   name: string;
   file_path: string;
+  /** A curated asset retained after its path was absent from a scan. */
+  missing_since?: string | null;
   asset_type: string;
   file_size: number;
   /**
