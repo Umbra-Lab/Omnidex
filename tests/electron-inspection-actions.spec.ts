@@ -133,6 +133,7 @@ test('inspect sparse assets, act on available information, and organize a missin
       await expect(panel.getByText(/No local path recorded/)).toBeVisible();
       await expect(panel.getByRole('button', { name: 'Open folder', exact: true })).toBeDisabled();
       await expect(panel.getByRole('button', { name: 'View listing', exact: true })).toBeEnabled();
+      await expect(win.locator('[data-sonner-toast]')).toHaveCount(0);
       await test.info().attach('catalogue-inspector', {
         body: await win.screenshot(),
         contentType: 'image/png',
@@ -184,12 +185,14 @@ test('inspect sparse assets, act on available information, and organize a missin
         .poll(async () =>
           panel.evaluate((el) => {
             const right = el.getBoundingClientRect().right;
+            if (right > window.innerWidth + 1) return false;
             return [...el.querySelectorAll('button')].every(
               (button) => button.getBoundingClientRect().right <= right + 1,
             );
           }),
         )
         .toBe(true);
+      await expect(win.locator('[data-sonner-toast]')).toHaveCount(0);
       await test.info().attach('missing-inspector-1024', {
         body: await win.screenshot(),
         contentType: 'image/png',
