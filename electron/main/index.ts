@@ -553,11 +553,16 @@ app.whenReady().then(() => {
   createWindow();
   registerGlobalHotkeys(() => mainWindow);
 
-  // electron-trpc attaches a BrowserWindow-scoped IPC router. The React
-  // renderer calls through `ipcLink()` in renderer-react/src/ipc/trpc.ts.
-  if (mainWindow) {
-    createIPCHandler({ router: appRouter, windows: [mainWindow] });
-  }
+  // electron-trpc serves the React renderer, which calls through `ipcLink()`
+  // in renderer-react/src/ipc/trpc.ts. 1.0 listens for every renderer, so
+  // `allow` keeps it to the main window (read at request time, so a window
+  // re-created on `activate` is served too). The preload calls
+  // exposeElectronTRPC itself, so electron-trpc registers no preload of its own.
+  createIPCHandler({
+    router: appRouter,
+    allow: (event) => event.sender === mainWindow?.webContents,
+    preload: false,
+  });
 
   initAutoUpdater(() => mainWindow);
 
