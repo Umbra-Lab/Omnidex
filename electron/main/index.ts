@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath, URL as NodeURL, pathToFileURL } from 'node:url';
+import { URL as NodeURL, pathToFileURL } from 'node:url';
 import { extractThumbnail } from '@omnidex/uasset';
 import { app, BrowserWindow, dialog, net, protocol, session, shell } from 'electron';
 import { createIPCHandler } from 'electron-trpc/main';
@@ -43,7 +43,9 @@ const BACKFILL_COURSE_SOURCES = process.argv.includes('--backfill-course-sources
 const INJECT_GALLERY_FIXTURE = process.argv.includes('--inject-gallery-fixture');
 const REVERT_GALLERY_FIXTURE = process.argv.includes('--revert-gallery-fixture');
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
+// The built main bundle's directory. Not named __dirname: electron-vite 6 injects
+// that binding into ESM output itself, and a second declaration fails to load.
+const mainDir = import.meta.dirname;
 
 // Pin the app name BEFORE any code reads `app.getPath('userData')`.
 // `electron <script.mjs>` (Playwright launch path) doesn't auto-load
@@ -311,7 +313,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     ...macChrome,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.cjs'),
+      preload: join(mainDir, '../preload/index.cjs'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -354,7 +356,7 @@ function createWindow(): void {
     mainWindow.loadURL(devServerUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer-react/index.html'));
+    mainWindow.loadFile(join(mainDir, '../renderer-react/index.html'));
   }
 }
 
