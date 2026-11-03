@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { toast } from '@/components/ui/toaster';
 import { trpc } from '@/ipc/trpc';
 import { resolveThumbnail } from '@/lib/assetUrl';
 import {
@@ -129,13 +130,13 @@ export function InspectorPanel({ assetId, onClose }: InspectorPanelProps) {
   // If the viewport shrinks below the saved width × 2, auto-trim the
   // inspector so the asset grid retains at least half the window.
   useEffect(() => {
-    function fit() {
+    function fitInspector() {
       const cap = Math.max(INSPECTOR_MIN_WIDTH, Math.floor(window.innerWidth * 0.6));
       if (inspectorWidth > cap) setInspectorWidth(cap);
     }
-    fit();
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
+    fitInspector();
+    window.addEventListener('resize', fitInspector);
+    return () => window.removeEventListener('resize', fitInspector);
   }, [inspectorWidth, setInspectorWidth]);
 
   // Esc closes the inspector when one is open. Skip when focus is in an
@@ -312,6 +313,35 @@ function InspectorContent({
 
   const title = asset.orbital_title ?? asset.name;
   const hasMatch = asset.orbital_title != null || asset.matched_orbital_product_slug != null;
+  const canOpenFolder = Boolean(asset.file_path?.trim()) && !asset.missing_since;
+  const supportedVersions = formatSupportedVersions(asset.orbital_supported_versions);
+  const locationNotice = asset.missing_since
+    ? 'Not found in the last scan. Reconnect its drive and rescan.'
+    : !canOpenFolder
+      ? 'No local path recorded. You can still organize this asset.'
+      : null;
+
+  async function openTarget(target: 'folder' | 'listing') {
+    const value = target === 'folder' ? asset?.file_path : asset?.orbital_source_url;
+    if (!value || (target === 'folder' && !canOpenFolder)) return;
+    const message =
+      target === 'folder' ? "Couldn't open the asset folder" : "Couldn't open the listing";
+    try {
+      const shell = window.omnidex?.shell;
+      const result = await (target === 'folder'
+        ? shell?.openFileLocation(value)
+        : shell?.openExternal(value));
+      if (!result?.ok) {
+        toast.error(
+          target === 'folder' && result?.error === 'not found'
+            ? 'Folder unavailable. Reconnect its drive and rescan.'
+            : `${message}. ${result?.error ?? 'Desktop shell unavailable.'}`,
+        );
+      }
+    } catch {
+      toast.error(`${message}. Please try again.`);
+    }
+  }
 
   return (
     <>
@@ -351,6 +381,12 @@ function InspectorContent({
             <h2 className="font-display cap-18 font-semibold tracking-tight text-surface-50 break-words">
               {title}
             </h2>
+            {title !== asset.name ? (
+              <p className="cap-12 text-surface-300 break-words">
+                <span className="text-surface-400">Indexed as </span>
+                {asset.name}
+              </p>
+            ) : null}
             {asset.orbital_seller_name ? (
               <p className="font-mono cap-11 text-surface-400 break-words">
                 by {asset.orbital_seller_name}
@@ -399,12 +435,16 @@ function InspectorContent({
               )}
               <StatRow
                 label="Engine"
-                value={formatSupportedVersions(asset.orbital_supported_versions)}
+                value={supportedVersions === '—' ? 'Not recorded' : supportedVersions}
               />
               <StatRow label="Added" value={formatDate(asset.created_date)} />
               <StatRow
                 label="Size on disk"
-                value={formatBytes(asset.file_size, asset.file_size_is_partial)}
+                value={
+                  asset.file_path?.trim()
+                    ? formatBytes(asset.file_size, asset.file_size_is_partial)
+                    : 'Not recorded'
+                }
                 hint={
                   asset.file_size_is_partial
                     ? 'At least this size. The scanner stopped counting at its per-pack file limit, so the real total is larger.'
@@ -441,17 +481,24 @@ function InspectorContent({
           description alone ran past 1,400px, which pushed every button below
           the fold — the panel showed you an asset you could not act on. */}
       <div className="flex shrink-0 flex-col gap-2 border-t border-surface-800/60 bg-surface-925 p-3">
+        {locationNotice ? (
+          <p id="inspector-location-notice" className="cap-12-prose text-surface-300">
+            {locationNotice}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           <Button
-            variant="secondary"
+            variant={canOpenFolder ? 'primary' : 'secondary'}
             size="sm"
-            onClick={() => window.omnidex?.shell?.openFileLocation(asset.file_path)}
+            disabled={!canOpenFolder}
+            aria-describedby={locationNotice ? 'inspector-location-notice' : undefined}
+            onClick={() => void openTarget('folder')}
           >
             <Folder size={12} />
             Open folder
           </Button>
           <Button
-            variant={hasMatch ? 'ghost' : 'primary'}
+            variant={!canOpenFolder && !hasMatch && !asset.orbital_source_url ? 'primary' : 'ghost'}
             size="sm"
             onClick={() => setMatchOpen(true)}
           >
@@ -460,15 +507,13 @@ function InspectorContent({
           </Button>
           {asset.orbital_source_url ? (
             <Button
-              variant="ghost"
+              variant={canOpenFolder ? 'ghost' : 'primary'}
               size="sm"
-              onClick={() =>
-                asset.orbital_source_url &&
-                window.omnidex?.shell?.openExternal(asset.orbital_source_url)
-              }
+              title={asset.orbital_source_url}
+              onClick={() => void openTarget('listing')}
             >
               <ExternalLink size={12} />
-              Orbital
+              View listing
             </Button>
           ) : null}
           <Button
@@ -947,11 +992,9 @@ function Gallery({
 
   if (images.length === 0) {
     return (
-      <div
-        className="flex w-full items-center justify-center rounded-md bg-surface-900 text-surface-600"
-        style={{ aspectRatio: '16 / 9', maxHeight: '50vh' }}
-      >
-        <ImageIcon size={36} strokeWidth={1.25} />
+      <div className="flex h-16 w-full items-center gap-2 rounded-md border border-surface-800/60 bg-surface-900 px-3 text-surface-400">
+        <ImageIcon size={18} strokeWidth={1.25} aria-hidden="true" />
+        <span className="cap-12">No preview available</span>
       </div>
     );
   }
@@ -986,8 +1029,9 @@ function Gallery({
             className="absolute inset-0 h-full w-full object-cover"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-surface-600">
-            <ImageIcon size={36} strokeWidth={1.25} />
+          <div className="flex h-full w-full items-center justify-center gap-2 text-surface-400">
+            <ImageIcon size={18} strokeWidth={1.25} aria-hidden="true" />
+            <span className="cap-12">Preview unavailable</span>
           </div>
         )}
         {images.length > 1 ? (
