@@ -15,9 +15,9 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
-    "baseUrl": "..",
+    "rootDir": "..",
     "paths": {
-      "@omnidex/types/*": ["shared/types/*"]
+      "@omnidex/types/*": ["../shared/types/*"]
     },
     "outDir": "../out/main"
   },
