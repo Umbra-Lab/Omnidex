@@ -373,7 +373,10 @@ Navigation lists never truncate silently — show the top N with a `+M more`
 disclosure that expands in place.
 
 **Inspector.** Tabbed: Details / Description / Technical. Details is the default
-and is always short. Actions pin to a footer that never scrolls away. Metadata
+and is always short. Place the folder action beside the recorded local state,
+and the listing actions beside the marketplace state. Label the ecosystem and
+listing versions independently. Favorite, tags, and collections pin to the
+footer. Metadata
 rows are a two-column grid with the value left-aligned at a fixed gutter —
 never `justify-between`, which flings the label and value to opposite edges of a
 resizable panel. Provenance is not optional: source location, full path with a
@@ -382,8 +385,8 @@ source.
 
 **Unknown is not empty.** A field that was never looked up renders as pending
 with the verb attached, not as an em-dash. Five dashes in a column train the
-user to read the panel as empty. One line — "Not matched to a marketplace
-listing · Match now" — is the whole fix.
+user to read the panel as empty. Pair "Not matched to a marketplace listing"
+with **Find match**.
 
 ## Do's and Don'ts
 

@@ -1,4 +1,4 @@
-import { Activity, Ban, CheckCircle2, X } from 'lucide-react';
+import { Activity, Ban, CheckCircle2, CircleAlert, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -44,24 +44,34 @@ export function ScanProgressPanel() {
     onError: (err) => toast.error(err.message),
   });
 
+  const failureCount = scan?.failed ?? 0;
+  const sweepFailed = scan?.phase === 'done' && failureCount > 0;
+  const failed = scan?.phase === 'error' || sweepFailed;
   const state: PanelState | null = scan
     ? {
         locationId: scan.locationId ?? null,
-        title: scan.currentName ?? scan.message ?? 'Scanning',
+        title: sweepFailed
+          ? `${formatCount(failureCount)} of ${formatCount(scan.total)} folders failed`
+          : (scan.currentName ?? scan.message ?? 'Scanning'),
         processed: scan.processed,
         total: scan.total,
         percent: scan.percent,
         newAssets: scan.newAssets ?? null,
         done: scan.phase === 'done' || scan.phase === 'error',
         statusLabel:
-          scan.phase === 'error' ? 'Failed' : scan.phase === 'done' ? 'Completed' : 'Scanning',
+          sweepFailed && failureCount < scan.total
+            ? 'Completed with failures'
+            : failed
+              ? 'Failed'
+              : scan.phase === 'done'
+                ? 'Completed'
+                : 'Scanning',
       }
     : null;
 
   if (!state || dismissed) return null;
 
   const canCancel = !state.done && state.locationId != null;
-  const failed = scan?.phase === 'error';
 
   return (
     <AnimatePresence>
@@ -79,7 +89,9 @@ export function ScanProgressPanel() {
       >
         <div className="flex items-center justify-between gap-3 border-b border-surface-800/60 px-3 py-2">
           <div className="flex items-center gap-2">
-            {state.done ? (
+            {failed ? (
+              <CircleAlert size={14} className="text-warning-300" />
+            ) : state.done ? (
               <CheckCircle2 size={14} className="text-success-500" />
             ) : (
               <Activity size={14} className="text-accent-400 animate-pulse" />

@@ -11,11 +11,16 @@ CLI flags run the built output in `out/`, not your source tree. Run `pnpm build`
 | Task | CLI | UI |
 |---|---|---|
 | Scan every active location | `pnpm refresh-scans` | Settings → Folders → **Scan all**, or Command Palette → **Refresh library** |
-| Scan one location | — | Settings → Folders → **Scan** on the folder's row |
+| Scan one location | — | Settings → Folders → **Scan** on the folder's row, or Inspector → **Rescan folder** beside an unavailable local copy |
 | Extract missing thumbnails | `pnpm extract-thumbs` | Runs automatically after each scan |
 | Marketplace enrichment | `pnpm enrich-orbital` | Settings → Marketplace → **Enrich now** |
 | FAB library sync | `pnpm enrich-fab` | Settings → Marketplace → FAB Marketplace → **Sync now** |
 | Backfill course sources | `pnpm backfill:course-sources` | — |
+
+To recover an unavailable pack, reconnect the drive or restore the pack to its
+recorded path. In the Inspector, choose **Rescan folder** to scan its active
+location. Open the pack when **Open folder** returns. The action uses
+`scanner.refreshOne` in `electron/main/trpc/routers/scanner.ts`.
 
 ## Add a scan location
 

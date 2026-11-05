@@ -65,11 +65,20 @@ export async function startScan(locationId: number): Promise<ScanProgressPayload
 
   const controller = new AbortController();
   activeScans.set(locationId, controller);
+  try {
+    return await scanLocation(locationId, controller);
+  } finally {
+    activeScans.delete(locationId);
+  }
+}
 
+async function scanLocation(
+  locationId: number,
+  controller: AbortController,
+): Promise<ScanProgressPayload> {
   const db = openDatabase();
   const location = scanLocationsRepo.getScanLocation(db, locationId);
   if (!location) {
-    activeScans.delete(locationId);
     throw new Error(`Scan location ${locationId} not found`);
   }
 
@@ -95,9 +104,9 @@ export async function startScan(locationId: number): Promise<ScanProgressPayload
     // register those as courses too.
     ({ folders, diagnostics } = await walkRootWithDiagnostics(location.path, {
       flat: contentFormat != null,
+      requireReadableRoot: true,
     }));
   } catch (err) {
-    activeScans.delete(locationId);
     const payload = errorPayload(locationId, location.name, location.path, (err as Error).message);
     emit(payload);
     return payload;
@@ -245,30 +254,34 @@ export async function startScan(locationId: number): Promise<ScanProgressPayload
       `Thumbnails run asynchronously in background.`,
   );
 
-  activeScans.delete(locationId);
-  const summary = completionPayload(
-    locationId,
-    location.name,
-    location.path,
-    processed,
-    newAssets,
-    existingAssets,
-    null,
-  );
+  const summary = controller.signal.aborted
+    ? errorPayload(locationId, location.name, location.path, 'Scan canceled')
+    : completionPayload(
+        locationId,
+        location.name,
+        location.path,
+        processed,
+        newAssets,
+        existingAssets,
+        null,
+      );
   emit(summary);
   return summary;
 }
 
 export function cancelScan(locationId: number): boolean {
   const controller = activeScans.get(locationId);
-  if (!controller) return false;
+  if (!controller || controller.signal.aborted) return false;
   controller.abort();
-  activeScans.delete(locationId);
   return true;
 }
 
 export function activeScanCount(): number {
   return activeScans.size;
+}
+
+export function isScanRunning(locationId: number): boolean {
+  return activeScans.has(locationId);
 }
 
 interface BackgroundThumbnailArgs {

@@ -3,14 +3,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  ExternalLink,
-  Folder,
   FolderPlus,
   Heart,
   Image as ImageIcon,
   Star,
   Tag,
-  Wand2,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -20,19 +17,13 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { toast } from '@/components/ui/toaster';
 import { trpc } from '@/ipc/trpc';
 import { resolveThumbnail } from '@/lib/assetUrl';
-import {
-  formatBytes,
-  formatCount,
-  formatRating,
-  formatSupportedVersions,
-  formatTaxonomyLabel,
-} from '@/lib/format';
+import { formatBytes, formatCount, formatRating, formatTaxonomyLabel } from '@/lib/format';
 import { panelSpring } from '@/motion/presets';
 import { useModals } from '@/stores/modals';
 import { INSPECTOR_MAX_WIDTH, INSPECTOR_MIN_WIDTH, useUiStore } from '@/stores/ui';
+import { InspectorReadout } from './InspectorReadout';
 import { MatchPickerModal } from './MatchPickerModal';
 
 function formatDate(iso: string | null | undefined): string {
@@ -313,35 +304,6 @@ function InspectorContent({
 
   const title = asset.orbital_title ?? asset.name;
   const hasMatch = asset.orbital_title != null || asset.matched_orbital_product_slug != null;
-  const canOpenFolder = Boolean(asset.file_path?.trim()) && !asset.missing_since;
-  const supportedVersions = formatSupportedVersions(asset.orbital_supported_versions);
-  const locationNotice = asset.missing_since
-    ? 'Not found in the last scan. Reconnect its drive and rescan.'
-    : !canOpenFolder
-      ? 'No local path recorded. You can still organize this asset.'
-      : null;
-
-  async function openTarget(target: 'folder' | 'listing') {
-    const value = target === 'folder' ? asset?.file_path : asset?.orbital_source_url;
-    if (!value || (target === 'folder' && !canOpenFolder)) return;
-    const message =
-      target === 'folder' ? "Couldn't open the asset folder" : "Couldn't open the listing";
-    try {
-      const shell = window.omnidex?.shell;
-      const result = await (target === 'folder'
-        ? shell?.openFileLocation(value)
-        : shell?.openExternal(value));
-      if (!result?.ok) {
-        toast.error(
-          target === 'folder' && result?.error === 'not found'
-            ? 'Folder unavailable. Reconnect its drive and rescan.'
-            : `${message}. ${result?.error ?? 'Desktop shell unavailable.'}`,
-        );
-      }
-    } catch {
-      toast.error(`${message}. Please try again.`);
-    }
-  }
 
   return (
     <>
@@ -375,8 +337,6 @@ function InspectorContent({
       */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="flex min-w-0 flex-col gap-4 p-5">
-          <Gallery asset={asset} />
-
           <div className="flex min-w-0 flex-col gap-1">
             <h2 className="font-display cap-18 font-semibold tracking-tight text-surface-50 break-words">
               {title}
@@ -404,6 +364,14 @@ function InspectorContent({
             </div>
           </div>
 
+          <InspectorReadout
+            key={assetId}
+            asset={asset}
+            hasMatch={hasMatch}
+            onMatch={() => setMatchOpen(true)}
+          />
+          <Gallery asset={asset} />
+
           <Tabs defaultValue="details" className="min-w-0">
             <TabsList>
               <TabsTrigger value="details">Details</TabsTrigger>
@@ -413,9 +381,6 @@ function InspectorContent({
               <TabsTrigger value="technical">Technical</TabsTrigger>
             </TabsList>
 
-            {/* Details is the default and is always short — that is the point
-                of the split. On an enriched asset the marketplace bullet list
-                alone ran past 1,400px and pushed every action below the fold. */}
             <TabsContent value="details" className="flex min-w-0 flex-col gap-2 pt-3">
               {hasMatch ? (
                 <>
@@ -430,16 +395,10 @@ function InspectorContent({
                   <StatRow label="Released" value={formatDate(asset.orbital_release_date)} />
                   <StatRow label="Updated" value={formatDate(asset.orbital_last_modified)} />
                 </>
-              ) : (
-                <UnmatchedNotice onMatch={() => setMatchOpen(true)} />
-              )}
-              <StatRow
-                label="Engine"
-                value={supportedVersions === '—' ? 'Not recorded' : supportedVersions}
-              />
+              ) : null}
               <StatRow label="Added" value={formatDate(asset.created_date)} />
               <StatRow
-                label="Size on disk"
+                label={asset.missing_since ? 'Last known size' : 'Size on disk'}
                 value={
                   asset.file_path?.trim()
                     ? formatBytes(asset.file_size, asset.file_size_is_partial)
@@ -476,77 +435,30 @@ function InspectorContent({
         </div>
       </div>
 
-      {/* Action footer, OUTSIDE the scroll container. DESIGN.md: "Actions pin
-          to a footer that never scrolls away." On an enriched asset the
-          description alone ran past 1,400px, which pushed every button below
-          the fold — the panel showed you an asset you could not act on. */}
-      <div className="flex shrink-0 flex-col gap-2 border-t border-surface-800/60 bg-surface-925 p-3">
-        {locationNotice ? (
-          <p id="inspector-location-notice" className="cap-12-prose text-surface-300">
-            {locationNotice}
-          </p>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={canOpenFolder ? 'primary' : 'secondary'}
-            size="sm"
-            disabled={!canOpenFolder}
-            aria-describedby={locationNotice ? 'inspector-location-notice' : undefined}
-            onClick={() => void openTarget('folder')}
-          >
-            <Folder size={12} />
-            Open folder
-          </Button>
-          <Button
-            variant={!canOpenFolder && !hasMatch && !asset.orbital_source_url ? 'primary' : 'ghost'}
-            size="sm"
-            onClick={() => setMatchOpen(true)}
-          >
-            <Wand2 size={12} />
-            {hasMatch ? 'Change match' : 'Find match'}
-          </Button>
-          {asset.orbital_source_url ? (
-            <Button
-              variant={canOpenFolder ? 'ghost' : 'primary'}
-              size="sm"
-              title={asset.orbital_source_url}
-              onClick={() => void openTarget('listing')}
-            >
-              <ExternalLink size={12} />
-              View listing
-            </Button>
-          ) : null}
-          <Button
-            variant={asset.is_favorite ? 'primary' : 'outline'}
-            size="sm"
-            className="ml-auto"
-            disabled={setFavorite.isPending}
-            onClick={() => setFavorite.mutate({ ids: [assetId], favorite: !asset.is_favorite })}
-          >
-            <Heart size={12} fill={asset.is_favorite ? 'currentColor' : 'none'} />
-            {asset.is_favorite ? 'Favorited' : 'Favorite'}
-          </Button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            onClick={() => openTagging(assetId)}
-          >
-            <Tag size={12} />
-            Manage tags
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            onClick={() => openAddToCollection([assetId])}
-          >
-            <FolderPlus size={12} />
-            Add to collection
-          </Button>
-        </div>
+      <div className="flex shrink-0 flex-wrap gap-2 border-t border-surface-800/60 bg-surface-925 p-3">
+        <Button
+          variant={asset.is_favorite ? 'secondary' : 'outline'}
+          size="sm"
+          aria-pressed={asset.is_favorite}
+          disabled={setFavorite.isPending}
+          onClick={() => setFavorite.mutate({ ids: [assetId], favorite: !asset.is_favorite })}
+        >
+          <Heart size={12} fill={asset.is_favorite ? 'currentColor' : 'none'} />
+          {asset.is_favorite ? 'Favorited' : 'Favorite'}
+        </Button>
+        <Button variant="outline" size="sm" className="flex-1" onClick={() => openTagging(assetId)}>
+          <Tag size={12} />
+          Manage tags
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1"
+          onClick={() => openAddToCollection([assetId])}
+        >
+          <FolderPlus size={12} />
+          Add to collection
+        </Button>
       </div>
     </>
   );
@@ -810,30 +722,6 @@ function LibraryHealthAside() {
       </Section>
 
       <p className="cap-11 text-surface-500">Select an asset to inspect it.</p>
-    </div>
-  );
-}
-
-/**
- * What an un-enriched asset shows instead of three em-dashes.
- *
- * "Rating —", "Released —", "Updated —" reads as "this asset has no rating".
- * It actually means "we never looked it up". Three dashes stacked in the most
- * prominent block on the panel train the user to read the inspector as empty
- * rather than as pending — and 88% of the library lands here. One line with
- * the verb attached says the true thing and offers the fix.
- */
-function UnmatchedNotice({ onMatch }: { readonly onMatch: () => void }) {
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-md border border-surface-800 bg-surface-900 px-3 py-2">
-      <span className="cap-12 text-surface-300">Not matched to a marketplace listing</span>
-      <button
-        type="button"
-        onClick={onMatch}
-        className="cap-12 font-medium text-accent-300 underline underline-offset-2 hover:text-accent-200"
-      >
-        Match now
-      </button>
     </div>
   );
 }
