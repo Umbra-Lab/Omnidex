@@ -67,6 +67,8 @@ export interface Asset {
 
   fab_owned: boolean;
   asset_ecosystem: string | null;
+  /** Legacy classification returned for records that predate asset_ecosystem. */
+  ecosystem: string | null;
   orbital_match_attempted: boolean | null;
 }
 

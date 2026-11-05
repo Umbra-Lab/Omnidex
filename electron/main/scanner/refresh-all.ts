@@ -1,6 +1,6 @@
 import { openDatabase } from '../db';
 import { type ActionProgress, emitProgress } from '../progress/bus';
-import { cancelScan, startScan } from './pipeline';
+import { cancelScan, isScanRunning, startScan } from './pipeline';
 
 /**
  * Refresh-all-scans service.
@@ -84,6 +84,9 @@ export async function refreshAllScans(opts: RefreshOptions = {}): Promise<Refres
 
     try {
       const result = await startScan(r.id);
+      if (!result.completed_successfully || result.error) {
+        throw new Error(result.error ?? 'Scan did not complete');
+      }
       succeeded += 1;
       perLocation.push({
         id: r.id,
@@ -155,6 +158,8 @@ export async function refreshOneScan(
   locationId: number,
   opts: RefreshOptions = {},
 ): Promise<ReturnType<typeof startScan>> {
+  if (isScanRunning(locationId)) return startScan(locationId);
+
   const emit = opts.onProgress ?? emitProgress;
 
   emit({
@@ -169,16 +174,20 @@ export async function refreshOneScan(
 
   try {
     const result = await startScan(locationId);
+    const completed = result.completed_successfully && !result.error;
     emit({
       action: 'refresh-scans',
-      phase: 'done',
+      phase: completed ? 'done' : 'error',
       processed: 1,
       total: 1,
       currentName: result.location_name,
       locationId,
       newAssets: result.new_assets_count ?? undefined,
       existingAssets: result.existing_assets_count ?? undefined,
-      message: `OK [${locationId}] ${result.location_name ?? locationId} — phase=${result.status} processed=${result.processed_items}/${result.total_items}`,
+      failed: completed ? undefined : 1,
+      message: completed
+        ? `OK [${locationId}] ${result.location_name ?? locationId} — phase=${result.status} processed=${result.processed_items}/${result.total_items}`
+        : `FAIL [${locationId}]: ${result.error ?? 'Scan did not complete'}`,
     });
     return result;
   } catch (e) {

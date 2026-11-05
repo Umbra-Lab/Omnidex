@@ -144,6 +144,9 @@ export interface WalkResult {
  * successes makes "nothing there" and "we gave up" look identical.
  */
 export interface WalkOptions {
+  /** Report a failed root read to the caller instead of treating it as empty. */
+  readonly requireReadableRoot?: boolean;
+
   /**
    * Treat every immediate subfolder of the root as one asset and descend no
    * further.
@@ -165,10 +168,18 @@ export async function walkRootWithDiagnostics(
   root: string,
   options: WalkOptions = {},
 ): Promise<WalkResult> {
+  let rootEntries: Dirent[];
+  try {
+    rootEntries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (options.requireReadableRoot) throw error;
+    return { folders: [], diagnostics: [] };
+  }
+
   // Phase 1: discover candidate folders.
   const { packs: candidates, diagnostics } = options.flat
-    ? await findTopLevelFolders(root)
-    : await findPackFolders(root);
+    ? { packs: findTopLevelFolders(root, rootEntries), diagnostics: [] }
+    : await findPackFolders(root, rootEntries);
 
   // Phase 2: enrich each candidate with stats + ecosystem + inferred name.
   const CONCURRENCY = 8;
@@ -239,23 +250,16 @@ export async function walkRoot(root: string): Promise<DetectedAssetFolder[]> {
  * Every immediate subfolder of the root, and nothing below it. Used for
  * content locations (courses), where the folder handed to you IS the unit.
  */
-async function findTopLevelFolders(root: string): Promise<{
-  packs: string[];
-  diagnostics: ScanDiagnostic[];
-}> {
-  let entries: Dirent[];
-  try {
-    entries = await readdir(root, { withFileTypes: true });
-  } catch {
-    return { packs: [], diagnostics: [] };
-  }
-  const packs = entries
+function findTopLevelFolders(root: string, entries: Dirent[]): string[] {
+  return entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !IGNORED_DIR_NAMES.has(e.name))
     .map((e) => join(root, e.name));
-  return { packs, diagnostics: [] };
 }
 
-async function findPackFolders(root: string): Promise<{
+async function findPackFolders(
+  root: string,
+  rootEntries: Dirent[],
+): Promise<{
   packs: string[];
   diagnostics: ScanDiagnostic[];
 }> {
@@ -342,12 +346,6 @@ async function findPackFolders(root: string): Promise<{
     return anyChildIsPack;
   }
 
-  let rootEntries: Dirent[];
-  try {
-    rootEntries = await readdir(root, { withFileTypes: true });
-  } catch {
-    return { packs, diagnostics };
-  }
   for (const e of rootEntries) {
     if (e.name.startsWith('.') || IGNORED_DIR_NAMES.has(e.name)) continue;
     if (e.isDirectory()) {

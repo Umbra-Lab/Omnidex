@@ -1,4 +1,4 @@
-import { Activity, Ban, CheckCircle2, X } from 'lucide-react';
+import { Activity, Ban, CheckCircle2, CircleAlert, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -79,7 +79,9 @@ export function ScanProgressPanel() {
       >
         <div className="flex items-center justify-between gap-3 border-b border-surface-800/60 px-3 py-2">
           <div className="flex items-center gap-2">
-            {state.done ? (
+            {failed ? (
+              <CircleAlert size={14} className="text-warning-300" />
+            ) : state.done ? (
               <CheckCircle2 size={14} className="text-success-500" />
             ) : (
               <Activity size={14} className="text-accent-400 animate-pulse" />

@@ -14,6 +14,8 @@ vi.mock('@/ipc/trpc', () => ({
       get: { useQuery: () => ({ data: api.asset }) },
       setFavorite: { useMutation: () => ({ isPending: false }) },
     },
+    scanLocations: { list: { useQuery: () => ({ data: [] }) } },
+    scanner: { refreshOne: { useMutation: () => ({ isPending: false }) } },
     notes: {
       get: { useQuery: () => ({ data: null, isFetched: true }) },
       upsert: { useMutation: () => ({ mutate: vi.fn() }) },
@@ -101,7 +103,7 @@ describe('asset inspection with incomplete information', () => {
   it('does not offer a curated missing pack as an openable local asset', async () => {
     await renderAsset({ missing_since: '2026-10-31' });
     expect(button('Open folder').disabled).toBe(true);
-    expect(container.textContent).toContain('Not found in the last scan');
+    expect(container.textContent).toContain('Missing since');
   });
 
   it('reports a shell failure instead of silently ignoring the result', async () => {
@@ -111,7 +113,7 @@ describe('asset inspection with incomplete information', () => {
     expect(button('Open folder').disabled).toBe(false);
     await act(async () => button('Open folder').click());
     expect(openFileLocation).toHaveBeenCalledWith('E:\\Library\\Local_Pack_UE5');
-    expect(api.error).toHaveBeenCalled();
+    expect(container.textContent).toContain('Folder unavailable');
   });
 
   it('keeps the recorded source usable when the local copy is missing', async () => {
