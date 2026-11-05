@@ -389,6 +389,20 @@ test('rescan a real folder from the Inspector and recover the same collected pac
       });
       await captureInspector(win, panel, 'inspector-restored.png');
     });
+
+    await test.step('a library sweep keeps the failure visible in its final summary', async () => {
+      renameSync(secondLibrary, join(root, 'disconnected-reference'));
+      await win.getByRole('link', { name: 'Open settings' }).click();
+      await win.getByRole('button', { name: 'Scan all', exact: true }).click();
+      const summary = win.getByRole('alert').filter({ hasText: 'Completed with failures' });
+      await expect(summary.getByText('1 of 2 folders failed', { exact: true })).toBeVisible();
+      expect(readAsset()).toMatchObject({
+        id,
+        missing_since: null,
+        collected: 1,
+        reference_count: 0,
+      });
+    });
   } finally {
     await app?.close();
     removeFixture(root);

@@ -44,24 +44,34 @@ export function ScanProgressPanel() {
     onError: (err) => toast.error(err.message),
   });
 
+  const failureCount = scan?.failed ?? 0;
+  const sweepFailed = scan?.phase === 'done' && failureCount > 0;
+  const failed = scan?.phase === 'error' || sweepFailed;
   const state: PanelState | null = scan
     ? {
         locationId: scan.locationId ?? null,
-        title: scan.currentName ?? scan.message ?? 'Scanning',
+        title: sweepFailed
+          ? `${formatCount(failureCount)} of ${formatCount(scan.total)} folders failed`
+          : (scan.currentName ?? scan.message ?? 'Scanning'),
         processed: scan.processed,
         total: scan.total,
         percent: scan.percent,
         newAssets: scan.newAssets ?? null,
         done: scan.phase === 'done' || scan.phase === 'error',
         statusLabel:
-          scan.phase === 'error' ? 'Failed' : scan.phase === 'done' ? 'Completed' : 'Scanning',
+          sweepFailed && failureCount < scan.total
+            ? 'Completed with failures'
+            : failed
+              ? 'Failed'
+              : scan.phase === 'done'
+                ? 'Completed'
+                : 'Scanning',
       }
     : null;
 
   if (!state || dismissed) return null;
 
   const canCancel = !state.done && state.locationId != null;
-  const failed = scan?.phase === 'error';
 
   return (
     <AnimatePresence>
