@@ -717,15 +717,16 @@ async function runExtractMissingThumbsAndQuit(): Promise<void> {
           }
           // Plain preview images are usable as-is; only .uasset needs the
           // native extractor.
-          const pngPath =
+          const fromSource =
             source.kind === 'image'
               ? source.path
               : await Promise.race([
-                  extractThumbnail(source.path, root, 256),
+                  extractThumbnail(source.path, root, 256).catch(() => null),
                   new Promise<null>((resolve) =>
                     setTimeout(() => resolve(null), PER_PACK_TIMEOUT_MS),
                   ),
                 ]);
+          const pngPath = fromSource ?? (source.kind === 'uasset' ? source.fallback : null);
           if (pngPath) {
             thumbStmt.run(pngPath, row.file_path);
             extracted += 1;

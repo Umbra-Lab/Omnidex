@@ -388,7 +388,7 @@ function InspectorContent({
               </p>
             ) : null}
             {asset.orbital_seller_name ? (
-              <p className="font-mono cap-11 text-surface-400 break-words">
+              <p className="mt-1 font-mono cap-11 text-surface-400 break-words">
                 by {asset.orbital_seller_name}
               </p>
             ) : null}
@@ -400,7 +400,9 @@ function InspectorContent({
                   Favorite
                 </Badge>
               ) : null}
-              {asset.asset_type ? <Badge variant="outline">{asset.asset_type}</Badge> : null}
+              {asset.asset_type ? (
+                <Badge variant="outline">{formatTaxonomyLabel(asset.asset_type)}</Badge>
+              ) : null}
             </div>
           </div>
 
@@ -516,18 +518,19 @@ function InspectorContent({
               View listing
             </Button>
           ) : null}
+        </div>
+        <div className="flex gap-2">
           <Button
             variant={asset.is_favorite ? 'primary' : 'outline'}
-            size="sm"
-            className="ml-auto"
+            size="icon-sm"
+            className="shrink-0"
             disabled={setFavorite.isPending}
+            aria-label={asset.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+            title={asset.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
             onClick={() => setFavorite.mutate({ ids: [assetId], favorite: !asset.is_favorite })}
           >
             <Heart size={12} fill={asset.is_favorite ? 'currentColor' : 'none'} />
-            {asset.is_favorite ? 'Favorited' : 'Favorite'}
           </Button>
-        </div>
-        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -779,7 +782,7 @@ function LibraryHealthAside() {
         <Section title="Ecosystems">
           <div className="flex flex-col gap-1.5">
             {topEcosystems.map(([name, count]) => (
-              <div key={name} className="flex items-baseline justify-between gap-2">
+              <div key={name} className="flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate cap-12 text-surface-300">
                   {formatTaxonomyLabel(name)}
                 </span>

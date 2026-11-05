@@ -132,7 +132,7 @@ export function SourceList({ selectedKeys, onSelect }: SourceListProps) {
           className="group relative flex h-7 items-center gap-2 rounded-md px-2 cap-12 text-surface-300 no-underline transition-colors hover:bg-surface-900 hover:text-surface-100"
         >
           <Library size={12} strokeWidth={2} className="shrink-0 text-surface-400" />
-          <span className="flex-1 truncate">{c.name}</span>
+          <span className="flex-1 truncate text-left">{c.name}</span>
           <span className="font-mono tabular-nums cap-10 text-surface-400">
             {formatCount(c.asset_count)}
           </span>
@@ -277,7 +277,7 @@ function NodeRow({
       ) : null}
       {/* No CSS `capitalize` here — it left "Unreal_engine" with its underscore
           intact. Every taxonomy label goes through one formatter now. */}
-      <span className="flex-1 truncate">{node.label}</span>
+      <span className="flex-1 truncate text-left">{node.label}</span>
       <span className="font-mono cap-10 tabular-nums text-surface-400">
         {formatCount(node.count)}
       </span>

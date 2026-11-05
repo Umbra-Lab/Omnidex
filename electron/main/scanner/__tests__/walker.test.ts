@@ -108,3 +108,27 @@ describe('walkRoot truncation reporting', () => {
     expect(pack?.fileSize).toBeLessThan(10 + 999);
   });
 });
+
+describe('walkRoot Megascans exports', () => {
+  it('treats the folder holding quality tiers as the asset, not the tier', async () => {
+    const root = tree({
+      'Stripe Bread/Tier1': { count: 3, bytes: 10 },
+      'Forest Floor/Tier2': { count: 2, bytes: 10 },
+    });
+    const found = await walkRoot(root);
+    expect(found.map((f) => f.name).sort()).toEqual(['Forest Floor', 'Stripe Bread']);
+    expect(found.map((f) => f.absolutePath).sort()).toEqual([
+      join(root, 'Forest Floor'),
+      join(root, 'Stripe Bread'),
+    ]);
+  });
+});
+
+describe('walkRoot ecosystem for deep launcher layouts', () => {
+  it('labels a pack unreal_engine when its only .uasset files sit below the sampled depth', async () => {
+    const root = tree({ 'Paragon Kwang/Content/ParagonKwang/Characters/Heroes': { count: 2, bytes: 10 } });
+    const [pack] = await walkRoot(root);
+    expect(pack.name).toBe('Paragon Kwang');
+    expect(pack.ecosystem).toBe('unreal_engine');
+  });
+});
