@@ -62,7 +62,6 @@ Each boots Electron, runs the job, and exits. All require a prior `pnpm build`.
 | `pnpm ensure:uasset` | Copy or build the addon binary if none exists. Runs in `postinstall` and before every app launch |
 | `pnpm run rebuild` | Rebuild `better-sqlite3` and `keytar` for Electron's ABI |
 | `pnpm apply-patches` | Reapply `patches/` — notably the electron-trpc superjson patch |
-| `pnpm exec husky` | Wire the Git pre-commit hook by hand. `pnpm install` does this through the `prepare` script, which runs after `postinstall` and which `--ignore-scripts` skips. |
 
 ```admonish danger title="pnpm rebuild is a different command"
 `pnpm rebuild` is pnpm's built-in and rebuilds every native module. `pnpm run rebuild` is this repo's script. They are not interchangeable.

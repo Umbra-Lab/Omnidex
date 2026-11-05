@@ -30,8 +30,6 @@ pnpm install
 
 Without step 4, every tRPC call crashes with `Cannot read properties of undefined (reading 'serialize')`.
 
-Once `postinstall` succeeds, `prepare` runs `husky`, which points Git at `.husky/_` so the Biome pre-commit hook runs on every commit.
-
 ## The native addon
 
 The `.uasset` parser is a local Rust crate, and its binary is gitignored. `postinstall` provides it, and every command that launches the app (`pnpm dev`, `pnpm preview`, the headless data flags, `pnpm test:electron`) runs `scripts/ensure-uasset.mjs` again first. If the binary is still missing and cannot be built, that command stops with an error instead of starting Electron.

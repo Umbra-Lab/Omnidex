@@ -1,0 +1,14 @@
+<svg viewBox="0 0 256 256" width="256" height="256" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Omnidex">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#E89A2C" stop-opacity="0.18"/>
+      <stop offset="70%" stop-color="#E89A2C" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" ry="48" fill="#0F1419"/>
+  <rect width="256" height="256" rx="48" ry="48" fill="url(#glow)"/>
+  <circle cx="128" cy="128" r="64" fill="none" stroke="#7B5118" stroke-width="14" opacity="0.55"/>
+  <circle cx="128" cy="128" r="64" fill="none" stroke="#E89A2C" stroke-width="10" stroke-dasharray="170 230" stroke-linecap="round" transform="rotate(-30 128 128)"/>
+  <circle cx="184" cy="84" r="18" fill="#E89A2C"/>
+  <circle cx="184" cy="84" r="6" fill="#0F1419"/>
+</svg>

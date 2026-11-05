@@ -1,140 +1,100 @@
-# Omnidex
+<p align="center">
+  <img src="docs/images/omnidex-mark.svg" width="96" height="96" alt="Omnidex logo">
+</p>
 
-Omnidex is a desktop app for indexing and browsing local Unreal Engine and FAB marketplace asset libraries. It scans the folders where you keep your `.uasset`/`.umap` packs, extracts thumbnails from them, and enriches each pack with metadata from orbital-market.com and your Epic/FAB library so you can search, filter, and organize the whole collection in one place.
+<h1 align="center">Omnidex</h1>
 
-It is built with Electron 41 and React 19. The main process talks to the renderer over tRPC (via electron-trpc + superjson), stores everything in a local better-sqlite3 database, and reads Unreal asset files through a Rust napi addon (`@omnidex/uasset`).
+<p align="center">
+  <b>Every asset pack and course you own, in one searchable library that your AI agents can read too.</b><br>
+  For Unreal Engine, Fab, Blender, Houdini and the rest of your toolkit. Local, free and open source.
+</p>
 
-Omnidex is free and open source under the MIT license. Use it, fork it, change it, ship it. If it saves you time, you can [sponsor the project](https://github.com/sponsors/figgiee).
+<p align="center">
+  <a href="https://github.com/Umbra-Lab/Omnidex/releases">Download</a> ·
+  <a href="docs/devbook/src/SUMMARY.md">Developer handbook</a> ·
+  <a href="AGENTS.md">For AI agents</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="https://github.com/sponsors/figgiee">Sponsor</a>
+</p>
 
-## Download
+<p align="center">
+  <img src="docs/images/library.png" alt="The Omnidex library view showing six Epic Games and Quixel Megascans packs with thumbnails, marketplace categories, sellers and ratings" width="100%">
+</p>
 
-Installers for Windows and macOS are published on the [Releases page](https://github.com/Umbra-Lab/Omnidex/releases). The builds are not code-signed yet: Windows SmartScreen asks you to confirm the first launch, and macOS needs a right-click → **Open**. To build from source instead, follow the quick start below.
+## Why Omnidex exists
 
-## Quick start
+If you make games or 3D work, you collect tools fast: Fab and Unreal Marketplace packs, Blender add-ons, Houdini digital assets, Substance materials, ZBrush brushes, and the video courses that taught you to use them. They pile up across drives as folders with names you no longer remember, and the only search is your memory. You rebuy things you already own and rewatch an hour of course to find one minute.
 
-Prerequisites:
+Omnidex turns all of it into one library on your own machine. It is built for three readers: you, browsing and searching; your courses, made searchable down to the sentence; and the AI agents you work with, which can query what you own through a standard protocol.
 
-- **Node 24** (`.nvmrc` pins `24`)
-- **pnpm 11.1.3** (pinned in `package.json` via `packageManager`)
-- **Rust** (rustup) to build the `native/uasset` napi addon
-- **Xcode Command Line Tools** on macOS to compile native modules
+## What you can do with it
+
+**Find anything you own, across every tool.** Point Omnidex at your folders. It recognizes Unreal, Blender, ZBrush, Houdini, Unity, Maya, 3ds Max, Cinema 4D, Substance, After Effects and Marvelous Designer content, plus generic 3D and audio packs, and indexes them into one full-text search with filters and collections.
+
+**See Unreal assets without opening the engine.** Omnidex reads thumbnails straight out of `.uasset` files with its own Rust parser, so a pack shows real previews before you import it.
+
+**Know what you have before you buy it again.** Packs are matched against the Orbital Market catalog and your own Fab library, filling in seller, category, description and gallery images.
+
+<p align="center">
+  <img src="docs/images/inspector.png" alt="The inspector open on Paragon: Kwang, with its marketplace gallery, rating, release dates, supported engine versions, size on disk and a private notes field" width="100%">
+</p>
+
+**Learn from the courses you already paid for.** Course folders become a player with resume and notes. Subtitles are indexed as timestamped transcripts, so searching "niagara ribbon" lands on the exact moment an instructor said it.
+
+**Give your AI agents your library.** A built-in [MCP server](docs/devbook/src/subsystems/oracle-mcp.md) lets Claude Code, Cursor or any MCP client search your assets, lessons and transcripts while they work, and cite a course at a timestamp in place of generic training data.
+
+**Ask questions in the app.** The Ask panel answers questions about your library and courses through a local model server you run, or the Claude CLI.
+
+**Keep it private.** Everything lives in a local SQLite database. There is no account and no telemetry; [`PRIVACY.md`](PRIVACY.md) lists exactly what the optional enrichment sends and where.
+
+## Install
+
+Download the installer for your platform from the [Releases page](https://github.com/Umbra-Lab/Omnidex/releases):
+
+| Platform | File |
+|---|---|
+| Windows 10/11 (x64) | `Omnidex-Setup-<version>.exe` |
+| macOS (Apple silicon) | `Omnidex-<version>-arm64.dmg` |
+
+The builds are not code-signed yet. On Windows, choose **More info → Run anyway** at the SmartScreen prompt. On macOS, right-click the app and choose **Open** the first time.
+
+Open Omnidex, add the folder that holds your asset packs, and the first scan starts. Add more folders under **Settings → Folders**.
+
+## Build from source
+
+You need Node 24 (`.nvmrc`), pnpm 11, and Rust 1.88 or newer. On macOS, also the Xcode Command Line Tools; on Windows, the MSVC build tools.
 
 ```bash
+git clone https://github.com/Umbra-Lab/Omnidex.git
+cd Omnidex
 pnpm install
 pnpm dev
 ```
 
-`pnpm install` runs a `postinstall` step that copies or builds the `native/uasset` addon binary, downloads the Electron binary, rebuilds the native modules (`better-sqlite3`, `keytar`) against Electron's ABI, and applies the bundled `electron-trpc` patch. A fresh clone needs no manual steps after `pnpm install`.
+`pnpm install` builds the Rust addon, downloads Electron and applies the bundled patches, so no other setup is needed. To build an installer, run `pnpm package` on Windows or `pnpm package:mac` on macOS; output lands in `dist-installer/`. The [set-up guide](docs/devbook/src/start/set-up.md) and [troubleshooting page](docs/devbook/src/troubleshooting.md) cover everything else.
 
-`pnpm dev` launches the app through `electron-vite dev`.
+## Work on it with an AI agent
 
-## Common scripts
+The repository is set up for coding agents. [`AGENTS.md`](AGENTS.md) holds the commands, the definition of done, and the rules that are not obvious from the code. Claude Code, Codex, Cursor, Copilot and Gemini CLI all pick it up automatically.
 
-| Script | What it does |
-| --- | --- |
-| `pnpm dev` | Run the app in development (`electron-vite dev`). |
-| `pnpm build` | Build main, preload, and renderer into `out/`. |
-| `pnpm check` | Type-check the three tsconfigs (main / preload / renderer), no emit. |
-| `pnpm lint` | Lint with Biome. |
-| `pnpm test:run` | Run the Vitest unit suite once. |
-| `pnpm run rebuild` | Rebuild `better-sqlite3` and `keytar` against Electron's ABI. |
+A good first prompt:
 
-## Building installers
+> Read AGENTS.md, then fix issue #N. Run the checks it lists and show me the output before you open a pull request.
 
-Installers are built locally on the target platform. There is no cross-compilation, because the native modules need a real host toolchain.
+Agent-written pull requests are welcome when a person has reviewed them, can explain every change, and discloses the tool used. See the [AI-assisted contributions policy](CONTRIBUTING.md#ai-assisted-contributions).
 
-**macOS (arm64):**
+## How it fits together
 
-```bash
-pnpm package:mac
-```
-
-This builds the napi addon for `aarch64-apple-darwin`, runs `pnpm build`, then packages with electron-builder. Output lands in `dist-installer/` as `Omnidex-<version>-arm64.dmg` and a matching `.zip`. The shipped target is arm64 only; an Intel/universal build is deferred behind a `--universal` flag.
-
-**Windows (x64):**
-
-```bash
-pnpm package
-```
-
-`scripts/package-win.mjs` must run on Windows — it guards against other platforms and needs MSVC to build the addon (`x86_64-pc-windows-msvc`) and rebuild native modules. Output is an NSIS installer, `Omnidex-Setup-<version>.exe`.
-
-## Current status
-
-Scanning and enrichment run from inside the app, with live progress. The CLI flags run the same services headless.
-
-**In the app:**
-
-- **Scan one folder:** Settings → Folders → **Scan** on the folder's row.
-- **Scan every active folder:** Settings → Folders → **Scan all**, or the Command Palette (Ctrl+K, ⌘K on macOS) → **Refresh library**.
-- **Progress and cancel:** the folder row shows progress, and the floating scan panel shows it too, with a cancel button.
-- **Thumbnails:** extracted automatically in the background after each scan.
-- **Orbital enrichment:** Settings → Marketplace → **Enrich now**.
-- **FAB library sync:** Settings → Marketplace → **Sync now**, plus a toggle that watches the FAB vault for new downloads.
-
-The first folder you add in the onboarding dialog is scanned immediately. A folder you add or edit under Settings → Folders is saved but not scanned until you choose **Scan** or **Scan all**.
-
-Not wired yet: correcting an asset's Orbital match from the inspector, and automatic enrichment after a scan (the **Auto-match on scan** switch is disabled).
-
-**Headless (CLI):** each flag boots the built app (`out/`, so run `pnpm build` first), runs the job, and exits.
-
-```bash
-pnpm refresh-scans      # scan all active scan locations into the DB
-pnpm extract-thumbs     # extract missing thumbnails from .uasset files
-pnpm enrich-orbital     # match assets against orbital-market.com
-pnpm enrich-fab         # pull your FAB library (Epic OAuth) and enrich matches
-```
-
-The full flag list is in [`docs/devbook/src/reference/cli-flags.md`](./docs/devbook/src/reference/cli-flags.md).
-
-What else the UI does today: browse the virtualized asset grid, inspect an asset (metadata, gallery, open file location or external URL), filter and sort, full-text search, manage collections, and manage scan locations (add, edit, pause or activate, delete).
-
-## Project layout
-
-- `electron/main/` — main process: tRPC routers, the SQLite migrator and `.up.sql` migrations, CLI job handlers, the `omnidex-asset://` protocol.
-- `electron/preload/` — context bridge and electron-trpc setup.
-- `renderer-react/` — the React 19 + TanStack Router/Query frontend.
-- `native/uasset/` — the Rust napi addon (`rust-version = "1.88"`) that parses Unreal asset files and extracts thumbnails.
-- `scripts/` — packaging, install, and data-op helpers.
-
-## Privacy & data
-
-Omnidex is local-first and ships with **no telemetry or analytics**. To enrich
-your assets it sends asset **names** to `orbital-market.com` (a community
-catalog mirror, not affiliated with Epic/FAB) and, if you connect your Epic
-account, uses your **own** Epic login to fetch your **own** owned FAB library.
-Exactly what data leaves your machine — and what does not — is documented in
-[`PRIVACY.md`](./PRIVACY.md). The in-app **Settings → About** tab summarizes the
-same disclosure.
+An Electron main process owns the SQLite database, the file scanner and every network call. The React renderer reads from it over tRPC. A Rust addon parses `.uasset` headers and extracts thumbnails in disposable worker processes, so a malformed file cannot crash the app. The [architecture page](docs/devbook/src/orientation/architecture.md) has the full picture.
 
 ## Third-party services
 
-Omnidex is an unofficial community tool. It is not affiliated with, endorsed by, or supported by Epic Games, Fab, Unreal Engine, or Orbital Market. The FAB library sync signs in to your own Epic account and reads your own library; the Orbital enrichment reads public product listings at a throttled rate. Both depend on endpoints these services do not document, so either can stop working without notice. Use them with your own account only.
+Omnidex is an unofficial community tool. The screenshots above show Epic Games' own Paragon, Game Animation Sample and MetaHuman samples and Quixel Megascans assets, indexed from a local Epic launcher download. It is not affiliated with, endorsed by, or supported by Epic Games, Fab, Unreal Engine or Orbital Market. Fab library sync signs in to your own Epic account and reads only your own library. Orbital enrichment reads public product listings at a throttled rate. Neither service offers a public API, so either feature can stop working without notice.
 
-## Contributing and support
+## Support the project
 
-Bug reports, feature ideas and pull requests are welcome: see [`CONTRIBUTING.md`](./CONTRIBUTING.md). Report security issues privately as described in [`SECURITY.md`](./SECURITY.md).
+Omnidex is built and maintained in spare time. If it saves you time, [sponsoring on GitHub](https://github.com/sponsors/figgiee) keeps it going. Bug reports and ideas go in [Issues](https://github.com/Umbra-Lab/Omnidex/issues). Report security problems privately as described in [`SECURITY.md`](SECURITY.md).
 
-Omnidex is built and maintained in spare time. If it helps your work, [sponsoring on GitHub](https://github.com/sponsors/figgiee) keeps it going.
+## License
 
-## License & terms
-
-MIT — see [`LICENSE`](./LICENSE). Plain-language end-user terms are in
-[`EULA.md`](./EULA.md), and the data/privacy disclosure is in
-[`PRIVACY.md`](./PRIVACY.md).
-
-The packaged app bundles JetBrains Mono (SIL OFL 1.1), the Archivo
-typeface (Omnibus-Type, SIL OFL 1.1) and its production npm
-dependencies. The open-source attributions and full license texts are
-aggregated in
-[`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md), which is generated from the
-production dependency tree and ships inside the installer. Regenerate it after
-changing dependencies:
-
-```bash
-pnpm notices            # rewrite THIRD-PARTY-NOTICES.md
-pnpm notices:check      # CI guard: fails if it is stale
-```
-
-The macOS and Windows packaging scripts regenerate it automatically before each
-build, and electron-builder copies it (plus `LICENSE`) into the app's resources.
+MIT, see [`LICENSE`](LICENSE). Bundled fonts (Archivo, JetBrains Mono) are under the SIL Open Font License, and every bundled dependency's license is collected in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). Unreal Engine and Fab are trademarks of Epic Games, Inc.

@@ -87,6 +87,20 @@ Synthetic keystrokes sent at the OS level get eaten by focus changes. Driving th
 
 Specs install their own data through CLI fixture flags (`--inject-gallery-fixture`), so there is no separate seeding step.
 
+Playwright runs with `workers: 1`. Every launch shares one userData directory and one `omnidex.db`, so parallel launches fight over the single-instance lock and die. Run `pnpm build` first: specs launch `out/main/index.mjs`, not the source.
+
+## Opt-in suites
+
+These skip by default because they need something CI does not have:
+
+| Variable | Enables |
+|---|---|
+| `OMNIDEX_TEST_UASSET=1` | Tests against the real compiled `uasset` addon |
+| `OMNIDEX_TEST_CLAUDE_CODE=1` | The Ask provider tests that spawn the `claude` CLI |
+| `POOL_LIVE_LIST=<json>` | `scanner/__tests__/pool-live.local.test.ts` against real files you list |
+
+`node scripts/oracle-mcp/server.test.mjs [path-to-omnidex.db]` checks the oracle MCP server against a real database. Neither Vitest nor CI runs it.
+
 Useful hooks:
 
 - `data-asset-id` on grid rows.
