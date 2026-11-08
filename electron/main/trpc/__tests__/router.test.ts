@@ -110,7 +110,8 @@ CREATE TABLE scan_locations (
   file_extensions TEXT,
   created_date TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z',
   description TEXT,
-  content_format TEXT
+  content_format TEXT,
+  scan_mode TEXT NOT NULL DEFAULT 'packs'
 );
 
 CREATE VIRTUAL TABLE assets_fts USING fts5(
@@ -492,6 +493,18 @@ describe('scanLocations router', () => {
     // Booleans round-trip as real booleans, not 0/1.
     expect(loc?.is_active).toBe(true);
     expect(loc?.scan_recursive).toBe(true);
+  });
+
+  it('persists a DCC scan mode on a new location', async () => {
+    const id = await caller.scanLocations.create({ ...fullLocation, scan_mode: 'dcc' });
+    expect((await caller.scanLocations.get(id))?.scan_mode).toBe('dcc');
+    await expect(caller.scanLocations.update({ id, content_format: 'course' })).rejects.toThrow();
+  });
+
+  it('rejects a DCC location that is also a course', async () => {
+    await expect(
+      caller.scanLocations.create({ ...fullLocation, scan_mode: 'dcc', content_format: 'course' }),
+    ).rejects.toThrow();
   });
 
   it('update validates the id and writes ONLY the provided fields (partial PATCH)', async () => {

@@ -1,6 +1,7 @@
 import type { Statement } from 'better-sqlite3';
 import { openDatabase } from '../db';
 import { type ActionProgress, emitProgress } from '../progress/bus';
+import { ORBITAL_CANDIDATES_SQL } from './enrich-candidates';
 import { matchAssetName } from './matcher';
 import { getProduct } from './product';
 import { mapOrbitalDetailToAssetFields } from './product-mapping';
@@ -134,19 +135,11 @@ export async function enrichOrbital(opts: EnrichOrbitalOptions = {}): Promise<En
   // and repaired. The `orbital_match_attempted = 0` gate is what stops a row
   // that was tried-and-unmatched (or failed) from re-qualifying every run —
   // we never redo failed network work in a loop.
-  const rows = db
-    .prepare(
-      `SELECT id, name, orbital_title FROM assets
-       WHERE content_format IS NULL
-         AND scan_location_id > 0
-         AND (
-           ((orbital_description IS NULL OR orbital_description = '')
-             AND orbital_match_attempted = 0)
-           OR orbital_description LIKE '{%'
-         )
-       ORDER BY id`,
-    )
-    .all() as { id: number; name: string; orbital_title: string | null }[];
+  const rows = db.prepare(ORBITAL_CANDIDATES_SQL).all() as {
+    id: number;
+    name: string;
+    orbital_title: string | null;
+  }[];
 
   const total = rows.length;
   const updateStmt = db.prepare(UPDATE_SQL);
@@ -272,9 +265,9 @@ export async function enrichOneOrbital(assetId: number, slug?: string): Promise<
   const updateStmt = db.prepare(UPDATE_SQL);
   const markAttempted = db.prepare('UPDATE assets SET orbital_match_attempted = 1 WHERE id = ?');
 
-  const row = db
-    .prepare('SELECT id, name, orbital_title FROM assets WHERE id = ?')
-    .get(assetId) as { id: number; name: string; orbital_title: string | null } | undefined;
+  const row = db.prepare('SELECT id, name, orbital_title FROM assets WHERE id = ?').get(assetId) as
+    | { id: number; name: string; orbital_title: string | null }
+    | undefined;
   if (!row) {
     return { total: 0, matched: 0, unmatched: 0, failed: 0 };
   }

@@ -14,10 +14,10 @@ import type { AssetEcosystem } from '@omnidex/types/db';
 // Software-specific extensions (high confidence)
 const UE_EXTS = new Set(['uasset', 'umap', 'uexp', 'ubulk', 'upk', 'uplugin', 'uproject']);
 const BLENDER_EXTS = new Set(['blend', 'blend1']);
-const ZBRUSH_EXTS = new Set(['zpr', 'zprj', 'ztl', 'zbr', 'zbp']);
+const ZBRUSH_EXTS = new Set(['zpr', 'ztl', 'zbr', 'zbp']);
 const AFTER_EFFECTS_EXTS = new Set(['aex', 'ffx', 'aep', 'aet']);
 const CINEMA4D_EXTS = new Set(['c4d', 'lib4d']);
-const MARVELOUS_EXTS = new Set(['zpac', 'dci']);
+const MARVELOUS_EXTS = new Set(['zpac', 'zprj', 'avt', 'dci']);
 const SUBSTANCE_EXTS = new Set(['sbs', 'sbsar', 'spp', 'sppr']);
 const UNITY_EXTS = new Set(['unitypackage', 'unity', 'prefab']);
 const MAYA_EXTS = new Set(['ma', 'mb']);

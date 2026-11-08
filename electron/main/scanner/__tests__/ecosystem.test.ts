@@ -71,6 +71,9 @@ describe('detectEcosystem — empty / fallback branches', () => {
 });
 
 describe('detectEcosystem — software-specific extension sets', () => {
+  it('classifies Marvelous project files as Marvelous Designer', () => {
+    expect(detectEcosystem(signals(['zprj']))).toBe('marvelous_designer');
+  });
   const cases: Array<[string, string[], AssetEcosystem]> = [
     ['uasset → unreal_engine', ['uasset'], 'unreal_engine'],
     ['umap → unreal_engine', ['umap'], 'unreal_engine'],

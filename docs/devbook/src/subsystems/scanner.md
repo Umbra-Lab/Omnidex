@@ -22,10 +22,13 @@ Phases 1–3 are the scan. Phase 4 runs after `startScan` returns, because it is
 
 `walkRootWithDiagnostics(root, { flat })` returns folders plus a list of diagnostics explaining anything it skipped.
 
-Two modes:
+Three modes:
 
 - **Pack mode** (default) descends looking for asset packs. A folder is a pack if it contains `.uasset`/`.umap` files directly, has a `Content/` directory, or matches Unreal's interior folder naming.
 - **Flat mode** (`flat: true`, used for every location with a `content_format`) treats each top-level folder as one item and does not descend looking for packs. Without it, a course shipping a sample Unreal project would register that project as a separate pack.
+- **DCC mode** (`scan_mode = 'dcc'`) walks supported files recursively and writes one catalogue row per scene, mesh, material, brush or archive. A directory containing at least two recognizably named texture maps becomes one texture-set row. It skips symbolic links and common build caches. Archives are indexed by filename, not opened. An unreadable directory or cancellation fails discovery before any catalogue writes.
+
+DCC rows store the full path and ecosystem as scanner-owned search text. They retain their file path as their identity, so a rescan preserves curation. A conflicting path owned by another location aborts the transaction. DCC scans do not run the pack thumbnail extractor.
 
 Packs above `MAX_FILES_PER_PACK` (5000, `walker.ts`) get `sizeIsPartial` set rather than being fully measured. Walking a 200,000-file pack to sum its bytes is not worth the minutes it costs.
 
