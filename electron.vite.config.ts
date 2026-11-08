@@ -1,6 +1,7 @@
 import { cpSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import react from '@vitejs/plugin-react';
+import babel from '@rolldown/plugin-babel';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 
 // Copies main-process SQL/asset files that Rollup does not bundle.
@@ -53,7 +54,9 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, 'renderer-react'),
     // The React Compiler is a Babel plugin, which plugin-react-swc cannot run.
-    plugins: [react({ babel: { plugins: [['babel-plugin-react-compiler', {}]] } })],
+    // plugin-react 6 no longer runs Babel itself; @rolldown/plugin-babel does,
+    // with the compiler preset plugin-react exports.
+    plugins: [react(), babel({ presets: [reactCompilerPreset()] })],
     resolve: {
       alias: {
         '@': resolve(__dirname, 'renderer-react/src'),
