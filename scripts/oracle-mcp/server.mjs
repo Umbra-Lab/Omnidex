@@ -118,7 +118,7 @@ const lessonsStmt = db.prepare(`
  * LIKE scan, so ranking matches what the app's own search box returns.
  */
 const assetsStmt = db.prepare(`
-  SELECT a.name, a.orbital_title, a.file_path, a.file_size,
+  SELECT a.name, a.orbital_title, a.file_path, a.file_size, a.asset_type,
          a.orbital_categories, a.orbital_seller_name,
          COALESCE(a.asset_ecosystem, a.ecosystem, 'unknown') AS ecosystem
   FROM assets a
@@ -126,7 +126,7 @@ const assetsStmt = db.prepare(`
   WHERE assets_fts MATCH ?
     AND a.content_format IS NULL
     AND a.missing_since IS NULL
-  ORDER BY rank
+  ORDER BY bm25(assets_fts, 10.0, 1.0, 5.0, 8.0, 2.0, 2.0, 1.0)
   LIMIT ?
 `);
 
@@ -194,8 +194,8 @@ const tools = [
     name: 'search_assets',
     description:
       'Search the OWNED asset library (packs, not courses): 3D models, materials, plugins, game ' +
-      'systems. Answers "do I already own something for this?" before buying another. Returns ' +
-      'name, marketplace title, seller, category, ecosystem, size and path on disk.',
+      'systems, DCC scenes, meshes, materials, texture sets and archives. Returns name, type, ' +
+      'marketplace title, seller, category, ecosystem, size and path on disk.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -279,7 +279,11 @@ function callTool(name, args) {
     if (rows.length === 0) return 'No owned assets matched.';
     return rows
       .map((r) => {
-        const gb = r.file_size ? `${(r.file_size / 1e9).toFixed(1)} GB` : '—';
+        const size = !r.file_size
+          ? '—'
+          : r.file_size >= 1e9
+            ? `${(r.file_size / 1e9).toFixed(1)} GB`
+            : `${(r.file_size / 1e6).toFixed(1)} MB`;
         let cats = '';
         try {
           cats = r.orbital_categories ? JSON.parse(r.orbital_categories).join('/') : '';
@@ -289,7 +293,7 @@ function callTool(name, args) {
         const title =
           r.orbital_title && r.orbital_title !== r.name ? ` ("${r.orbital_title}")` : '';
         const by = r.orbital_seller_name ? ` by ${r.orbital_seller_name}` : '';
-        return `${r.name}${title}${by} — ${r.ecosystem}${cats ? `, ${cats}` : ''}, ${gb}\n  ${r.file_path}`;
+        return `${r.name}${title}${by} — ${r.ecosystem}, ${r.asset_type}${cats ? `, ${cats}` : ''}, ${size}\n  ${r.file_path}`;
       })
       .join('\n');
   }

@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { openDatabase } from '../../db';
 import { scanLocationsRepo } from '../../db/repos';
@@ -33,6 +34,13 @@ export const scanLocationsRouter = router({
   // Invalidate scanLocations.list on the renderer.
   update: publicProcedure.input(scanLocationUpdateSchema).mutation(({ input }) => {
     const { id, ...fields } = input;
+    const current = scanLocationsRepo.getScanLocation(openDatabase(), id);
+    if (current?.scan_mode === 'dcc' && fields.content_format != null) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'DCC locations cannot be Learn locations',
+      });
+    }
     scanLocationsRepo.updateScanLocationFull(openDatabase(), id, fields);
     return true;
   }),

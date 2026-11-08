@@ -69,19 +69,24 @@ export const idsSchema = z.array(idSchema);
 // (migration 20260409000000); null means regular assets.
 export const contentFormatSchema = z.enum(['course', 'workshop', 'ebook', 'reference', 'bookmark']);
 
-export const scanLocationInputSchema = z.object({
-  name: z.string(),
-  path: z.string(),
-  is_active: z.boolean(),
-  last_scan: z.string().nullable(),
-  scan_recursive: z.boolean(),
-  file_extensions: z.string().nullable(),
-  description: z.string().nullable(),
-  // `.default(null)` rather than `.optional()`: callers that predate the column
-  // may omit it, but the parsed value is always present, so the repo's
-  // `ContentFormat | null` stays non-optional. Omitted means regular assets.
-  content_format: contentFormatSchema.nullable().default(null),
-});
+export const scanLocationInputSchema = z
+  .object({
+    name: z.string(),
+    path: z.string(),
+    is_active: z.boolean(),
+    last_scan: z.string().nullable(),
+    scan_recursive: z.boolean(),
+    file_extensions: z.string().nullable(),
+    description: z.string().nullable(),
+    // `.default(null)` rather than `.optional()`: callers that predate the column
+    // may omit it, but the parsed value is always present, so the repo's
+    // `ContentFormat | null` stays non-optional. Omitted means regular assets.
+    content_format: contentFormatSchema.nullable().default(null),
+    scan_mode: z.enum(['packs', 'dcc']).default('packs'),
+  })
+  .refine((value) => value.scan_mode !== 'dcc' || value.content_format == null, {
+    message: 'DCC locations cannot be Learn locations',
+  });
 
 // Partial edit of an existing scan location — every field except `id` is
 // optional so the renderer can PATCH only what changed. Maps to the repo's

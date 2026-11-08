@@ -36,7 +36,8 @@ CREATE TABLE scan_locations (
   scan_recursive BOOLEAN NOT NULL DEFAULT 0,
   file_extensions TEXT,
   created_date TEXT NOT NULL,
-  description TEXT
+  description TEXT,
+  scan_mode TEXT NOT NULL DEFAULT 'packs'
 );
 `;
 

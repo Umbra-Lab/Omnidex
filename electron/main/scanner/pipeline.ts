@@ -13,6 +13,7 @@ import {
   detectTutorialSource,
   parseCues,
 } from './course-manifest';
+import { scanDccLocation } from './dcc-index';
 import { findThumbnailSource } from './thumbnail-finder';
 import { extractThumbnailsIsolated } from './thumbnail-pool';
 import type { DetectedAssetFolder } from './walker';
@@ -94,6 +95,37 @@ async function scanLocation(
   // rows to Learn instead of the pack library, and it selects the flat walk.
   const contentFormat = location.content_format ?? null;
 
+  if (location.scan_mode === 'dcc') {
+    try {
+      const { total, existing } = await scanDccLocation(
+        db,
+        locationId,
+        location.path,
+        controller.signal,
+      );
+      const payload = completionPayload(
+        locationId,
+        location.name,
+        location.path,
+        total,
+        total - existing,
+        existing,
+        null,
+      );
+      emit(payload);
+      return payload;
+    } catch (err) {
+      const payload = errorPayload(
+        locationId,
+        location.name,
+        location.path,
+        (err as Error).message,
+      );
+      emit(payload);
+      return payload;
+    }
+  }
+
   const t0 = Date.now();
   console.log(`[scan] walking ${location.path}`);
   let folders: DetectedAssetFolder[] = [];
@@ -154,7 +186,7 @@ async function scanLocation(
       const existed = existsStmt.get(folder.absolutePath) !== undefined;
       const now = new Date().toISOString();
       const assetType = folder.hasUassetFiles ? 'unreal_pack' : 'folder';
-      upsert.run(
+      const written = upsert.run(
         folder.name,
         folder.absolutePath,
         assetType,
@@ -167,6 +199,9 @@ async function scanLocation(
         folder.ecosystem,
         contentFormat,
       );
+      if (written.changes === 0) {
+        throw new Error(`Asset path belongs to a DCC location: ${folder.absolutePath}`);
+      }
       seenPaths.push(folder.absolutePath);
       if (existed) existingAssets += 1;
       else newAssets += 1;

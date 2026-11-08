@@ -24,6 +24,10 @@ location. Open the pack when **Open folder** returns. The action uses
 
 ## Add a scan location
 
+For a library of Blender, Maya, Houdini, ZBrush, Gaea, Substance, or interchange files, add its folder in Settings → Folders and choose **DCC files and texture sets**. This mode recursively indexes supported scene, mesh, material, brush and archive files, plus folders containing at least two named texture maps. The archive itself is searchable; its contents are not inspected. Paths, filenames, ecosystem and file type become search terms.
+
+Choose a separate root that does not overlap an existing location. A path already owned by another location causes the DCC scan to fail without changing its rows. DCC mode is fixed when the location is created; add a new location to use a different mode. A scan fails without pruning if a directory cannot be read or the scan is cancelled. Nested symbolic links are not followed.
+
 The setting that matters is **content format**, and the trap is where you point it.
 
 A location with `content_format = 'course'` treats **each top-level folder as one course**. Point it at a folder of courses, never at a folder of categories:

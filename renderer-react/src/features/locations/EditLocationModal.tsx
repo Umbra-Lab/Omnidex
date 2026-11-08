@@ -32,6 +32,7 @@ import { trpc } from '@/ipc/trpc';
  * in the form; it is mapped back to null on submit.
  */
 const ASSET_OPTION = 'asset';
+const DCC_OPTION = 'dcc';
 
 const CONTENT_FORMAT_LABELS: Record<ContentFormat, string> = {
   course: 'Courses',
@@ -47,7 +48,7 @@ const schema = z.object({
   is_active: z.boolean(),
   scan_recursive: z.boolean(),
   description: z.string(),
-  content_format: z.enum([ASSET_OPTION, ...CONTENT_FORMATS]),
+  content_format: z.enum([ASSET_OPTION, DCC_OPTION, ...CONTENT_FORMATS]),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -83,7 +84,8 @@ function formFromLocation(location: ScanLocation): FormValues {
     is_active: location.is_active,
     scan_recursive: location.scan_recursive,
     description: location.description ?? '',
-    content_format: location.content_format ?? ASSET_OPTION,
+    content_format:
+      location.scan_mode === 'dcc' ? DCC_OPTION : (location.content_format ?? ASSET_OPTION),
   };
 }
 
@@ -144,7 +146,10 @@ export function EditLocationModal({
 
   function onSubmit(values: FormValues) {
     const description = values.description.length > 0 ? values.description : null;
-    const contentFormat = values.content_format === ASSET_OPTION ? null : values.content_format;
+    const contentFormat =
+      values.content_format === ASSET_OPTION || values.content_format === DCC_OPTION
+        ? null
+        : values.content_format;
     if (isEdit && location?.id != null) {
       update.mutate({
         id: location.id,
@@ -161,11 +166,12 @@ export function EditLocationModal({
       name: values.name,
       path: values.path,
       is_active: values.is_active,
-      scan_recursive: values.scan_recursive,
+      scan_recursive: values.content_format === DCC_OPTION || values.scan_recursive,
       description,
       last_scan: null,
       file_extensions: null,
       content_format: contentFormat,
+      scan_mode: values.content_format === DCC_OPTION ? 'dcc' : 'packs',
     });
   }
 
@@ -177,7 +183,7 @@ export function EditLocationModal({
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit folder' : 'Add a folder'}</DialogTitle>
           <DialogDescription>
-            Omnidex scans the folder recursively for UE packs and indexes every asset it finds.
+            Choose a folder and the kind of library it contains.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
@@ -206,6 +212,7 @@ export function EditLocationModal({
             <Label htmlFor="content_format">Contains</Label>
             <Select
               value={form.watch('content_format')}
+              disabled={isEdit && location?.scan_mode === 'dcc'}
               onValueChange={(v) =>
                 form.setValue('content_format', v as FormValues['content_format'])
               }
@@ -215,6 +222,9 @@ export function EditLocationModal({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ASSET_OPTION}>Assets (packs, models, materials)</SelectItem>
+                {(!isEdit || location?.scan_mode === 'dcc') && (
+                  <SelectItem value={DCC_OPTION}>DCC files and texture sets</SelectItem>
+                )}
                 {CONTENT_FORMATS.map((f) => (
                   <SelectItem key={f} value={f}>
                     {CONTENT_FORMAT_LABELS[f]}
@@ -222,17 +232,20 @@ export function EditLocationModal({
                 ))}
               </SelectContent>
             </Select>
-            <span className="cap-10 text-fg-muted">
-              Anything other than Assets is indexed into the Learn tab instead of the library.
+            <span className="mt-1 cap-11 text-fg-muted">
+              DCC mode indexes scenes, meshes, materials, texture sets and archives. Courses and
+              references appear in Learn.
             </span>
           </div>
-          <div className="flex items-center justify-between">
-            <Label>Scan recursively</Label>
-            <Switch
-              checked={form.watch('scan_recursive')}
-              onCheckedChange={(v) => form.setValue('scan_recursive', v)}
-            />
-          </div>
+          {form.watch('content_format') !== DCC_OPTION && (
+            <div className="flex items-center justify-between">
+              <Label>Scan recursively</Label>
+              <Switch
+                checked={form.watch('scan_recursive')}
+                onCheckedChange={(v) => form.setValue('scan_recursive', v)}
+              />
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <Label>Active</Label>
             <Switch

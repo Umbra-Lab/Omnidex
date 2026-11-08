@@ -58,8 +58,8 @@ export function createScanLocation(
   const stmt = db.prepare(
     `INSERT INTO scan_locations (
       name, path, is_active, last_scan, scan_recursive, file_extensions, created_date,
-      description, content_format
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      description, content_format, scan_mode
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const result = stmt.run(
     loc.name,
@@ -71,6 +71,7 @@ export function createScanLocation(
     now,
     loc.description,
     loc.content_format ?? null,
+    loc.scan_mode ?? 'packs',
   );
   return Number(result.lastInsertRowid);
 }

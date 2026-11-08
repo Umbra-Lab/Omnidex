@@ -17,6 +17,7 @@ export type AssetEcosystem =
   | 'maya'
   | '3ds_max'
   | 'houdini'
+  | 'gaea'
   | 'general_3d'
   | 'audio'
   | 'agnostic'
@@ -35,6 +36,7 @@ export const ASSET_ECOSYSTEMS: AssetEcosystem[] = [
   'maya',
   '3ds_max',
   'houdini',
+  'gaea',
   'general_3d',
   'audio',
   'agnostic',

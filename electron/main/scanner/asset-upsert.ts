@@ -31,4 +31,5 @@ export const ASSET_UPSERT_SQL = `INSERT INTO assets (
        -- curated rows instead of deleting them, so this is the other half of
        -- that: move a pack away, scan, move it back, scan — and its
        -- collections, tags and notes are still attached.
-       missing_since = NULL`;
+       missing_since = NULL
+     WHERE assets.asset_type NOT GLOB 'dcc_*' OR assets.scan_location_id = excluded.scan_location_id`;

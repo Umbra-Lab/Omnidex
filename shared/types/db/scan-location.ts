@@ -31,6 +31,8 @@ export interface ScanLocation {
    * the Learn tab instead of the pack library. `null` = regular assets.
    */
   content_format: ContentFormat | null;
+  /** Discovery rules chosen when the location is created. */
+  scan_mode?: 'packs' | 'dcc';
 }
 
 /**

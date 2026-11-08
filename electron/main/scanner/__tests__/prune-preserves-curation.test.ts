@@ -59,6 +59,20 @@ const count = (table: string): number =>
   (db.prepare(`SELECT COUNT(*) n FROM ${table}`).get() as { n: number }).n;
 
 describe('scan prune preserves curation', () => {
+  it('does not transfer a DCC row to an overlapping pack location', () => {
+    seedAsset(db, {
+      name: 'Texture set',
+      file_path: '/lib/Shared',
+      asset_type: 'dcc_texture_set',
+      scan_location_id: 2,
+    });
+    scanUpsert('/lib/Shared', 'Pack', 1);
+    expect(
+      db
+        .prepare('SELECT name, scan_location_id FROM assets WHERE file_path = ?')
+        .get('/lib/Shared'),
+    ).toEqual({ name: 'Texture set', scan_location_id: 2 });
+  });
   it('a pack that disappears and comes back keeps its collection, tags and notes', () => {
     scanUpsert('/lib/Pack', 'Pack');
     const id = (
