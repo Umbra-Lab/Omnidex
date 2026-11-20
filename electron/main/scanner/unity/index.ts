@@ -3,6 +3,7 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, join, sep } from 'node:path';
 import type { Database } from 'better-sqlite3';
 import { pruneAssetsNotIn } from '../../db/repos/assets';
+import { type AssetStoreInfo, readAssetStoreInfo } from './asset-store';
 import {
   discoverUnity,
   listProjectFiles,
@@ -140,6 +141,30 @@ function upsertContainer(
     id: number;
   };
   return row.id;
+}
+
+/** Record (or clear) a package's Asset Store identity; its store title also names the card. */
+function writeStoreInfo(db: Database, containerId: number, store: AssetStoreInfo | null): void {
+  db.prepare(
+    `UPDATE unity_packages SET store_id = ?, store_title = ?, store_publisher = ?,
+       store_category = ?, store_version = ?, store_unity_version = ?, store_published_on = ?
+     WHERE asset_id = ?`,
+  ).run(
+    store?.id ?? null,
+    store?.title ?? null,
+    store?.publisher ?? null,
+    store?.category ?? null,
+    store?.version ?? null,
+    store?.unityVersion ?? null,
+    store?.publishedOn ?? null,
+    containerId,
+  );
+  if (store?.title) {
+    db.prepare('UPDATE assets SET display_title = ? WHERE id = ? AND display_title IS NULL').run(
+      store.title,
+      containerId,
+    );
+  }
 }
 
 function searchText(parts: Array<string | null | undefined>): string {
@@ -335,7 +360,11 @@ export async function indexUnityPackage(
         thumbnail_path: string | null;
       }
     | undefined;
+  // One small read, done even for an unchanged package so a library indexed before this
+  // field was read picks it up without re-reading every archive.
+  const store = await readAssetStoreInfo(packagePath).catch(() => null);
   if (prior && prior.file_size === info.size && prior.file_mtime_ms === mtimeMs) {
+    writeStoreInfo(db, prior.id, store);
     return { containerId: prior.id, reread: false };
   }
 
@@ -359,7 +388,14 @@ export async function indexUnityPackage(
       path: packagePath,
       type: 'unity_package',
       size: info.size,
-      searchText: searchText([name, 'unity package', ...folders]),
+      searchText: searchText([
+        name,
+        'unity package',
+        store?.title,
+        store?.publisher,
+        store?.category,
+        ...folders,
+      ]),
     });
     if (thumbnail) {
       db.prepare('UPDATE assets SET thumbnail_path = ?, has_local_thumbnail = 1 WHERE id = ?').run(
@@ -373,6 +409,7 @@ export async function indexUnityPackage(
         ON CONFLICT(asset_id) DO UPDATE SET file_size=excluded.file_size,
           file_mtime_ms=excluded.file_mtime_ms, scanned_at=excluded.scanned_at`,
     ).run(containerId, info.size, mtimeMs, new Date().toISOString());
+    writeStoreInfo(db, containerId, store);
     db.prepare('DELETE FROM unity_assets WHERE container_id = ?').run(containerId);
     db.prepare('DELETE FROM unity_refs WHERE container_id = ?').run(containerId);
     writeRows(

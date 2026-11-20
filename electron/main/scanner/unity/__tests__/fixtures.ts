@@ -252,3 +252,34 @@ export function samplePackage(): Buffer {
     ]),
   );
 }
+
+/** The JSON the Asset Store writes into a download's gzip header (shape of a real one). */
+export const STORE_HEADER = {
+  link: { id: '102321', type: 'content' },
+  unity_version: '2022.3.62f2',
+  pubdate: '07 Oct 2026',
+  version: '1.4.0',
+  upload_id: '1014102',
+  version_id: '1507792',
+  category: { id: '4', label: '3D/Vehicles/Sea' },
+  id: '102321',
+  title: 'POLYGON - Fleet',
+  publisher: { id: '5217', label: 'Synty Studios' },
+};
+
+/**
+ * Give a gzip file the optional "extra" field (FLG.FEXTRA) the Asset Store adds, holding
+ * `json` in one subfield. gzipSync writes no other optional header fields, so the field
+ * goes straight after the fixed 10-byte header.
+ */
+export function withStoreHeader(gz: Buffer, json: unknown = STORE_HEADER): Buffer {
+  const payload = Buffer.from(JSON.stringify(json));
+  const sub = Buffer.alloc(4);
+  sub.write('A$', 0, 'latin1');
+  sub.writeUInt16LE(payload.length, 2);
+  const xlen = Buffer.alloc(2);
+  xlen.writeUInt16LE(4 + payload.length, 0);
+  const head = Buffer.from(gz.subarray(0, 10));
+  head[3] |= 0x04;
+  return Buffer.concat([head, xlen, sub, payload, gz.subarray(10)]);
+}

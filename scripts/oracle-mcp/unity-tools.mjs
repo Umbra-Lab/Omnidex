@@ -123,6 +123,29 @@ export function createUnityTools(db) {
     WHERE a.asset_type IN ('unity_project', 'unity_package') AND a.missing_since IS NULL
       AND a.name LIKE ? ESCAPE '\\'
     ORDER BY a.asset_type DESC, a.name`);
+  // Asset Store columns arrived in a later migration; an older database just lacks them.
+  const hasStore = db
+    .prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?')
+    .get('unity_packages', 'store_id');
+  const storeStmt = hasStore
+    ? db.prepare(
+        `SELECT store_id, store_title, store_publisher, store_category, store_version,
+                store_unity_version, store_published_on
+           FROM unity_packages WHERE asset_id = ? AND store_id IS NOT NULL`,
+      )
+    : null;
+  function storeLine(id) {
+    const s = storeStmt?.get(id);
+    if (!s) return '';
+    const parts = [
+      `${s.store_title ?? 'untitled'}${s.store_publisher ? ` by ${s.store_publisher}` : ''}` +
+        `${s.store_category ? ` (${s.store_category})` : ''}`,
+      s.store_version ? `v${s.store_version.replace(/^v/i, '')}` : null,
+      s.store_unity_version ? `Unity ${s.store_unity_version}` : null,
+      s.store_published_on ? `published ${s.store_published_on}` : null,
+    ].filter(Boolean);
+    return `\n  Asset Store ${s.store_id}: ${parts.join(', ')}`;
+  }
   const kindCountsStmt = db.prepare(
     'SELECT kind, COUNT(*) AS n FROM unity_assets WHERE container_id = ? GROUP BY kind ORDER BY n DESC',
   );
@@ -219,7 +242,7 @@ export function createUnityTools(db) {
             .map((c) => `${c.n.toLocaleString('en-US')} ${c.kind}`)
             .join(', ');
           if (row.asset_type === 'unity_package') {
-            return `PACKAGE ${row.name} — ${size(row.file_size)}\n  ${row.file_path}\n  ${counts || 'empty'}`;
+            return `PACKAGE ${row.name} — ${size(row.file_size)}${storeLine(row.id)}\n  ${row.file_path}\n  ${counts || 'empty'}`;
           }
           let deps = {};
           try {

@@ -16,11 +16,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedAsset } from '../../../db/repos/__tests__/fixtures/test-db';
 import { scanUnityLocation } from '..';
 import { boundedLines } from '../project';
-import { GUID, samplePackage, writeSampleProject } from './fixtures';
+import { GUID, samplePackage, withStoreHeader, writeSampleProject } from './fixtures';
 
 const MIGRATIONS = [
   'electron/main/db/migrations/20261108000000_dcc_index.up.sql',
   'electron/main/db/migrations/20261120000000_unity_index.up.sql',
+  'electron/main/db/migrations/20261120010000_unity_asset_store.up.sql',
 ];
 
 const dirs: string[] = [];
@@ -55,7 +56,7 @@ function library(): { root: string; project: string; pack: string; thumbs: strin
     '3D ModelsVehicles',
     'POLYGON Fleet.unitypackage',
   );
-  writeFileSync(pack, samplePackage());
+  writeFileSync(pack, withStoreHeader(samplePackage()));
   return { root, project, pack, thumbs: join(root, '..', `${root.split(/[\\/]/).pop()}-thumbs`) };
 }
 
@@ -248,6 +249,41 @@ describe('Unity location scan', () => {
     (db as unknown as { close(): void }).close();
   });
 
+  it('records the Asset Store identity, and backfills it on an unchanged rescan', async () => {
+    const db = unityDb();
+    const { root, pack, thumbs } = library();
+    dirs.push(thumbs);
+    const signal = new AbortController().signal;
+    await scanUnityLocation(db, 7, root, signal, thumbs);
+    const store = () =>
+      rows(
+        db,
+        `SELECT p.store_id, p.store_title, p.store_publisher, p.store_category, p.store_version,
+                p.store_unity_version, p.store_published_on, a.display_title
+           FROM unity_packages p JOIN assets a ON a.id = p.asset_id WHERE a.file_path = ?`,
+        pack,
+      )[0];
+    expect(store()).toEqual({
+      store_id: '102321',
+      store_title: 'POLYGON - Fleet',
+      store_publisher: 'Synty Studios',
+      store_category: '3D/Vehicles/Sea',
+      store_version: '1.4.0',
+      store_unity_version: '2022.3.62f2',
+      store_published_on: '07 Oct 2026',
+      display_title: 'POLYGON - Fleet',
+    });
+    const search = rows(db, 'SELECT scan_search_text FROM assets WHERE file_path = ?', pack)[0];
+    expect(String(search.scan_search_text)).toContain('Synty Studios');
+
+    // A library indexed before the store columns existed: the archive is unchanged, so it
+    // is not re-read, but the header is.
+    db.exec('UPDATE unity_packages SET store_id = NULL, store_title = NULL');
+    await scanUnityLocation(db, 7, root, signal, thumbs);
+    expect(store()?.store_id).toBe('102321');
+    (db as unknown as { close(): void }).close();
+  });
+
   it('reports a project another location owns as a failure and keeps going', async () => {
     const db = unityDb();
     const { root, project, thumbs } = library();
@@ -299,6 +335,10 @@ describe('Unity location scan', () => {
       expect(projects).toContain('PROJECT GalaxyDemo — Unity 6000.3.0f1, urp');
       expect(projects).toContain('com.unity.inputsystem@1.14.0');
       expect(projects).toContain('PACKAGE POLYGON Fleet');
+      expect(projects).toContain(
+        'Asset Store 102321: POLYGON - Fleet by Synty Studios (3D/Vehicles/Sea), v1.4.0, ' +
+          'Unity 2022.3.62f2, published 07 Oct 2026',
+      );
 
       const found = await ask('unity_find_asset', { query: 'ship', kind: 'prefab' });
       expect(found).toContain('[GalaxyDemo] Assets/Prefabs/Ship.prefab');
