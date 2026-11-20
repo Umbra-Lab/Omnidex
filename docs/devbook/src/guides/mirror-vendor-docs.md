@@ -45,7 +45,7 @@ python scripts/docs-mirror/docs_mirror.py all
 | `--product NAME` | Only this product (repeatable) |
 | `--source NAME` | Only this doc set, including disabled ones (repeatable) |
 | `--refresh` | Re-check mirrored sources; changed pages are rewritten. A page is deleted only when the vendor answers 404 or 410 for it, or when it falls outside the source's `prefix` after a crawl with no failures |
-| `--prune` | Allow a refresh to remove more than 10% of a doc set, or to remove pages after a start page has gone |
+| `--prune` | Accept what the site serves now: remove more than 10% of a doc set, remove pages after a start page has gone, and save pages that shrank sharply or lost their links |
 | `--delay S` | Seconds between requests to one host, default 1. A `Crawl-delay` in robots.txt overrides it when larger |
 | `--mirror-dir DIR` | Default `<userData>/docs-mirror`, or `OMNIDEX_DOCS_MIRROR` |
 
