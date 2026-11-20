@@ -52,6 +52,10 @@ assert.deepEqual(list.result.tools.map((t) => t.name).sort(), [
   'search_assets',
   'search_lessons',
   'search_transcripts',
+  'unity_dependencies',
+  'unity_find_asset',
+  'unity_projects',
+  'unity_scene_outline',
 ]);
 
 const t0 = Date.now();

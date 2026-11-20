@@ -1,0 +1,371 @@
+import { createHash } from 'node:crypto';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { basename, extname, join } from 'node:path';
+import type { Database } from 'better-sqlite3';
+import { pruneAssetsNotIn } from '../../db/repos/assets';
+import {
+  discoverUnity,
+  listProjectFiles,
+  readMetaGuid,
+  readProjectFile,
+  readProjectInfo,
+  type UnityProjectInfo,
+} from './project';
+import { readUnityPackage, type UnityPackageContents } from './unitypackage';
+
+/**
+ * Scan a `scan_mode = 'unity'` location: every Unity project and `.unitypackage` under
+ * the root becomes one row in `assets`, and what is inside it goes to `unity_assets` and
+ * `unity_refs`. Files are read, never written; the only file Omnidex creates is a
+ * package's preview thumbnail under its own userData.
+ *
+ * Projects rescan incrementally: a file whose size and modification time (and its
+ * .meta's) are unchanged keeps its stored row. Packages are re-read only when the
+ * package file itself changed.
+ */
+
+export interface UnityScanResult {
+  total: number;
+  existing: number;
+  projects: number;
+  packages: number;
+  failures: string[];
+}
+
+export async function scanUnityLocation(
+  db: Database,
+  locationId: number,
+  root: string,
+  signal: AbortSignal,
+  thumbnailRoot: string,
+): Promise<UnityScanResult> {
+  const found = await discoverUnity(root, signal);
+  const existingStmt = db.prepare('SELECT 1 FROM assets WHERE file_path = ?');
+  const seen: string[] = [];
+  const failures: string[] = [];
+  const failedPaths: string[] = [];
+  let existing = 0;
+
+  for (const projectRoot of found.projects) {
+    signal.throwIfAborted();
+    if (existingStmt.get(projectRoot)) existing += 1;
+    try {
+      await indexUnityProject(db, locationId, projectRoot, signal);
+      seen.push(projectRoot);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      failures.push(`${projectRoot}: ${(error as Error).message}`);
+      failedPaths.push(projectRoot);
+    }
+  }
+  for (const packagePath of found.packages) {
+    signal.throwIfAborted();
+    if (existingStmt.get(packagePath)) existing += 1;
+    try {
+      await indexUnityPackage(db, locationId, packagePath, signal, thumbnailRoot);
+      seen.push(packagePath);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      failures.push(`${packagePath}: ${(error as Error).message}`);
+      failedPaths.push(packagePath);
+    }
+  }
+
+  // A container that failed to read this time is kept, not pruned: the failure is
+  // more likely a locked file than a deleted one.
+  const keep = [...seen, ...failedPaths];
+  db.exec('BEGIN');
+  try {
+    pruneAssetsNotIn(db, locationId, keep);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+  return {
+    total: found.projects.length + found.packages.length,
+    existing,
+    projects: found.projects.length,
+    packages: found.packages.length,
+    failures,
+  };
+}
+
+const ASSET_UPSERT = `INSERT INTO assets
+  (name, file_path, asset_type, file_size, file_size_is_partial, created_date, modified_date,
+   scan_location_id, is_favorite, ecosystem, asset_ecosystem, content_format, scan_search_text)
+  VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, 'unity', 'unity', NULL, ?)
+  ON CONFLICT(file_path) DO UPDATE SET name=excluded.name, asset_type=excluded.asset_type,
+    file_size=excluded.file_size, modified_date=excluded.modified_date,
+    ecosystem=excluded.ecosystem, asset_ecosystem=excluded.asset_ecosystem,
+    scan_search_text=excluded.scan_search_text, missing_since=NULL`;
+
+/** Insert or refresh the container row; refuse a path another location owns. */
+function upsertContainer(
+  db: Database,
+  locationId: number,
+  fields: { name: string; path: string; type: string; size: number; searchText: string },
+): number {
+  const owner = db
+    .prepare('SELECT id, scan_location_id FROM assets WHERE file_path = ?')
+    .get(fields.path) as { id: number; scan_location_id: number } | undefined;
+  if (owner && owner.scan_location_id !== locationId) {
+    throw new Error('path belongs to another scan location');
+  }
+  const now = new Date().toISOString();
+  db.prepare(ASSET_UPSERT).run(
+    fields.name,
+    fields.path,
+    fields.type,
+    fields.size,
+    now,
+    now,
+    locationId,
+    fields.searchText,
+  );
+  const row = db.prepare('SELECT id FROM assets WHERE file_path = ?').get(fields.path) as {
+    id: number;
+  };
+  return row.id;
+}
+
+function searchText(parts: Array<string | null | undefined>): string {
+  return parts
+    .filter(Boolean)
+    .join(' ')
+    .replaceAll(/[_./@-]/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2');
+}
+
+interface StoredRow {
+  id: number;
+  guid: string | null;
+  size: number;
+  mtime_ms: number;
+}
+
+interface FreshRow {
+  guid: string | null;
+  relPath: string;
+  name: string;
+  kind: string;
+  size: number;
+  mtimeMs: number;
+  serialization: 'text' | 'binary' | 'none';
+  variantOf: string | null;
+  summary: string | null;
+  refs: string[];
+}
+
+export async function indexUnityProject(
+  db: Database,
+  locationId: number,
+  projectRoot: string,
+  signal?: AbortSignal,
+): Promise<{ containerId: number; info: UnityProjectInfo; changed: number; files: number }> {
+  const info = await readProjectInfo(projectRoot);
+  const files = await listProjectFiles(projectRoot, signal);
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+
+  const prior = db.prepare('SELECT id FROM assets WHERE file_path = ?').get(projectRoot) as
+    | { id: number }
+    | undefined;
+  const stored = new Map<string, StoredRow>();
+  if (prior) {
+    const rows = db
+      .prepare('SELECT id, rel_path, guid, size, mtime_ms FROM unity_assets WHERE container_id = ?')
+      .all(prior.id) as Array<StoredRow & { rel_path: string }>;
+    for (const row of rows) stored.set(row.rel_path, row);
+  }
+
+  // Read changed files before taking the write transaction, so the app stays responsive.
+  const fresh: FreshRow[] = [];
+  for (const file of files) {
+    signal?.throwIfAborted();
+    const before = stored.get(file.relPath);
+    if (before && before.size === file.size && before.mtime_ms === file.mtimeMs) continue;
+    const guid = await readMetaGuid(file.absPath);
+    const contents = await readProjectFile(file, guid);
+    fresh.push({
+      guid,
+      relPath: file.relPath,
+      name: file.name,
+      kind: file.kind === 'prefab' && contents.variantOf ? 'prefab_variant' : file.kind,
+      size: file.size,
+      mtimeMs: file.mtimeMs,
+      serialization: contents.serialization,
+      variantOf: contents.variantOf,
+      summary: contents.outline ? JSON.stringify(contents.outline) : null,
+      refs: contents.refs,
+    });
+  }
+  const present = new Set(files.map((file) => file.relPath));
+  const removed = [...stored.entries()].filter(([relPath]) => !present.has(relPath));
+
+  db.exec('BEGIN');
+  try {
+    const containerId = upsertContainer(db, locationId, {
+      name: info.name,
+      path: projectRoot,
+      type: 'unity_project',
+      size: totalSize,
+      searchText: searchText([
+        info.name,
+        'unity project',
+        info.editorVersion,
+        info.renderPipeline,
+        ...Object.keys(info.packages),
+      ]),
+    });
+    db.prepare(
+      `INSERT INTO unity_projects
+        (asset_id, root_path, editor_version, render_pipeline, packages_json, scanned_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(asset_id) DO UPDATE SET root_path=excluded.root_path,
+          editor_version=excluded.editor_version, render_pipeline=excluded.render_pipeline,
+          packages_json=excluded.packages_json, scanned_at=excluded.scanned_at`,
+    ).run(
+      containerId,
+      projectRoot,
+      info.editorVersion,
+      info.renderPipeline,
+      JSON.stringify(info.packages),
+      new Date().toISOString(),
+    );
+    const deleteRow = db.prepare('DELETE FROM unity_assets WHERE id = ?');
+    const deleteRefs = db.prepare(
+      'DELETE FROM unity_refs WHERE container_id = ? AND from_guid = ?',
+    );
+    for (const [, row] of removed) {
+      deleteRow.run(row.id);
+      if (row.guid) deleteRefs.run(containerId, row.guid);
+    }
+    for (const row of fresh) {
+      const before = stored.get(row.relPath);
+      if (before?.guid) deleteRefs.run(containerId, before.guid);
+    }
+    writeRows(db, containerId, fresh);
+    db.exec('COMMIT');
+    return { containerId, info, changed: fresh.length + removed.length, files: files.length };
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+function writeRows(db: Database, containerId: number, rows: FreshRow[]): void {
+  const upsert = db.prepare(
+    `INSERT INTO unity_assets
+      (container_id, guid, rel_path, name, kind, size, mtime_ms, serialization, variant_of,
+       summary_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(container_id, rel_path) DO UPDATE SET guid=excluded.guid, name=excluded.name,
+        kind=excluded.kind, size=excluded.size, mtime_ms=excluded.mtime_ms,
+        serialization=excluded.serialization, variant_of=excluded.variant_of,
+        summary_json=excluded.summary_json`,
+  );
+  const insertRef = db.prepare(
+    'INSERT OR IGNORE INTO unity_refs (container_id, from_guid, to_guid) VALUES (?, ?, ?)',
+  );
+  for (const row of rows) {
+    upsert.run(
+      containerId,
+      row.guid,
+      row.relPath,
+      row.name,
+      row.kind,
+      row.size,
+      row.mtimeMs,
+      row.serialization,
+      row.variantOf,
+      row.summary,
+    );
+    if (row.guid) for (const to of row.refs) insertRef.run(containerId, row.guid, to);
+  }
+}
+
+export async function indexUnityPackage(
+  db: Database,
+  locationId: number,
+  packagePath: string,
+  signal: AbortSignal | undefined,
+  thumbnailRoot: string,
+): Promise<{ containerId: number; reread: boolean }> {
+  const info = await stat(packagePath);
+  const mtimeMs = Math.trunc(info.mtimeMs);
+  const prior = db
+    .prepare(
+      `SELECT a.id, p.file_size, p.file_mtime_ms, a.thumbnail_path FROM assets a
+        LEFT JOIN unity_packages p ON p.asset_id = a.id WHERE a.file_path = ?`,
+    )
+    .get(packagePath) as
+    | {
+        id: number;
+        file_size: number | null;
+        file_mtime_ms: number | null;
+        thumbnail_path: string | null;
+      }
+    | undefined;
+  if (prior && prior.file_size === info.size && prior.file_mtime_ms === mtimeMs) {
+    return { containerId: prior.id, reread: false };
+  }
+
+  const contents: UnityPackageContents = await readUnityPackage(packagePath, signal);
+  const name = basename(packagePath, extname(packagePath));
+  let thumbnail: string | null = null;
+  if (contents.preview && !prior?.thumbnail_path) {
+    const dir = join(thumbnailRoot, 'unity');
+    await mkdir(dir, { recursive: true });
+    thumbnail = join(dir, `${createHash('sha1').update(packagePath).digest('hex')}.png`);
+    await writeFile(thumbnail, contents.preview);
+  }
+  const folders = new Set(
+    contents.entries.map((entry) => entry.relPath.split('/').slice(1, 3).join(' ')),
+  );
+
+  db.exec('BEGIN');
+  try {
+    const containerId = upsertContainer(db, locationId, {
+      name,
+      path: packagePath,
+      type: 'unity_package',
+      size: info.size,
+      searchText: searchText([name, 'unity package', ...folders]),
+    });
+    if (thumbnail) {
+      db.prepare('UPDATE assets SET thumbnail_path = ?, has_local_thumbnail = 1 WHERE id = ?').run(
+        thumbnail,
+        containerId,
+      );
+    }
+    db.prepare(
+      `INSERT INTO unity_packages (asset_id, file_size, file_mtime_ms, scanned_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(asset_id) DO UPDATE SET file_size=excluded.file_size,
+          file_mtime_ms=excluded.file_mtime_ms, scanned_at=excluded.scanned_at`,
+    ).run(containerId, info.size, mtimeMs, new Date().toISOString());
+    db.prepare('DELETE FROM unity_assets WHERE container_id = ?').run(containerId);
+    db.prepare('DELETE FROM unity_refs WHERE container_id = ?').run(containerId);
+    writeRows(
+      db,
+      containerId,
+      contents.entries.map((entry) => ({
+        guid: entry.guid,
+        relPath: entry.relPath,
+        name: entry.name,
+        kind: entry.kind,
+        size: entry.size,
+        mtimeMs: 0,
+        serialization: entry.serialization,
+        variantOf: entry.variantOf,
+        summary: entry.outline ? JSON.stringify(entry.outline) : null,
+        refs: entry.refs,
+      })),
+    );
+    db.exec('COMMIT');
+    return { containerId, reread: true };
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}

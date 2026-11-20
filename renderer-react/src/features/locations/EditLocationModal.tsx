@@ -33,6 +33,9 @@ import { trpc } from '@/ipc/trpc';
  */
 const ASSET_OPTION = 'asset';
 const DCC_OPTION = 'dcc';
+const UNITY_OPTION = 'unity';
+/** Scan modes whose discovery rules are fixed when the location is created. */
+const FIXED_MODES = new Set([DCC_OPTION, UNITY_OPTION]);
 
 const CONTENT_FORMAT_LABELS: Record<ContentFormat, string> = {
   course: 'Courses',
@@ -48,7 +51,7 @@ const schema = z.object({
   is_active: z.boolean(),
   scan_recursive: z.boolean(),
   description: z.string(),
-  content_format: z.enum([ASSET_OPTION, DCC_OPTION, ...CONTENT_FORMATS]),
+  content_format: z.enum([ASSET_OPTION, DCC_OPTION, UNITY_OPTION, ...CONTENT_FORMATS]),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -85,7 +88,11 @@ function formFromLocation(location: ScanLocation): FormValues {
     scan_recursive: location.scan_recursive,
     description: location.description ?? '',
     content_format:
-      location.scan_mode === 'dcc' ? DCC_OPTION : (location.content_format ?? ASSET_OPTION),
+      location.scan_mode === 'dcc'
+        ? DCC_OPTION
+        : location.scan_mode === 'unity'
+          ? UNITY_OPTION
+          : (location.content_format ?? ASSET_OPTION),
   };
 }
 
@@ -147,7 +154,9 @@ export function EditLocationModal({
   function onSubmit(values: FormValues) {
     const description = values.description.length > 0 ? values.description : null;
     const contentFormat =
-      values.content_format === ASSET_OPTION || values.content_format === DCC_OPTION
+      values.content_format === ASSET_OPTION ||
+      values.content_format === DCC_OPTION ||
+      values.content_format === UNITY_OPTION
         ? null
         : values.content_format;
     if (isEdit && location?.id != null) {
@@ -166,12 +175,17 @@ export function EditLocationModal({
       name: values.name,
       path: values.path,
       is_active: values.is_active,
-      scan_recursive: values.content_format === DCC_OPTION || values.scan_recursive,
+      scan_recursive: FIXED_MODES.has(values.content_format) || values.scan_recursive,
       description,
       last_scan: null,
       file_extensions: null,
       content_format: contentFormat,
-      scan_mode: values.content_format === DCC_OPTION ? 'dcc' : 'packs',
+      scan_mode:
+        values.content_format === DCC_OPTION
+          ? 'dcc'
+          : values.content_format === UNITY_OPTION
+            ? 'unity'
+            : 'packs',
     });
   }
 
@@ -212,7 +226,7 @@ export function EditLocationModal({
             <Label htmlFor="content_format">Contains</Label>
             <Select
               value={form.watch('content_format')}
-              disabled={isEdit && location?.scan_mode === 'dcc'}
+              disabled={isEdit && FIXED_MODES.has(location?.scan_mode ?? '')}
               onValueChange={(v) =>
                 form.setValue('content_format', v as FormValues['content_format'])
               }
@@ -225,6 +239,11 @@ export function EditLocationModal({
                 {(!isEdit || location?.scan_mode === 'dcc') && (
                   <SelectItem value={DCC_OPTION}>DCC files and texture sets</SelectItem>
                 )}
+                {(!isEdit || location?.scan_mode === 'unity') && (
+                  <SelectItem value={UNITY_OPTION}>
+                    Unity projects and .unitypackage files
+                  </SelectItem>
+                )}
                 {CONTENT_FORMATS.map((f) => (
                   <SelectItem key={f} value={f}>
                     {CONTENT_FORMAT_LABELS[f]}
@@ -233,11 +252,12 @@ export function EditLocationModal({
               </SelectContent>
             </Select>
             <span className="mt-1 cap-11 text-fg-muted">
-              DCC mode indexes scenes, meshes, materials, texture sets and archives. Courses and
-              references appear in Learn.
+              DCC mode indexes scenes, meshes, materials, texture sets and archives. Unity mode
+              reads projects and packages without opening the Editor. Courses and references appear
+              in Learn.
             </span>
           </div>
-          {form.watch('content_format') !== DCC_OPTION && (
+          {!FIXED_MODES.has(form.watch('content_format')) && (
             <div className="flex items-center justify-between">
               <Label>Scan recursively</Label>
               <Switch

@@ -501,6 +501,19 @@ describe('scanLocations router', () => {
     await expect(caller.scanLocations.update({ id, content_format: 'course' })).rejects.toThrow();
   });
 
+  it('persists a Unity scan mode and refuses to turn it into a Learn location', async () => {
+    const id = await caller.scanLocations.create({ ...fullLocation, scan_mode: 'unity' });
+    expect((await caller.scanLocations.get(id))?.scan_mode).toBe('unity');
+    await expect(caller.scanLocations.update({ id, content_format: 'course' })).rejects.toThrow();
+    await expect(
+      caller.scanLocations.create({
+        ...fullLocation,
+        scan_mode: 'unity',
+        content_format: 'course',
+      }),
+    ).rejects.toThrow();
+  });
+
   it('rejects a DCC location that is also a course', async () => {
     await expect(
       caller.scanLocations.create({ ...fullLocation, scan_mode: 'dcc', content_format: 'course' }),

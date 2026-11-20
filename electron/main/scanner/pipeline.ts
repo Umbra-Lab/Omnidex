@@ -16,6 +16,7 @@ import {
 import { scanDccLocation } from './dcc-index';
 import { findThumbnailSource } from './thumbnail-finder';
 import { extractThumbnailsIsolated } from './thumbnail-pool';
+import { scanUnityLocation } from './unity';
 import type { DetectedAssetFolder } from './walker';
 import { WALK_DIAGNOSTIC_KINDS, walkRootWithDiagnostics } from './walker';
 
@@ -95,14 +96,18 @@ async function scanLocation(
   // rows to Learn instead of the pack library, and it selects the flat walk.
   const contentFormat = location.content_format ?? null;
 
-  if (location.scan_mode === 'dcc') {
+  if (location.scan_mode === 'dcc' || location.scan_mode === 'unity') {
     try {
-      const { total, existing } = await scanDccLocation(
-        db,
-        locationId,
-        location.path,
-        controller.signal,
-      );
+      const { total, existing } =
+        location.scan_mode === 'unity'
+          ? await scanUnityLocation(
+              db,
+              locationId,
+              location.path,
+              controller.signal,
+              thumbnailsDir(),
+            )
+          : await scanDccLocation(db, locationId, location.path, controller.signal);
       const payload = completionPayload(
         locationId,
         location.name,
@@ -200,7 +205,7 @@ async function scanLocation(
         contentFormat,
       );
       if (written.changes === 0) {
-        throw new Error(`Asset path belongs to a DCC location: ${folder.absolutePath}`);
+        throw new Error(`Asset path belongs to a DCC or Unity location: ${folder.absolutePath}`);
       }
       seenPaths.push(folder.absolutePath);
       if (existed) existingAssets += 1;

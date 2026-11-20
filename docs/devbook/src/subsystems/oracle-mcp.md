@@ -13,8 +13,14 @@ It is a standalone stdio server speaking newline-delimited JSON-RPC. It opens th
 | `get_context` | "What was said around that timestamp?" — cues in a window |
 | `list_courses` | What is in the library, with video counts and hours |
 | `search_assets` | "Do I already own something for this?" — packs and indexed DCC files, BM25 over `assets_fts` |
+| `unity_projects` | Which Unity projects and packages are indexed: Editor version, render pipeline, packages, counts by kind |
+| `unity_find_asset` | "Where is the ship prefab?" — path words ANDed, optional kind and project filters, returns GUIDs |
+| `unity_dependencies` | "What breaks if I change this?" — what an asset uses and what uses it, from GUID references |
+| `unity_scene_outline` | "What is in this scene?" — root GameObjects, components, scripts, prefab variant parent |
 
 DCC results include the file kind, ecosystem and path. Search covers the filename and path as well as the ecosystem and kind. Archive results describe the archive itself; Oracle does not search inside it.
+
+The Unity tools read the tables a Unity location fills (see [The scanner](scanner.md)). They live in `scripts/oracle-mcp/unity-tools.mjs`. A database from before the Unity migration answers every Unity tool with a short "not indexed yet" message instead of an error. Dependencies come only from text-serialized assets: a binary-serialized file shows no references, and references to built-in resources or to registry packages that were not scanned print as a bare GUID.
 
 ## Why both transcript and title search
 

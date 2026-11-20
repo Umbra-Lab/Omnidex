@@ -13,6 +13,7 @@
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
+import { createUnityTools, unityTools } from './unity-tools.mjs';
 
 const PROTOCOL_VERSION = '2025-06-18';
 
@@ -215,10 +216,13 @@ const tools = [
       },
     },
   },
+  ...unityTools,
 ];
 const toolNames = new Set(tools.map((t) => t.name));
+const unity = createUnityTools(db);
 
 function callTool(name, args) {
+  if (unity.names.has(name)) return unity.call(name, args);
   if (name === 'search_transcripts') {
     const limit = Math.max(1, Math.min(Math.trunc(asFinite(args.limit, 20)), 100));
     const match = ftsQuote(String(args.query ?? ''));

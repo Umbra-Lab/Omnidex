@@ -19,6 +19,7 @@
 - [Write a migration](guides/write-a-migration.md)
 - [Run a data operation](guides/run-a-data-operation.md)
 - [Transcribe and translate a course](guides/transcribe-a-course.md)
+- [Give agents a Unity project](guides/give-agents-a-unity-project.md)
 - [Package a release](guides/package-a-release.md)
 
 # Subsystems

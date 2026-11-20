@@ -82,10 +82,10 @@ export const scanLocationInputSchema = z
     // may omit it, but the parsed value is always present, so the repo's
     // `ContentFormat | null` stays non-optional. Omitted means regular assets.
     content_format: contentFormatSchema.nullable().default(null),
-    scan_mode: z.enum(['packs', 'dcc']).default('packs'),
+    scan_mode: z.enum(['packs', 'dcc', 'unity']).default('packs'),
   })
-  .refine((value) => value.scan_mode !== 'dcc' || value.content_format == null, {
-    message: 'DCC locations cannot be Learn locations',
+  .refine((value) => value.scan_mode === 'packs' || value.content_format == null, {
+    message: 'DCC and Unity locations cannot be Learn locations',
   });
 
 // Partial edit of an existing scan location — every field except `id` is
