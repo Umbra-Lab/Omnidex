@@ -1,12 +1,13 @@
 import { createReadStream } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { createGunzip } from 'node:zlib';
 import { isReferencingKind, type UnityAssetKind, unityKindOf, wantsOutline } from './kinds';
 import { readUnityYamlText, type UnityOutline, type UnityYamlResult } from './yaml';
 
 /**
- * Read a `.unitypackage` in place. The file is a gzip'd tar with one folder per asset,
- * named by the asset's GUID:
+ * Read a `.unitypackage` in place. The file is a tar, usually gzip'd but sometimes stored
+ * uncompressed (Unity opens both), with one folder per asset, named by the asset's GUID:
  *
  *   <guid>/pathname     the asset's path in the project, e.g. Assets/Synty/Ship.prefab
  *   <guid>/asset        the file itself (absent for folders)
@@ -68,14 +69,17 @@ export async function readUnityPackage(
     return item;
   };
 
+  const gzipped = await isGzip(path);
   const source = createReadStream(path);
-  const gunzip = createGunzip();
+  const gunzip = gzipped ? createGunzip() : null;
   // pipe() does not forward a read error (a locked or vanished file); without this it
   // would surface as an uncaught exception instead of rejecting this promise.
-  source.on('error', (error) => gunzip.destroy(error));
-  source.pipe(gunzip);
+  if (gunzip) {
+    source.on('error', (error) => gunzip.destroy(error));
+    source.pipe(gunzip);
+  }
   try {
-    await walkTar(gunzip, signal, (name, size) => {
+    await walkTar(gunzip ?? source, signal, (name, size) => {
       const match = /^(?:\.\/)?([0-9a-f]{32})\/(pathname|asset|preview\.png)$/.exec(name);
       if (!match) return null;
       const [, guid, part] = match;
@@ -113,7 +117,7 @@ export async function readUnityPackage(
     });
   } finally {
     source.destroy();
-    gunzip.destroy();
+    gunzip?.destroy();
   }
 
   const entries: UnityPackageEntry[] = [];
@@ -169,6 +173,18 @@ type BodySink = ((body: Buffer) => void) | null;
  * `onEntry` decides whether its body is wanted; unwanted bodies are skipped without
  * being buffered.
  */
+/** True when the file starts with the gzip signature (1f 8b). */
+async function isGzip(path: string): Promise<boolean> {
+  const handle = await open(path, 'r');
+  try {
+    const magic = Buffer.alloc(2);
+    const { bytesRead } = await handle.read(magic, 0, 2, 0);
+    return bytesRead === 2 && magic[0] === 0x1f && magic[1] === 0x8b;
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function walkTar(
   stream: AsyncIterable<Buffer>,
   signal: AbortSignal | undefined,
@@ -259,6 +275,10 @@ export async function walkTar(
       finishBody();
       state = 'header';
     }
+  }
+  // gunzip reports a cut-off gzip stream itself; a plain tar has to be checked here.
+  if (remaining > 0 || buffer.some((byte) => byte !== 0)) {
+    throw new Error('Truncated .unitypackage');
   }
 }
 

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readUnityPackage } from '../unitypackage';
 import { GUID, samplePackage, tar } from './fixtures';
@@ -33,6 +33,18 @@ describe('.unitypackage reader', () => {
     expect(preview?.subarray(0, 4)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   });
 
+  it('reads a package stored as a plain, uncompressed tar', async () => {
+    const plain = gunzipSync(samplePackage());
+    const { entries, preview } = await readUnityPackage(tempFile(plain));
+    expect(entries.map((e) => e.relPath)).toEqual([
+      'Assets/PolygonFleet/Materials/Hull.mat',
+      'Assets/PolygonFleet/Prefabs/SM_Ship_01.prefab',
+      'Assets/PolygonFleet/Textures/Hull.png',
+    ]);
+    expect(entries.find((e) => e.guid === GUID.ship)?.refs.length).toBe(2);
+    expect(preview).not.toBeNull();
+  });
+
   it('follows GNU long names and pax paths', async () => {
     const long = `${GUID.hull}/pathname`;
     const pax = `27 path=${GUID.hull}/asset\n`;
@@ -62,8 +74,13 @@ describe('.unitypackage reader', () => {
     await expect(readUnityPackage(tempFile(gzipSync(raw)))).rejects.toThrow(/Corrupt tar header/);
   });
 
-  it('rejects a file that is not gzip', async () => {
+  it('rejects a file that is not a package', async () => {
     await expect(readUnityPackage(tempFile(Buffer.from('nope')))).rejects.toThrow();
+  });
+
+  it('rejects a plain tar that is cut off mid-entry', async () => {
+    const plain = gunzipSync(samplePackage());
+    await expect(readUnityPackage(tempFile(plain.subarray(0, 700)))).rejects.toThrow(/Truncated/);
   });
 
   it('stops when aborted', async () => {
