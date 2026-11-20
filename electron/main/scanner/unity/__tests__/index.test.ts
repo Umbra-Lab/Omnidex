@@ -15,6 +15,7 @@ import type { Database } from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedAsset } from '../../../db/repos/__tests__/fixtures/test-db';
 import { scanUnityLocation } from '..';
+import { boundedLines } from '../project';
 import { GUID, samplePackage, writeSampleProject } from './fixtures';
 
 const MIGRATIONS = [
@@ -63,6 +64,64 @@ function rows(db: Database, sql: string, ...params: unknown[]) {
 }
 
 describe('Unity location scan', () => {
+  it('cuts very long lines instead of buffering them whole', async () => {
+    const dir = tempDir();
+    const path = join(dir, 'Mesh.asset');
+    writeFileSync(path, `%YAML 1.1\r\n  _typelessdata: ${'ab'.repeat(200_000)}\nnext\n`);
+    const lines: string[] = [];
+    for await (const line of boundedLines(path, 1000)) lines.push(line);
+    expect(lines.map((line) => line.length)).toEqual([9, 1000, 4]);
+    expect(lines[2]).toBe('next');
+  });
+
+  it('indexes ordinary Assets folders named like Unity caches, and copies sharing a GUID', async () => {
+    const db = unityDb();
+    const root = tempDir();
+    writeSampleProject(root);
+    mkdirSync(join(root, 'Assets', 'Scripts', 'Build'), { recursive: true });
+    writeFileSync(join(root, 'Assets', 'Scripts', 'Build', 'Builder.cs'), 'class Builder {}');
+    // A copy made outside Unity keeps the original's .meta, so both files share a GUID.
+    const copy = join(root, 'Assets', 'Prefabs', 'Ship Copy.prefab');
+    writeFileSync(copy, readFileSync(join(root, 'Assets', 'Prefabs', 'Ship.prefab')));
+    writeFileSync(
+      `${copy}.meta`,
+      readFileSync(join(root, 'Assets', 'Prefabs', 'Ship.prefab.meta')),
+    );
+    const signal = new AbortController().signal;
+    await scanUnityLocation(db, 7, root, signal, join(root, 'thumbs'));
+    expect(
+      rows(db, 'SELECT 1 FROM unity_assets WHERE rel_path = ?', 'Assets/Scripts/Build/Builder.cs'),
+    ).toHaveLength(1);
+
+    rmSync(copy);
+    await scanUnityLocation(db, 7, root, signal, join(root, 'thumbs'));
+    const refs = rows(
+      db,
+      'SELECT to_guid FROM unity_refs WHERE from_guid = ? ORDER BY to_guid',
+      GUID.ship,
+    );
+    expect(refs.map((r) => r.to_guid)).toEqual([GUID.hull, GUID.script].sort());
+    (db as unknown as { close(): void }).close();
+  });
+
+  it('fails the scan when the root itself cannot be read, and prunes the last container', async () => {
+    const db = unityDb();
+    const signal = new AbortController().signal;
+    await expect(
+      scanUnityLocation(db, 7, join(tempDir(), 'unplugged'), signal, tempDir()),
+    ).rejects.toThrow();
+
+    const { root, project, pack, thumbs } = library();
+    dirs.push(thumbs);
+    await scanUnityLocation(db, 7, root, signal, thumbs);
+    rmSync(project, { recursive: true, force: true });
+    rmSync(pack);
+    const result = await scanUnityLocation(db, 7, root, signal, thumbs);
+    expect(result.total).toBe(0);
+    expect(rows(db, 'SELECT 1 FROM assets WHERE scan_location_id = 7')).toEqual([]);
+    (db as unknown as { close(): void }).close();
+  });
+
   it('indexes a project and a package without touching Library, Temp or ignored folders', async () => {
     const db = unityDb();
     const { root, project, pack, thumbs } = library();
@@ -255,6 +314,11 @@ describe('Unity location scan', () => {
       expect(deps).toContain('Assets/Scripts/ShipController.cs (script)');
       expect(deps).toContain('Used by 2:');
       expect(deps).toContain('Assets/Scenes/Main.unity (scene)');
+
+      const twoWords = await ask('unity_find_asset', { query: 'prefabs ship variant' });
+      expect(twoWords.trim().split('\n')).toEqual([
+        expect.stringContaining('Assets/Prefabs/Ship Variant.prefab'),
+      ]);
 
       const ambiguous = await ask('unity_dependencies', { asset: 'Hull' });
       expect(ambiguous).toContain('matches');

@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { basename } from 'node:path';
 import { createGunzip } from 'node:zlib';
 import { isReferencingKind, type UnityAssetKind, unityKindOf, wantsOutline } from './kinds';
-import { readUnityYamlText, type UnityOutline } from './yaml';
+import { readUnityYamlText, type UnityOutline, type UnityYamlResult } from './yaml';
 
 /**
  * Read a `.unitypackage` in place. The file is a gzip'd tar with one folder per asset,
@@ -13,9 +13,10 @@ import { readUnityYamlText, type UnityOutline } from './yaml';
  *   <guid>/asset.meta   its .meta
  *   <guid>/preview.png  an optional thumbnail Unity rendered when the package was made
  *
- * The archive is streamed once and nothing is extracted to disk. Only small text assets
- * (scenes, prefabs, materials) are held in memory, one at a time, to read their GUID
- * references; previews are kept up to a fixed budget so one can become the thumbnail.
+ * The archive is streamed once and nothing is extracted to disk. A small text asset
+ * (scene, prefab, material) is held in memory only while its references are read, as
+ * soon as its body arrives; previews are kept up to a fixed budget so one can become the
+ * thumbnail.
  */
 
 /** Text assets larger than this are not read for references (the size is still recorded). */
@@ -45,7 +46,8 @@ interface Pending {
   pathname?: string;
   size?: number;
   hasAsset: boolean;
-  text?: string;
+  /** Read as soon as the body arrived, before the pathname (and so the kind) may be known. */
+  parsed?: UnityYamlResult;
   preview?: Buffer;
 }
 
@@ -66,32 +68,53 @@ export async function readUnityPackage(
     return item;
   };
 
-  await walkTar(createReadStream(path).pipe(createGunzip()), signal, (name, size) => {
-    const match = /^(?:\.\/)?([0-9a-f]{32})\/(pathname|asset|preview\.png)$/.exec(name);
-    if (!match) return null;
-    const [, guid, part] = match;
-    const item = pending(guid);
-    if (part === 'asset') {
-      item.hasAsset = true;
-      item.size = size;
-      if (size > MAX_TEXT_ASSET_BYTES) return null;
+  const source = createReadStream(path);
+  const gunzip = createGunzip();
+  // pipe() does not forward a read error (a locked or vanished file); without this it
+  // would surface as an uncaught exception instead of rejecting this promise.
+  source.on('error', (error) => gunzip.destroy(error));
+  source.pipe(gunzip);
+  try {
+    await walkTar(gunzip, signal, (name, size) => {
+      const match = /^(?:\.\/)?([0-9a-f]{32})\/(pathname|asset|preview\.png)$/.exec(name);
+      if (!match) return null;
+      const [, guid, part] = match;
+      const item = pending(guid);
+      if (part === 'asset') {
+        item.hasAsset = true;
+        item.size = size;
+        if (size > MAX_TEXT_ASSET_BYTES) return null;
+        return (body) => {
+          const head = body
+            .subarray(0, 64)
+            .toString('utf8')
+            .replace(/^\uFEFF/, '')
+            .trimStart();
+          if (!head.startsWith('%YAML') && !head.startsWith('{')) return;
+          // The kind is not known yet, so read as a prefab with an outline and trim later.
+          item.parsed = readUnityYamlText(body.toString('utf8'), {
+            outline: true,
+            prefab: true,
+            selfGuid: guid,
+          });
+        };
+      }
+      if (part === 'pathname') {
+        return (body) => {
+          // Unity writes the path on the first line, sometimes followed by a "00" line.
+          item.pathname = body.toString('utf8').split(/\r?\n/)[0].trim();
+        };
+      }
+      if (size > MAX_PREVIEW_BYTES || previewBytes + size > MAX_PREVIEW_TOTAL) return null;
       return (body) => {
-        const head = body.subarray(0, 64).toString('utf8').replace(/^﻿/, '').trimStart();
-        if (head.startsWith('%YAML') || head.startsWith('{')) item.text = body.toString('utf8');
+        previewBytes += body.length;
+        item.preview = Buffer.from(body);
       };
-    }
-    if (part === 'pathname') {
-      return (body) => {
-        // Unity writes the path on the first line, sometimes followed by a "00" line.
-        item.pathname = body.toString('utf8').split(/\r?\n/)[0].trim();
-      };
-    }
-    if (size > MAX_PREVIEW_BYTES || previewBytes + size > MAX_PREVIEW_TOTAL) return null;
-    return (body) => {
-      previewBytes += body.length;
-      item.preview = Buffer.from(body);
-    };
-  });
+    });
+  } finally {
+    source.destroy();
+    gunzip.destroy();
+  }
 
   const entries: UnityPackageEntry[] = [];
   let preview: Buffer | null = null;
@@ -104,22 +127,17 @@ export async function readUnityPackage(
     let variantOf: string | null = null;
     let outline: UnityOutline | null = null;
     if (isReferencingKind(kind)) {
-      if (item.text !== undefined) {
-        const result = readUnityYamlText(item.text, {
-          outline: wantsOutline(kind),
-          prefab: kind === 'prefab',
-          selfGuid: guid,
-        });
-        serialization = result.serialization;
-        refs = [...result.refs];
-        variantOf = result.variantOf;
-        outline = result.outline;
+      if (item.parsed) {
+        serialization = item.parsed.serialization;
+        refs = [...item.parsed.refs];
+        variantOf = kind === 'prefab' ? item.parsed.variantOf : null;
+        outline = wantsOutline(kind) ? item.parsed.outline : null;
       } else if ((item.size ?? 0) <= MAX_TEXT_ASSET_BYTES) {
         serialization = 'binary';
       }
     }
     if (kind === 'prefab' && variantOf) kind = 'prefab_variant';
-    item.text = undefined;
+    item.parsed = undefined;
     entries.push({
       guid,
       relPath: item.pathname,
@@ -163,6 +181,7 @@ export async function walkTar(
   let sink: BodySink = null;
   let chunks: Buffer[] = [];
   let longName: string | null = null;
+  let paxSize: number | null = null;
   let special: 'longname' | 'pax' | null = null;
 
   const finishBody = () => {
@@ -170,8 +189,11 @@ export async function walkTar(
     chunks = [];
     if (special === 'longname') longName = body.toString('utf8').replace(/\0.*$/s, '');
     else if (special === 'pax') {
-      const path = /(?:^|\n)\d+ path=([^\n]*)\n/.exec(body.toString('utf8'))?.[1];
+      const records = body.toString('utf8');
+      const path = /(?:^|\n)\d+ path=([^\n]*)\n/.exec(records)?.[1];
       if (path) longName = path;
+      const size = /(?:^|\n)\d+ size=(\d+)\n/.exec(records)?.[1];
+      if (size) paxSize = Number(size);
     } else sink?.(body);
     special = null;
     sink = null;
@@ -192,9 +214,11 @@ export async function walkTar(
         const header = buffer.subarray(0, 512);
         buffer = buffer.subarray(512);
         if (header.every((byte) => byte === 0)) continue; // end-of-archive blocks
-        const size = parseSize(header.subarray(124, 136));
+        if (!checksumOk(header)) throw new Error('Corrupt tar header in .unitypackage');
+        let size = parseSize(header.subarray(124, 136));
         const type = String.fromCharCode(header[156] || 48);
-        const ustarPrefix = header.subarray(257, 262).toString('latin1') === 'ustar';
+        // POSIX ustar only: old GNU tar ("ustar  ") keeps timestamps where the prefix would be.
+        const ustarPrefix = header.subarray(257, 263).toString('latin1') === 'ustar\0';
         let name = cString(header.subarray(0, 100));
         if (ustarPrefix) {
           const prefix = cString(header.subarray(345, 500));
@@ -203,6 +227,10 @@ export async function walkTar(
         if (longName !== null) {
           name = longName;
           longName = null;
+        }
+        if (paxSize !== null && type !== 'x' && type !== 'L') {
+          size = paxSize;
+          paxSize = null;
         }
         if (type === 'L') {
           special = 'longname';
@@ -248,4 +276,13 @@ function parseSize(field: Buffer): number {
   }
   const text = cString(field).trim();
   return text ? Number.parseInt(text, 8) : 0;
+}
+
+/** Header checksum: the sum of all bytes with the checksum field read as spaces. */
+function checksumOk(header: Buffer): boolean {
+  const stored = Number.parseInt(cString(header.subarray(148, 156)).trim(), 8);
+  if (!Number.isFinite(stored)) return false;
+  let sum = 0;
+  for (let i = 0; i < 512; i += 1) sum += i >= 148 && i < 156 ? 32 : header[i];
+  return sum === stored;
 }

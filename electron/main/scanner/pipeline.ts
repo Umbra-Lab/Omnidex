@@ -98,7 +98,7 @@ async function scanLocation(
 
   if (location.scan_mode === 'dcc' || location.scan_mode === 'unity') {
     try {
-      const { total, existing } =
+      const result =
         location.scan_mode === 'unity'
           ? await scanUnityLocation(
               db,
@@ -107,7 +107,12 @@ async function scanLocation(
               controller.signal,
               thumbnailsDir(),
             )
-          : await scanDccLocation(db, locationId, location.path, controller.signal);
+          : {
+              ...(await scanDccLocation(db, locationId, location.path, controller.signal)),
+              failures: [],
+            };
+      const { total, existing, failures } = result;
+      for (const failure of failures) console.warn(`[scan] unity: ${failure}`);
       const payload = completionPayload(
         locationId,
         location.name,
@@ -115,8 +120,11 @@ async function scanLocation(
         total,
         total - existing,
         existing,
-        null,
+        failures.length > 0
+          ? `${failures.length} could not be indexed. First: ${failures[0]}`
+          : null,
       );
+      payload.error_count = failures.length;
       emit(payload);
       return payload;
     } catch (err) {
@@ -205,7 +213,10 @@ async function scanLocation(
         contentFormat,
       );
       if (written.changes === 0) {
-        throw new Error(`Asset path belongs to a DCC or Unity location: ${folder.absolutePath}`);
+        // Another DCC or Unity location already owns this path. Leave its row alone and
+        // carry on, rather than rolling back the whole pack scan over one folder.
+        console.warn(`[scan] skipped, owned by a DCC or Unity location: ${folder.absolutePath}`);
+        continue;
       }
       seenPaths.push(folder.absolutePath);
       if (existed) existingAssets += 1;

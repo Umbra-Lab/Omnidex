@@ -120,25 +120,43 @@ export function createUnityTools(db) {
     SELECT a.id, a.name, a.asset_type, a.file_path, a.file_size,
            p.editor_version, p.render_pipeline, p.packages_json
     FROM assets a LEFT JOIN unity_projects p ON p.asset_id = a.id
-    WHERE a.asset_type IN ('unity_project', 'unity_package')
+    WHERE a.asset_type IN ('unity_project', 'unity_package') AND a.missing_since IS NULL
       AND a.name LIKE ? ESCAPE '\\'
     ORDER BY a.asset_type DESC, a.name`);
   const kindCountsStmt = db.prepare(
     'SELECT kind, COUNT(*) AS n FROM unity_assets WHERE container_id = ? GROUP BY kind ORDER BY n DESC',
   );
-  const findStmt = db.prepare(`
-    SELECT u.id, u.container_id, u.guid, u.rel_path, u.kind, u.size, u.variant_of, u.summary_json,
-           a.name AS container
-    FROM unity_assets u JOIN assets a ON a.id = u.container_id
-    WHERE u.rel_path LIKE ? ESCAPE '\\' AND a.name LIKE ? ESCAPE '\\'
-      AND (? IS NULL OR u.kind = ?)
-    ORDER BY length(u.rel_path)
-    LIMIT 5000`);
+  // Every term is a LIKE in SQL, so the limit applies after all of them, not before.
+  const MAX_TERMS = 8;
+  const findStmts = new Map();
+  function find(terms, container, kind, limit) {
+    const n = Math.min(terms.length, MAX_TERMS);
+    let stmt = findStmts.get(n);
+    if (!stmt) {
+      stmt = db.prepare(`
+        SELECT u.id, u.container_id, u.guid, u.rel_path, u.kind, u.size, u.variant_of,
+               u.summary_json, a.name AS container
+        FROM unity_assets u JOIN assets a ON a.id = u.container_id
+        WHERE a.missing_since IS NULL AND a.name LIKE ? ESCAPE '\\'
+          AND (? IS NULL OR u.kind = ?)
+          ${"AND u.rel_path LIKE ? ESCAPE '\\' ".repeat(n)}
+        ORDER BY length(u.rel_path)
+        LIMIT ?`);
+      findStmts.set(n, stmt);
+    }
+    return stmt.all(
+      `%${likeEscape(String(container ?? ''))}%`,
+      kind,
+      kind,
+      ...terms.slice(0, n).map((term) => `%${likeEscape(term)}%`),
+      limit,
+    );
+  }
   const byGuidStmt = db.prepare(`
     SELECT u.id, u.container_id, u.guid, u.rel_path, u.kind, u.variant_of, u.summary_json,
            a.name AS container
     FROM unity_assets u JOIN assets a ON a.id = u.container_id
-    WHERE u.guid = ? AND a.name LIKE ? ESCAPE '\\'`);
+    WHERE u.guid = ? AND a.missing_since IS NULL AND a.name LIKE ? ESCAPE '\\'`);
   const usesStmt = db.prepare(`
     SELECT r.to_guid AS guid,
       (SELECT u.rel_path FROM unity_assets u WHERE u.guid = r.to_guid
@@ -163,7 +181,7 @@ export function createUnityTools(db) {
     if (!text) return { error: 'Name an asset by GUID or path fragment.' };
     let rows;
     if (/^[0-9a-f]{32}$/i.test(text)) rows = byGuidStmt.all(text.toLowerCase(), scope);
-    else rows = findStmt.all(`%${likeEscape(text)}%`, scope, null, null);
+    else rows = find([text], container, null, 200);
     if (kinds) rows = rows.filter((row) => kinds.includes(row.kind));
     if (rows.length === 0) return { error: `No Unity asset matches "${text}".` };
     if (rows.length > 1) {
@@ -232,18 +250,9 @@ export function createUnityTools(db) {
         .filter(Boolean);
       if (terms.length === 0) return 'Empty query.';
       const kind = args.kind ? String(args.kind) : null;
-      let rows = findStmt.all(
-        `%${likeEscape(terms[0])}%`,
-        `%${likeEscape(String(args.container ?? ''))}%`,
-        kind,
-        kind,
-      );
-      for (const term of terms.slice(1)) {
-        rows = rows.filter((row) => row.rel_path.toLowerCase().includes(term));
-      }
+      const rows = find(terms, args.container, kind, limitOf(args.limit, 30, 200));
       if (rows.length === 0) return 'No Unity assets matched.';
       return rows
-        .slice(0, limitOf(args.limit, 30, 200))
         .map(
           (row) =>
             `[${row.container}] ${row.rel_path} — ${row.kind}, ${size(row.size)}` +

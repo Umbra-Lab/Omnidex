@@ -50,6 +50,18 @@ describe('.unitypackage reader', () => {
     expect(entries[0].refs).toEqual(['a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2']);
   });
 
+  it('rejects, without crashing the process, when the file cannot be read', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omnidex-unitypackage-'));
+    dirs.push(dir);
+    await expect(readUnityPackage(join(dir, 'gone.unitypackage'))).rejects.toThrow(/ENOENT/);
+  });
+
+  it('rejects a corrupt tar header instead of reading garbage', async () => {
+    const raw = tar([{ name: `${GUID.hull}/pathname`, body: 'Assets/Hull.mat' }]);
+    raw[10] ^= 0xff;
+    await expect(readUnityPackage(tempFile(gzipSync(raw)))).rejects.toThrow(/Corrupt tar header/);
+  });
+
   it('rejects a file that is not gzip', async () => {
     await expect(readUnityPackage(tempFile(Buffer.from('nope')))).rejects.toThrow();
   });

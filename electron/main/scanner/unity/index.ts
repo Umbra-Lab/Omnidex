@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { basename, extname, join, sep } from 'node:path';
 import type { Database } from 'better-sqlite3';
 import { pruneAssetsNotIn } from '../../db/repos/assets';
 import {
@@ -71,12 +71,25 @@ export async function scanUnityLocation(
     }
   }
 
-  // A container that failed to read this time is kept, not pruned: the failure is
-  // more likely a locked file than a deleted one.
+  // A container that failed to read this time is kept, not pruned: the failure is more
+  // likely a locked file than a deleted one. So is anything under a folder that could
+  // not be listed.
   const keep = [...seen, ...failedPaths];
+  if (found.unreadable.length > 0) {
+    const indexed = db
+      .prepare('SELECT file_path FROM assets WHERE scan_location_id = ?')
+      .all(locationId) as Array<{ file_path: string }>;
+    for (const { file_path } of indexed) {
+      if (found.unreadable.some((dir) => file_path.startsWith(dir + sep))) keep.push(file_path);
+    }
+    failures.push(...found.unreadable.map((dir) => `${dir}: could not be listed`));
+  }
   db.exec('BEGIN');
   try {
-    pruneAssetsNotIn(db, locationId, keep);
+    // pruneAssetsNotIn treats an empty list as "nothing was seen, prune nothing", a guard
+    // for walks that fail silently. Discovery here throws when the root is unreadable, so
+    // an empty result really means every project and package is gone.
+    pruneAssetsNotIn(db, locationId, keep.length > 0 ? keep : ['\0']);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
@@ -178,12 +191,28 @@ export async function indexUnityProject(
     for (const row of rows) stored.set(row.rel_path, row);
   }
 
+  // References are stored per GUID. When a file changes or goes away, every other file
+  // with the same GUID (a copy duplicated outside Unity) is reread too, so its references
+  // are rebuilt rather than lost with the changed file's.
+  const byPath = new Map(files.map((file) => [file.relPath, file]));
+  const isChanged = (file: (typeof files)[number]) => {
+    const before = stored.get(file.relPath);
+    return !before || before.size !== file.size || before.mtime_ms !== file.mtimeMs;
+  };
+  const touchedGuids = new Set<string>();
+  for (const [relPath, row] of stored) {
+    if (!row.guid) continue;
+    const file = byPath.get(relPath);
+    if (!file || isChanged(file)) touchedGuids.add(row.guid);
+  }
+
   // Read changed files before taking the write transaction, so the app stays responsive.
   const fresh: FreshRow[] = [];
   for (const file of files) {
     signal?.throwIfAborted();
     const before = stored.get(file.relPath);
-    if (before && before.size === file.size && before.mtime_ms === file.mtimeMs) continue;
+    const twin = before?.guid ? touchedGuids.has(before.guid) : false;
+    if (!isChanged(file) && !twin) continue;
     const guid = await readMetaGuid(file.absPath);
     const contents = await readProjectFile(file, guid);
     fresh.push({
@@ -192,15 +221,15 @@ export async function indexUnityProject(
       name: file.name,
       kind: file.kind === 'prefab' && contents.variantOf ? 'prefab_variant' : file.kind,
       size: file.size,
-      mtimeMs: file.mtimeMs,
+      // A read that failed is stored with no timestamp, so the next scan retries it.
+      mtimeMs: contents.failed ? 0 : file.mtimeMs,
       serialization: contents.serialization,
       variantOf: contents.variantOf,
       summary: contents.outline ? JSON.stringify(contents.outline) : null,
       refs: contents.refs,
     });
   }
-  const present = new Set(files.map((file) => file.relPath));
-  const removed = [...stored.entries()].filter(([relPath]) => !present.has(relPath));
+  const removed = [...stored.entries()].filter(([relPath]) => !byPath.has(relPath));
 
   db.exec('BEGIN');
   try {

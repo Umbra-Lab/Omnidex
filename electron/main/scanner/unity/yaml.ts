@@ -69,7 +69,6 @@ const DOC_HEADER = /^--- !u!(\d+) &(-?\d+)( stripped)?/;
 const GUID = /guid\\?"?\s*:\s*\\?"?([0-9a-f]{32})/g;
 const TOP_FIELD = /^ {2}(m_[A-Za-z]+): ?(.*)$/;
 const FILE_ID = /\{fileID: (-?\d+)/;
-const COMPONENT_ITEM = /^ {2}- component: \{fileID: (-?\d+)/;
 
 /** Past this many documents the outline stops growing; references keep being collected. */
 const MAX_OUTLINE_DOCS = 250_000;
@@ -121,7 +120,6 @@ interface Doc {
   transformParent?: string;
   sourcePrefab?: string;
   script?: string;
-  components?: string[];
 }
 
 export class UnityYamlReader {
@@ -149,7 +147,7 @@ export class UnityYamlReader {
 
   push(line: string): void {
     if (this.serialization === null) {
-      const head = line.replace(/^﻿/, '').trimStart();
+      const head = line.replace(/^\uFEFF/, '').trimStart();
       if (head === '') return;
       this.serialization = head.startsWith('%YAML') || head.startsWith('{') ? 'text' : 'binary';
       if (this.serialization === 'binary') return;
@@ -197,14 +195,6 @@ export class UnityYamlReader {
       else if (key === 'm_TransformParent') doc.transformParent = FILE_ID.exec(value)?.[1];
       else if (key === 'm_SourcePrefab') doc.sourcePrefab = /guid: ([0-9a-f]{32})/.exec(value)?.[1];
       else if (key === 'm_Script') doc.script = /guid: ([0-9a-f]{32})/.exec(value)?.[1];
-      return;
-    }
-    if (doc.classId === 1 && this.section === 'm_Component') {
-      const component = COMPONENT_ITEM.exec(line);
-      if (component) {
-        doc.components ??= [];
-        doc.components.push(component[1]);
-      }
       return;
     }
     // A prefab instance's display name is the m_Name override in its modification list:

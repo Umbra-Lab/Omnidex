@@ -1,7 +1,7 @@
 import { createReadStream, type Dirent } from 'node:fs';
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { basename, extname, join, relative, sep } from 'node:path';
-import { createInterface } from 'node:readline';
+import { StringDecoder } from 'node:string_decoder';
 import { isReferencingKind, type UnityAssetKind, unityKindOf, wantsOutline } from './kinds';
 import { type UnityOutline, UnityYamlReader } from './yaml';
 
@@ -11,7 +11,11 @@ import { type UnityOutline, UnityYamlReader } from './yaml';
  * tens of GB), and never needs the Editor.
  */
 
-/** Folders Unity itself regenerates or ignores; never worth walking. */
+/**
+ * Folders never worth walking while looking for projects and packages. Inside a project's
+ * `Assets/` only Unity's own rules apply (see `ignoredByUnity`): `Assets/Scripts/Build`
+ * is an ordinary asset folder.
+ */
 const SKIPPED_DIRS = new Set([
   'library',
   'temp',
@@ -35,6 +39,8 @@ const MAX_DISCOVERY_DEPTH = 5;
 export interface UnityDiscovery {
   projects: string[];
   packages: string[];
+  /** Folders that could not be listed; what was indexed under them must not be pruned. */
+  unreadable: string[];
 }
 
 export async function isUnityProject(dir: string): Promise<boolean> {
@@ -49,18 +55,20 @@ export async function isUnityProject(dir: string): Promise<boolean> {
   }
 }
 
-/** Unity skips hidden folders and folders ending in `~`; so does Omnidex. */
+/** Unity skips hidden folders, folders ending in `~`, and `cvs`; so does Omnidex. */
 function ignoredByUnity(name: string): boolean {
-  return name.startsWith('.') || name.endsWith('~');
+  return name.startsWith('.') || name.endsWith('~') || name.toLowerCase() === 'cvs';
 }
 
 /**
  * Find Unity projects and `.unitypackage` files under `root`. A project is not descended
- * into for more projects; packages inside a project's `Assets/` are picked up.
+ * into: its contents are read by `listProjectFiles`. The root itself must be readable,
+ * so an unplugged drive fails the scan instead of looking empty.
  */
 export async function discoverUnity(root: string, signal?: AbortSignal): Promise<UnityDiscovery> {
   const projects: string[] = [];
   const packages: string[] = [];
+  const unreadable: string[] = [];
   async function visit(dir: string, depth: number): Promise<void> {
     signal?.throwIfAborted();
     if (await isUnityProject(dir)) {
@@ -70,7 +78,9 @@ export async function discoverUnity(root: string, signal?: AbortSignal): Promise
     let entries: Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      if (depth === 0) throw error;
+      unreadable.push(dir);
       return;
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
@@ -85,7 +95,7 @@ export async function discoverUnity(root: string, signal?: AbortSignal): Promise
     }
   }
   await visit(root, 0);
-  return { projects, packages };
+  return { projects, packages, unreadable };
 }
 
 export interface UnityProjectInfo {
@@ -157,7 +167,7 @@ export async function listProjectFiles(
       if (ignoredByUnity(entry.name)) continue;
       const path = join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIPPED_DIRS.has(entry.name.toLowerCase())) await walk(path);
+        await walk(path);
         continue;
       }
       if (!entry.isFile() || entry.name.endsWith('.meta')) continue;
@@ -211,6 +221,8 @@ export async function readMetaGuid(assetPath: string): Promise<string | null> {
 
 export interface UnityFileContents {
   serialization: 'text' | 'binary' | 'none';
+  /** The file could not be read; store it so a later scan retries it. */
+  failed?: boolean;
   refs: string[];
   variantOf: string | null;
   outline: UnityOutline | null;
@@ -233,18 +245,13 @@ export async function readProjectFile(
     prefab: entry.kind === 'prefab',
     selfGuid: guid,
   });
-  const stream = createReadStream(entry.absPath, { encoding: 'utf8' });
-  const lines = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
   try {
-    for await (const line of lines) {
+    for await (const line of boundedLines(entry.absPath)) {
       reader.push(line);
       if (!reader.wantsMore) break;
     }
   } catch {
-    return { serialization: 'none', refs: [], variantOf: null, outline: null };
-  } finally {
-    lines.close();
-    stream.destroy();
+    return { serialization: 'none', failed: true, refs: [], variantOf: null, outline: null };
   }
   const result = reader.finish();
   return {
@@ -262,11 +269,58 @@ async function looksLikeText(path: string): Promise<boolean> {
     handle = await open(path, 'r');
     const buffer = Buffer.alloc(64);
     const { bytesRead } = await handle.read(buffer, 0, 64, 0);
-    const head = buffer.toString('utf8', 0, bytesRead).replace(/^﻿/, '').trimStart();
+    const head = buffer
+      .toString('utf8', 0, bytesRead)
+      .replace(/^\uFEFF/, '')
+      .trimStart();
     return head.startsWith('%YAML') || head.startsWith('{');
   } catch {
     return false;
   } finally {
     await handle?.close();
+  }
+}
+
+/** Longest line kept. GUIDs sit near a line's start; the rest is mesh or terrain hex. */
+const MAX_LINE = 64 * 1024;
+
+/**
+ * Lines of a file, each cut to `MAX_LINE` characters. Text-serialized meshes and terrains
+ * put hundreds of megabytes of hex on one line, which readline would buffer whole.
+ */
+export async function* boundedLines(path: string, max = MAX_LINE): AsyncGenerator<string> {
+  const stream = createReadStream(path);
+  const decoder = new StringDecoder('utf8');
+  let line = '';
+  let overflow = false;
+  const take = (piece: string) => {
+    if (overflow) return;
+    line += piece;
+    if (line.length > max) {
+      line = line.slice(0, max);
+      overflow = true;
+    }
+  };
+  try {
+    for await (const chunk of stream) {
+      const text = decoder.write(chunk as Buffer);
+      let start = 0;
+      while (true) {
+        const end = text.indexOf('\n', start);
+        if (end === -1) {
+          take(text.slice(start));
+          break;
+        }
+        take(text.slice(start, end));
+        yield line.endsWith('\r') ? line.slice(0, -1) : line;
+        line = '';
+        overflow = false;
+        start = end + 1;
+      }
+    }
+    take(decoder.end());
+    if (line !== '') yield line.endsWith('\r') ? line.slice(0, -1) : line;
+  } finally {
+    stream.destroy();
   }
 }
