@@ -30,7 +30,7 @@ godot = "4.7"
 python scripts/docs-mirror/docs_mirror.py fetch --product blender --dry-run
 ```
 
-`--dry-run` lists each page it would save and its size, without writing anything. Run it first for a new source. The entry points in `sources.toml` have not all been crawled end to end yet.
+`--dry-run` lists each page it would save and its size, and writes no pages. It still records the detected versions in `versions.json`. Run it first for a new source. The entry points in `sources.toml` have not all been crawled end to end yet.
 
 ## Build the mirror
 
@@ -44,7 +44,7 @@ python scripts/docs-mirror/docs_mirror.py all
 |---|---|
 | `--product NAME` | Only this product (repeatable) |
 | `--source NAME` | Only this doc set, including disabled ones (repeatable) |
-| `--refresh` | Re-check mirrored sources; changed pages are rewritten, removed ones deleted |
+| `--refresh` | Re-check mirrored sources; changed pages are rewritten. A page is deleted only when the vendor answers 404 or 410 for it, or when a crawl that finished with no failures no longer reaches it |
 | `--delay S` | Seconds between requests to one host, default 1. A `Crawl-delay` in robots.txt overrides it when larger |
 | `--mirror-dir DIR` | Default `<userData>/docs-mirror`, or `OMNIDEX_DOCS_MIRROR` |
 

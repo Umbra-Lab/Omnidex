@@ -16,7 +16,9 @@
 #   selectors    content region selectors tried before the defaults (main, article, [role=main], body)
 #   mode         static (default) | auto (static, then a headless browser via Crawl4AI if the page is
 #                nearly empty) | browser (always Crawl4AI). Crawl4AI is optional; see the guide.
-#   max_pages    hard cap per run, protects disk and the vendor's servers
+#   pin_query    query parameter forced onto every URL of the set, e.g.
+#                "application_version={version}" for Epic, so links that omit it stay on this version
+#   max_pages    hard cap per run; a capped crawl resumes where it stopped on the next run
 #   enabled      false to skip by default (run it with --source <name>)
 #
 # These entry points were written from first-party URLs seen on 2026-11-20 but have not
@@ -115,7 +117,8 @@ kind = "guide"
 versioned = true
 crawl = false
 mode = "auto"
-pages = ["https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-mcp-in-unreal-editor?application_version={version}"]
+pin_query = "application_version={version}"
+pages = ["https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-mcp-in-unreal-editor"]
 
 [[source]]
 product = "unreal"
@@ -123,7 +126,8 @@ name = "python-api"
 kind = "reference"
 versioned = true
 mode = "auto"
-start = ["https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/?application_version={version}"]
+pin_query = "application_version={version}"
+start = ["https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/"]
 prefix = ["https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/"]
 max_pages = 6000
 

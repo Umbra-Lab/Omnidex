@@ -51,6 +51,23 @@ class Html2MdTest(unittest.TestCase):
         self.assertIn("```python\nimport bpy\nbpy.ops.mesh.primitive_cube_add(size=2)\n```", md)
         self.assertIn("| Name | Type |\n| --- | --- |\n| size | float |", md)
 
+    def test_review_regressions(self):
+        html = """<html><body><article><header><h1>Title kept</h1></header>
+        <p>Intro</p><aside class="footnote"><p>Footnote kept</p></aside>
+        <div class="tab" hidden><pre>var csharp = 1;</pre></div>
+        <ul><li>one<li>two</ul>
+        <table><tr><td><p>para one</p><p>para two</p></td><td>x</td></tr></table>
+        </article></body></html>"""
+        title, md = html2md.extract(html, "https://d/x.html")
+        self.assertEqual(title, "Title kept")
+        self.assertIn("Footnote kept", md)
+        self.assertIn("var csharp = 1;", md, "hidden tab panels are content")
+        self.assertIn("- one\n- two", md)
+        self.assertIn("| para one<br>para two | x |", md)
+        # Chrome is dropped only when the whole body is converted.
+        _, body_md = html2md.extract("<body><header>Site</header><p>Body text</p></body>", "https://d/")
+        self.assertNotIn("Site", body_md)
+
     def test_links_resolve_and_drop_fragments(self):
         links = html2md.links(PAGE, "https://docs.example/api/5.3/index.html")
         self.assertIn("https://docs.example/api/5.3/other.html", links)
@@ -64,6 +81,10 @@ class SectionsTest(unittest.TestCase):
         self.assertEqual([s["heading"] for s in secs], ["", "A", "B", "B"])
         self.assertEqual([s["anchor"] for s in secs], ["top", "a", "b", "b-1"])
         self.assertIn("# not a heading", secs[1]["body"])
+
+    def test_long_fence_is_not_closed_by_short_one(self):
+        md = "# A\n````\n```\n# comment, not a heading\n```\n````\n## B\nx"
+        self.assertEqual([x["heading"] for x in docs_mirror.split_sections(md)], ["A", "B"])
 
     def test_symbols(self):
         syms = docs_mirror.symbols("call hou.Node.createNode and primitive_cube_add, not plain words")
@@ -80,6 +101,20 @@ class SectionsTest(unittest.TestCase):
         self.assertEqual(
             rp("https://e/docs/py/x?application_version=5.8&lang=en", ["https://e/docs/py/"]),
             "x__lang_en.md")
+        # Fixed page lists have no prefix: host and path keep pages apart.
+        self.assertEqual(rp("https://h/a/one.html", []), "h/a/one.md")
+        self.assertNotEqual(rp("https://h/a/one.html", []), rp("https://h/b/two.html", []))
+        self.assertEqual(rp("https://h/api/con.html", ["https://h/api/"]), "_con.md")
+
+    def test_normalize_scope_and_pinning(self):
+        n = docs_mirror.normalize
+        self.assertEqual(n("https://h/api/5.3/%2e%2e/%2e%2e/evil.html"), "https://h/evil.html")
+        self.assertFalse(docs_mirror.in_scope(n("https://h/api/5.3/%2e%2e/x.html"), ["https://h/api/5.3/"]))
+        self.assertFalse(docs_mirror.in_scope("https://h/api/5.3/_images/a.png", ["https://h/api/5.3/"]))
+        pin = "application_version=5.8"
+        self.assertEqual(n("https://e/py/x", pin), "https://e/py/x?application_version=5.8")
+        self.assertEqual(n("https://e/py/x?application_version=5.5&a=1", pin),
+                         "https://e/py/x?a=1&application_version=5.8")
 
 
 class VersionsTest(unittest.TestCase):
@@ -175,6 +210,26 @@ selectors = ["[role=main]"]
         last = con.execute("SELECT start_char + chars FROM sections ORDER BY id DESC LIMIT 1").fetchone()[0]
         self.assertLessEqual(last, page_chars)
         con.close()
+
+    def test_refresh_never_deletes_after_failures(self):
+        self.run_cli()
+        root = self.mirror / "docs" / "blender" / "5.3" / "python-api"
+        site = Path(self.tmp.name) / "site" / "api" / "5.3"
+        (site / "index.html").unlink()  # start page now 404s: an outage, not a removal of all
+        self.run_cli("--refresh")
+        self.assertTrue((root / "other.md").is_file(), "pages behind a failed page are kept")
+        self.assertFalse((root / "index.md").exists(), "an explicit 404 removes that page")
+
+    def test_binary_links_are_not_saved(self):
+        site = Path(self.tmp.name) / "site" / "api" / "5.3"
+        (site / "pic.png").write_bytes(b"\x89PNG" + bytes(100))
+        (site / "data").write_bytes(b"\x00\x01binary")  # no extension: caught by Content-Type
+        (site / "other.html").write_text(OTHER.replace("</div>", '<a href="pic.png">p</a>'
+                                                       '<a href="data">d</a></div>'), encoding="utf-8")
+        self.run_cli()
+        root = self.mirror / "docs" / "blender" / "5.3" / "python-api"
+        self.assertEqual(sorted(p.name for p in root.glob("*.md") if p.name != "CHANGES.md"),
+                         ["index.md", "other.md"])
 
     def test_second_run_skips_and_refresh_detects_removal(self):
         self.run_cli()

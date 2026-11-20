@@ -26,7 +26,7 @@ As a guest you get 30 requests per minute. To get 120, create a personal access 
 export ARENA_TOKEN=...        # PowerShell: $env:ARENA_TOKEN = "..."
 ```
 
-The token is sent to the Are.na API only, never to image hosts. The script paces itself from the `X-RateLimit-*` headers either way.
+The token is sent to the Are.na API only, never to image hosts, and is dropped if an API call redirects to another host. The script paces itself from the `X-RateLimit-*` headers either way.
 
 ## Run it
 
@@ -39,7 +39,9 @@ Refs (lighting-refs): 214 blocks
   new 214, updated 0, images 198, removed 0
 ```
 
-`--dry-run` lists what would change and writes nothing. `--channel SLUG` syncs only that channel.
+`--dry-run` prints the same per-channel counts without writing notes, images or state. `--channel SLUG` (or a channel id) syncs only that channel and is repeatable.
+
+A channel that fails, for example after repeated timeouts, is reported and skipped, the rest still sync, and the command exits with status 1.
 
 ## What it writes
 

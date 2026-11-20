@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -32,7 +33,7 @@ import urllib.robotparser
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import html2md  # noqa: E402
@@ -128,10 +129,11 @@ class Fetcher:
                     rp.parse(r.read().decode("utf-8", "replace").splitlines())
                 self._robots[origin] = rp
             except urllib.error.HTTPError as e:
-                # 4xx: no robots.txt, everything allowed. 5xx: be conservative.
-                self._robots[origin] = None if e.code < 500 else _deny_all()
+                # 404/410: the site has no robots.txt, so everything is allowed (RFC 9309).
+                # 401/403/5xx or anything else: we cannot read the rules, so fetch nothing.
+                self._robots[origin] = None if e.code in (404, 410) else _deny_all()
             except Exception:
-                self._robots[origin] = None
+                self._robots[origin] = _deny_all()
         rp = self._robots[origin]
         if rp is None:
             return True
@@ -141,12 +143,16 @@ class Fetcher:
         return rp.can_fetch(USER_AGENT, url)
 
     def get(self, url: str, etag: str | None = None, last_modified: str | None = None):
-        """Return (status, body_text, headers). 304 returns (304, None, headers)."""
+        """Return (status, body_text, headers, final_url). 304 returns (304, None, ...).
+
+        Non-text responses (images, archives, PDFs) come back as status -1 and are never
+        read into memory.
+        """
         host = urlsplit(url).netloc
         wait = self._last.get(host, 0) + self.delay - time.monotonic()
         if wait > 0:
             time.sleep(wait)
-        headers = {"User-Agent": USER_AGENT, "Accept": "text/html,text/markdown,text/plain,*/*"}
+        headers = {"User-Agent": USER_AGENT, "Accept": "text/html,text/markdown,text/plain"}
         if etag:
             headers["If-None-Match"] = etag
         if last_modified:
@@ -156,9 +162,18 @@ class Fetcher:
             try:
                 with urllib.request.urlopen(req, timeout=60) as r:
                     self._last[host] = time.monotonic()
-                    raw = r.read()
+                    ctype = (r.headers.get_content_type() or "").lower()
+                    if ctype not in TEXT_TYPES:
+                        return -1, None, dict(r.headers), r.geturl()
+                    raw = r.read(MAX_PAGE_BYTES + 1)
+                    if len(raw) > MAX_PAGE_BYTES:
+                        return -1, None, dict(r.headers), r.geturl()
                     charset = r.headers.get_content_charset() or "utf-8"
-                    return r.status, raw.decode(charset, "replace"), dict(r.headers), r.geturl()
+                    try:
+                        text = raw.decode(charset, "replace")
+                    except LookupError:
+                        text = raw.decode("utf-8", "replace")
+                    return r.status, text, dict(r.headers), r.geturl()
             except urllib.error.HTTPError as e:
                 self._last[host] = time.monotonic()
                 if e.code == 304:
@@ -168,13 +183,23 @@ class Fetcher:
                     time.sleep(float(retry) if retry and retry.isdigit() else 10 * (attempt + 1))
                     continue
                 return e.code, None, dict(e.headers), url
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            except (OSError, http.client.HTTPException, ValueError) as e:
+                # URLError, timeouts, resets, IncompleteRead, bad URLs: retry, then give up on
+                # this page only.
                 if attempt < 3:
                     time.sleep(5 * (attempt + 1))
                     continue
                 log(f"    ! {url}: {e}")
                 return 0, None, {}, url
         return 0, None, {}, url
+
+
+TEXT_TYPES = {"text/html", "application/xhtml+xml", "text/markdown", "text/x-markdown", "text/plain"}
+MAX_PAGE_BYTES = 8 * 1024 * 1024
+BINARY_EXT = re.compile(
+    r"\.(png|jpe?g|gif|webp|svg|ico|bmp|tiff?|pdf|zip|7z|gz|tgz|bz2|xz|rar|exe|msi|dmg|pkg|"
+    r"mp4|mov|webm|mp3|wav|ogg|woff2?|ttf|otf|eot|css|js|json|xml|rss|atom|blend|fbx|obj|"
+    r"uasset|hip|hda|sbs|sbsar|spp|unitypackage|txt)$", re.I)
 
 
 def _deny_all():
@@ -206,37 +231,65 @@ def browser_html(url: str) -> str | None:
 
 # ---------------------------------------------------------------------------- paths
 
+WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$", re.I)
+
 
 def url_to_relpath(url: str, prefixes: list[str]) -> str:
-    """Stable file path for a URL, relative to the source folder."""
+    """Stable file path for a URL, relative to the source folder.
+
+    The path below the matching prefix is kept; with no matching prefix (fixed page lists)
+    the host and full path are used, so two pages never share a file.
+    """
     parts = urlsplit(url)
     path = unquote(parts.path)
     for p in prefixes:
         pp = unquote(urlsplit(p).path)
-        if path.startswith(pp):
+        if urlsplit(p).netloc == parts.netloc and path.startswith(pp) and pp:
             path = path[len(pp):]
             break
+    else:
+        path = parts.netloc + path
     path = path.strip("/")
-    if not path or url.endswith("/"):
+    if not path or parts.path.endswith("/"):
         path = (path + "/index").strip("/")
     path = re.sub(r"\.(html?|php|aspx?|md)$", "", path, flags=re.I)
-    # Keep a query that selects content (e.g. Epic's ?application_version=5.8), minus the
-    # version, which the folder already carries.
+    # Keep a query that selects content, minus the version, which the folder already carries.
     q = re.sub(r"(^|&)application_version=[^&]*", "", parts.query).strip("&")
     if q:
         path += "__" + re.sub(r"[^\w.-]+", "_", q)
-    safe = "/".join(re.sub(r'[<>:"\\|?*\x00-\x1f]', "_", seg)[:120] or "_" for seg in path.split("/"))
-    return safe + ".md"
+    segs = []
+    for seg in path.split("/"):
+        seg = re.sub(r'[<>:"\\|?*\x00-\x1f]', "_", seg)[:120].rstrip(". ") or "_"
+        if seg in (".", "..") or WINDOWS_RESERVED.match(seg):
+            seg = "_" + seg
+        segs.append(seg)
+    return "/".join(segs) + ".md"
 
 
 def in_scope(url: str, prefixes: list[str]) -> bool:
-    return any(url.startswith(p) for p in prefixes)
+    return any(url.startswith(p) for p in prefixes) and not BINARY_EXT.search(urlsplit(url).path)
 
 
-def normalize(url: str) -> str:
+def normalize(url: str, pin_query: str | None = None) -> str:
+    """Canonical URL: no fragment, `.`/`..` segments resolved, and for sources that pin a
+    version by query (Epic's `application_version`) that parameter forced to the pinned
+    value, so a link that omits it or names another version still lands on this version."""
     url = url.split("#", 1)[0]
     parts = urlsplit(url)
-    return parts._replace(path=quote(unquote(parts.path), safe="/%:@!$&'()*+,;=-._~")).geturl()
+    segs = []
+    for seg in unquote(parts.path).split("/"):
+        if seg == "..":
+            if len(segs) > 1:
+                segs.pop()
+        elif seg != ".":
+            segs.append(seg)
+    path = "/".join(segs)
+    query = parts.query
+    if pin_query:
+        key, _, value = pin_query.partition("=")
+        params = [(k, v) for k, v in parse_qsl(query, keep_blank_values=True) if k != key]
+        query = urlencode(params + [(key, value)])
+    return parts._replace(path=quote(path, safe="/%:@!$&'()*+,;=-._~"), query=query).geturl()
 
 
 # ---------------------------------------------------------------------------- frontmatter
@@ -251,7 +304,8 @@ def write_page(path: Path, meta: dict, body: str) -> None:
         lines.append(f"{k}: {json.dumps(v, ensure_ascii=False)}")
     lines.append("---")
     tmp = path.with_suffix(".md.tmp")
-    tmp.write_text("\n".join(lines) + "\n\n" + body, encoding="utf-8")
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+    tmp.write_text("\n".join(lines) + "\n\n" + body, encoding="utf-8", newline="\n")
     os.replace(tmp, path)
 
 
@@ -273,6 +327,8 @@ def read_page(path: Path) -> tuple[dict, str]:
 
 # ---------------------------------------------------------------------------- fetch
 
+MANIFEST_FLUSH_EVERY = 50
+
 
 def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path,
                  fetcher: Fetcher, refresh: bool, dry_run: bool) -> dict:
@@ -282,115 +338,195 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     pages: dict = manifest.get("pages", {})
-    if pages and not refresh:
+    if pages and manifest.get("complete") and not refresh:
         log(f"  {src['product']}/{doc_version}/{src['name']}: already mirrored "
             f"({len(pages)} pages, {manifest.get('fetched_at')}); use --refresh to update")
         return {"skipped": True}
 
+    pin = src.get("pin_query")
     prefixes = [normalize(p) for p in src.get("prefix", [])]
-    queue = deque(normalize(u) for u in (src.get("start", []) if src["crawl"] else src.get("pages", [])))
+    queue = deque(dict.fromkeys(normalize(u, pin) for u in (src.get("start", []) if src["crawl"]
+                                                             else src.get("pages", []))))
     seen = set(queue)
-    added, changed, unchanged, failed = [], [], [], []
+    added, changed, unchanged, failed, removed = [], [], [], [], []
+    blocked = 0
     visited_urls = set()
+    path_owner: dict[str, str] = {e["path"]: u for u, e in pages.items()}
     count = 0
+    resumed = bool(pages) and not manifest.get("complete") and not refresh
     log(f"  {src['product']}/{doc_version}/{src['name']}: {'dry run, ' if dry_run else ''}"
-        f"from {len(queue)} start page(s), cap {src['max_pages']}")
+        f"{'resuming, ' if resumed else ''}from {len(queue)} start page(s), cap {src['max_pages']}")
 
-    while queue and count < src["max_pages"]:
-        url = queue.popleft()
-        if not fetcher.allowed(url):
-            log(f"    robots.txt disallows {url}")
-            continue
-        count += 1
-        prev = pages.get(url, {})
-        fetch_url = url + ".md" if src["prefer_md"] and not url.endswith(".md") else url
-        status, body, headers, final = fetcher.get(fetch_url, prev.get("etag"), prev.get("last_modified"))
-        if status != 200 and src["prefer_md"] and fetch_url != url:
-            fetch_url = url
-            status, body, headers, final = fetcher.get(url, prev.get("etag"), prev.get("last_modified"))
-        visited_urls.add(url)
-        if status == 304:
-            unchanged.append(url)
-            # Re-queue the links recorded last time, so pages reachable only through this one
-            # are still visited (and not mistaken for removed ones).
-            for link in prev.get("links", []):
-                if link not in seen and in_scope(link, prefixes):
-                    seen.add(link)
-                    queue.append(link)
-            continue
-        if status != 200 or body is None:
-            failed.append((url, status))
-            continue
-        is_md = src["format"] == "markdown" or fetch_url.endswith(".md") or \
-            "markdown" in headers.get("Content-Type", "")
-        html = None
-        if is_md:
-            title_m = re.search(r"^#\s+(.+)$", body, re.M)
-            title, md = (title_m.group(1).strip() if title_m else url), body
-        else:
-            html = body
-            title, md = html2md.extract(html, final, src["selectors"])
-            if src["mode"] == "browser" or (src["mode"] == "auto" and len(md) < MIN_CONTENT_CHARS):
-                rendered = browser_html(url)
-                if rendered:
-                    html = rendered
-                    title, md = html2md.extract(html, url, src["selectors"])
-                elif src["mode"] == "auto" and len(md) < MIN_CONTENT_CHARS:
-                    log(f"    ~ {url}: only {len(md)} chars without a browser (install crawl4ai)")
-        out_links = []
-        if src["crawl"]:
-            raw = html2md.links(html, final) if html is not None else [
-                re.sub(r"\.md$", "", u) for u in re.findall(r"\]\((https?://[^)\s]+)\)", body)]
-            for link in raw:
-                link = normalize(link)
-                if in_scope(link, prefixes) and link != url:
-                    out_links.append(link)
-                    if link not in seen:
-                        seen.add(link)
-                        queue.append(link)
-        digest = hashlib.sha256(md.encode("utf-8")).hexdigest()
-        rel = url_to_relpath(url, prefixes or [url])
-        entry = {"path": rel, "sha256": digest, "etag": headers.get("ETag"),
-                 "last_modified": headers.get("Last-Modified"), "title": title,
-                 "links": sorted(set(out_links))}
+    def enqueue(links):
+        for link in links:
+            if link not in seen and in_scope(link, prefixes):
+                seen.add(link)
+                queue.append(link)
+
+    def flush(complete: bool):
         if dry_run:
-            log(f"    {rel}  ({len(md):,} chars)")
-            continue
-        if prev.get("sha256") == digest:
-            unchanged.append(url)
-            pages[url] = {**prev, **entry}
-            continue
-        (changed if prev else added).append(url)
-        meta = {"title": title, "source_url": url, "product": src["product"],
-                "product_version": product_version, "doc_version": doc_version,
-                "doc_set": src["name"], "kind": src["kind"], "fetched_at": now_iso(),
-                "sha256": digest, "last_updated": _md_last_updated(md) if is_md else None}
-        write_page(root / rel, meta, md)
-        pages[url] = {**entry, "fetched_at": meta["fetched_at"]}
-
-    removed = []
-    if src["crawl"] and not queue and not dry_run and count < src["max_pages"]:
-        # A complete crawl that no longer reaches a page means the vendor removed it.
-        for url in list(pages):
-            if url not in visited_urls and url not in seen:
-                removed.append(url)
-                stale = root / pages[url]["path"]
-                if stale.is_file():
-                    stale.unlink()
-                del pages[url]
-
-    if not dry_run:
+            return
         root.mkdir(parents=True, exist_ok=True)
-        manifest = {"source": src["name"], "product": src["product"], "doc_version": doc_version,
-                    "product_version": product_version, "fetched_at": now_iso(),
-                    "complete": not queue, "pages": pages}
-        manifest_path.write_text(json.dumps(manifest, indent=1), encoding="utf-8")
-        write_changes(root, added, changed, removed, failed, pages)
+        data = {"source": src["name"], "product": src["product"], "doc_version": doc_version,
+                "product_version": product_version, "fetched_at": now_iso(),
+                "complete": complete, "pages": pages}
+        tmp = manifest_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        os.replace(tmp, manifest_path)
+
+    completed = False
+    try:
+        while queue and count < src["max_pages"]:
+            url = queue.popleft()
+            prev = pages.get(url, {})
+            if not fetcher.allowed(url):
+                log(f"    robots.txt disallows {url}")
+                if prev:
+                    # A page we hold is now off limits: keep it and what it links to, and
+                    # don't trust absence as removal this run.
+                    blocked += 1
+                    enqueue(prev.get("links", []))
+                continue
+            if resumed and prev:
+                # An interrupted crawl: pages already saved this round are not fetched again.
+                enqueue(prev.get("links", []))
+                continue
+            count += 1
+            try:
+                outcome = _fetch_one(src, url, prev, fetcher, prefixes, pin)
+            except Exception as e:  # one bad page never ends the crawl
+                log(f"    ! {url}: {type(e).__name__}: {e}")
+                outcome = {"status": 0}
+            visited_urls.add(url)
+            status = outcome["status"]
+            if status == 304:
+                unchanged.append(url)
+                # Pages reachable only through this one must still be visited (and not be
+                # mistaken for removed ones).
+                enqueue(prev.get("links", []))
+                continue
+            if status != 200:
+                # Visit what this page linked to last time either way, so each of those pages
+                # is checked on its own instead of being dropped with its parent.
+                enqueue(prev.get("links", []))
+                if status in (404, 410) and prev:
+                    removed.append(url)
+                    if not dry_run:
+                        _remove_page(root, pages, path_owner, url)
+                else:
+                    failed.append((url, status))
+                continue
+            enqueue(outcome["links"])
+            rel = url_to_relpath(url, prefixes)
+            owner = path_owner.get(rel)
+            if owner and owner != url:
+                log(f"    = {url} is the same file as {owner}; skipped")
+                continue
+            if dry_run:
+                log(f"    {rel}  ({len(outcome['md']):,} chars)")
+                continue
+            digest = hashlib.sha256(outcome["md"].encode("utf-8")).hexdigest()
+            entry = {"path": rel, "sha256": digest, "etag": outcome["etag"],
+                     "last_modified": outcome["last_modified"], "title": outcome["title"],
+                     "links": outcome["links"]}
+            path_owner[rel] = url
+            if prev.get("sha256") == digest and (root / rel).is_file():
+                unchanged.append(url)
+                pages[url] = {**prev, **entry}
+                continue
+            (changed if prev else added).append(url)
+            meta = {"title": outcome["title"], "source_url": url, "product": src["product"],
+                    "product_version": product_version, "doc_version": doc_version,
+                    "doc_set": src["name"], "kind": src["kind"], "fetched_at": now_iso(),
+                    "sha256": digest, "last_updated": outcome["last_updated"]}
+            target = (root / rel).resolve()
+            if root.resolve() not in target.parents:
+                failed.append((url, "path outside mirror"))
+                continue
+            write_page(target, meta, outcome["md"])
+            pages[url] = {**entry, "fetched_at": meta["fetched_at"]}
+            if (len(added) + len(changed)) % MANIFEST_FLUSH_EVERY == 0:
+                flush(False)
+
+        # Removal by absence is only trusted after a crawl that finished, reached every page
+        # it was allowed to, and had no failures. Anything less keeps the existing pages.
+        clean = src["crawl"] and not queue and not failed and not blocked and not dry_run
+        if clean:
+            for url in list(pages):
+                if url not in visited_urls and url not in seen:
+                    removed.append(url)
+                    _remove_page(root, pages, path_owner, url)
+        elif src["crawl"] and (failed or blocked) and not dry_run:
+            log("    some pages failed or were blocked: kept pages the crawl did not reach")
+        completed = not queue
+    finally:
+        flush(completed)
+        if not dry_run:
+            write_changes(root, added, changed, removed, failed, pages)
     if queue:
-        log(f"    stopped at max_pages={src['max_pages']} with {len(queue)} URL(s) left in scope")
+        log(f"    stopped at max_pages={src['max_pages']} with {len(queue)} URL(s) left; "
+            f"the next run resumes")
     log(f"    added {len(added)}, changed {len(changed)}, unchanged {len(unchanged)}, "
         f"removed {len(removed)}, failed {len(failed)}")
     return {"added": added, "changed": changed, "removed": removed, "failed": failed}
+
+
+def _remove_page(root: Path, pages: dict, path_owner: dict, url: str) -> None:
+    rel = pages[url]["path"]
+    del pages[url]
+    # Never delete a file another URL still maps to.
+    if path_owner.get(rel) == url or not any(e["path"] == rel for e in pages.values()):
+        path_owner.pop(rel, None)
+        stale = root / rel
+        if stale.is_file():
+            stale.unlink()
+
+
+def _fetch_one(src: dict, url: str, prev: dict, fetcher: Fetcher, prefixes: list[str],
+               pin: str | None) -> dict:
+    fetch_url = url + ".md" if src["prefer_md"] and not urlsplit(url).path.endswith(".md") else url
+    status, body, headers, final = fetcher.get(fetch_url, prev.get("etag"), prev.get("last_modified"))
+    if status != 200 and status != 304 and fetch_url != url:
+        fetch_url = url
+        status, body, headers, final = fetcher.get(url, prev.get("etag"), prev.get("last_modified"))
+    if status != 200 or body is None:
+        return {"status": status}
+    final_n = normalize(final, pin)
+    if final_n != normalize(fetch_url, pin) and prefixes and not in_scope(final_n, prefixes):
+        # Redirected to another version, a login page or another site: not this doc set.
+        log(f"    ! {url} redirected out of scope to {final}")
+        return {"status": "redirected"}
+    ctype = headers.get("Content-Type", "")
+    is_md = src["format"] == "markdown" or urlsplit(fetch_url).path.endswith(".md") or \
+        "markdown" in ctype
+    html = None
+    if is_md:
+        title_m = re.search(r"^#\s+(.+)$", body, re.M)
+        title, md = (title_m.group(1).strip() if title_m else url), body
+    else:
+        html = body
+        title, md = html2md.extract(html, final, src["selectors"])
+        if src["mode"] == "browser" or (src["mode"] == "auto" and len(md) < MIN_CONTENT_CHARS):
+            rendered = browser_html(url)
+            if rendered:
+                html = rendered
+                title, md = html2md.extract(html, url, src["selectors"])
+            elif src["mode"] == "auto" and len(md) < MIN_CONTENT_CHARS:
+                log(f"    ~ {url}: only {len(md)} chars without a browser (install crawl4ai)")
+    links = []
+    if src["crawl"]:
+        if html is not None:
+            raw = html2md.links(html, final)
+        else:
+            raw = [urljoin(final, re.sub(r"\.md$", "", u))
+                   for u in re.findall(r"\]\(<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\)", body)
+                   if not u.startswith(("#", "mailto:"))]
+        me = normalize(url, pin)
+        links = sorted({n for n in (normalize(u, pin) for u in raw)
+                        if n != me and in_scope(n, prefixes)})
+    return {"status": 200, "md": md, "title": title, "links": links,
+            "etag": headers.get("ETag"), "last_modified": headers.get("Last-Modified"),
+            "last_updated": _md_last_updated(md) if is_md else None}
 
 
 def _md_last_updated(md: str) -> str | None:
@@ -435,10 +571,11 @@ def split_sections(md: str) -> list[dict]:
     for line in md.split("\n"):
         stripped = line.lstrip()
         if fence:
-            if stripped.startswith(fence):
+            # A fence closes only with the same character, at least as long, and nothing else.
+            if stripped.startswith(fence) and not stripped.rstrip().strip(fence[0]):
                 fence = None
-        elif stripped.startswith(("```", "~~~")):
-            fence = stripped[:3]
+        elif m := re.match(r"(`{3,}|~{3,})", stripped):
+            fence = m.group(1)
         elif m := HEADING_RE.match(line):
             sections.append({"heading": _plain(m.group(2)), "level": len(m.group(1)), "lines": [line]})
             continue

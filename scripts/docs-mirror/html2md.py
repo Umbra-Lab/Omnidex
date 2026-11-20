@@ -3,11 +3,12 @@
 Documentation HTML is regular (Sphinx, Furo, Read the Docs, vendor portals), so a small
 html.parser converter covers what agents need: headings, paragraphs, code blocks, inline
 code, lists, tables, links and images. It never summarizes: every text node in the selected
-content region is kept.
+content region is kept, except inside scripts, styles, forms and navigation.
 
 Content selection: `extract(html, selectors)` keeps the first element matching a selector,
-else falls back to <main>, <article>, [role=main], then <body>. Navigation chrome
-(nav, header, footer, aside, script, style, form, button) is always dropped.
+else falls back to <main>, <article>, [role=main], then <body>. Scripts, styles, forms and
+<nav> are always dropped; <header>, <footer> and <aside> only when no content region was
+found and the whole <body> is converted (inside a region they hold titles and footnotes).
 """
 
 from __future__ import annotations
@@ -16,8 +17,24 @@ import re
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 
-DROP_TAGS = {"script", "style", "noscript", "nav", "header", "footer", "aside", "form",
-             "button", "svg", "template", "iframe", "select", "input", "label"}
+DROP_TAGS = {"script", "style", "noscript", "nav", "form", "button", "svg", "template",
+             "iframe", "select", "input", "label"}
+CHROME_TAGS = {"header", "footer", "aside"}
+# HTML lets some end tags be omitted. A new <li> closes an open <li> of the same list, and so
+# on: tag -> (open tags it closes, tags that bound the search).
+IMPLICIT_CLOSE = {
+    "li": ({"li"}, {"ul", "ol", "menu"}),
+    "dt": ({"dt", "dd"}, {"dl"}),
+    "dd": ({"dt", "dd"}, {"dl"}),
+    "td": ({"td", "th"}, {"tr", "table"}),
+    "th": ({"td", "th"}, {"tr", "table"}),
+    "tr": ({"tr"}, {"table", "tbody", "thead", "tfoot"}),
+    "tbody": ({"tr", "tbody", "thead", "tfoot"}, {"table"}),
+    "thead": ({"tr", "tbody", "thead", "tfoot"}, {"table"}),
+    "tfoot": ({"tr", "tbody", "thead", "tfoot"}, {"table"}),
+}
+P_CLOSERS = {"div", "ul", "ol", "table", "pre", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote",
+             "section", "article", "dl", "figure", "hr"}
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
              "param", "source", "track", "wbr"}
 BLOCK_TAGS = {"p", "div", "section", "article", "main", "dl", "dt", "dd", "blockquote",
@@ -77,6 +94,17 @@ class _TreeBuilder(HTMLParser):
         tag = tag.lower()
         if tag == "title":
             self._in_title = True
+        # Omitted end tags (<li>a<li>b, <p>a<div>): close them here.
+        if self.cur.tag == "p" and (tag == "p" or tag in P_CLOSERS or tag in IMPLICIT_CLOSE):
+            self.cur = self.cur.parent
+        if tag in IMPLICIT_CLOSE:
+            closes, bounds = IMPLICIT_CLOSE[tag]
+            n = self.cur
+            while n is not self.root and n.tag not in bounds:
+                if n.tag in closes:
+                    self.cur = n.parent
+                    break
+                n = n.parent
         node = _Node(tag, {k: (v or "") for k, v in attrs}, self.cur)
         self.cur.children.append(node)
         if tag not in VOID_TAGS:
@@ -120,18 +148,24 @@ def _text(node) -> str:
     return "".join(_text(c) for c in node.children)
 
 
-def _dropped(node) -> bool:
-    if node.tag in DROP_TAGS:
+def _dropped(node, chrome: bool = False) -> bool:
+    if node.tag in DROP_TAGS or (chrome and node.tag in CHROME_TAGS):
         return True
     classes = set((node.attrs.get("class") or "").split())
     if classes & DROP_CLASSES:
         return True
-    return node.attrs.get("aria-hidden") == "true" or "hidden" in node.attrs
+    # `hidden` is not a reason to drop: tabbed code samples (C# beside GDScript) hide every
+    # tab but the first. aria-hidden marks decoration such as icons and anchors.
+    return node.attrs.get("aria-hidden") == "true"
 
 
 class _Converter:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, drop_chrome: bool = False):
         self.base = base_url
+        self.chrome = drop_chrome
+
+    def dropped(self, node) -> bool:
+        return _dropped(node, self.chrome)
 
     def convert(self, node) -> str:
         out = self.block(node)
@@ -153,7 +187,7 @@ class _Converter:
             if isinstance(c, str):
                 inline_buf.append(c)
                 continue
-            if _dropped(c):
+            if self.dropped(c):
                 continue
             t = c.tag
             if t in ("h1", "h2", "h3", "h4", "h5", "h6"):
@@ -199,7 +233,7 @@ class _Converter:
     def inline(self, node) -> str:
         if isinstance(node, str):
             return node
-        if _dropped(node):
+        if self.dropped(node):
             return ""
         t = node.tag
         if t == "br":
@@ -259,19 +293,27 @@ class _Converter:
             lines.extend(subs)
         return "\n".join(lines)
 
+    def cell(self, td) -> str:
+        """One table cell on one line: block children are joined with <br>, so paragraphs
+        and code lines stay apart instead of running together."""
+        if _has_block_child(td):
+            text = self.block(td).strip()
+            text = re.sub(r"```[\w+#-]*\n?", "", text)
+            text = text.replace("\n\n", "<br>").replace("\n", "<br>")
+        else:
+            text = _squash(self.inline(td)).strip().replace("  \n", "<br>")
+        return text.replace("|", "\\|")
+
     def table(self, node) -> str:
         rows = []
 
         def walk(n):
             for c in n.children:
-                if isinstance(c, str) or _dropped(c):
+                if isinstance(c, str) or self.dropped(c):
                     continue
                 if c.tag == "tr":
-                    cells = [
-                        _squash(self.inline(td)).strip().replace("|", "\\|").replace("\n", " ")
-                        for td in c.children
-                        if not isinstance(td, str) and td.tag in ("td", "th")
-                    ]
+                    cells = [self.cell(td) for td in c.children
+                             if not isinstance(td, str) and td.tag in ("td", "th")]
                     if cells:
                         rows.append(cells)
                 elif c.tag in ("thead", "tbody", "tfoot"):
@@ -331,7 +373,7 @@ def extract(html: str, url: str, selectors: list[str] | None = None) -> tuple[st
             break
     if node is None:
         node = tb.root
-    md = _Converter(url).convert(node)
+    md = _Converter(url, drop_chrome=node.tag in ("body", "#root")).convert(node)
     title = _squash(tb.title).strip()
     first_h1 = re.search(r"^# (.+)$", md, re.M)
     if first_h1:

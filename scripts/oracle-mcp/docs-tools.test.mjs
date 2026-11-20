@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { callDocsTool, docsTools, parseCitation } from './docs-tools.mjs';
+import { callDocsTool, docsTools, normalizeText, parseCitation } from './docs-tools.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const indexer = join(here, '..', 'docs-mirror', 'docs_mirror.py');
@@ -63,9 +63,29 @@ try {
     },
     '# Unreal MCP\n\nUnreal MCP is Experimental.',
   );
+  // Godot names a page class_@gdscript, so '@' can appear inside a path.
+  page(
+    'godot/4.7/docs/classes/class_@gdscript.md',
+    {
+      ...common,
+      product: 'godot',
+      product_version: '4.7.0',
+      doc_version: '4.7',
+      doc_set: 'docs',
+      title: '@GDScript',
+      source_url: 'https://docs.godotengine.org/en/4.7/classes/class_@gdscript.html',
+    },
+    '# @GDScript\n\nBuilt-in GDScript functions.\n\n## 4.2\n\n' +
+      'See [the Node class](class_node.md) for the *full* list of methods.\n\n' +
+      'Call `print(*args)` to print every argument.',
+  );
   writeFileSync(
     join(mirror, 'versions.json'),
-    JSON.stringify({ blender: { version: '5.3.1' }, unreal: { version: '5.8' } }),
+    JSON.stringify({
+      blender: { version: '5.3.1' },
+      unreal: { version: '5.8' },
+      godot: { version: '4.7.0' },
+    }),
   );
   const py = process.platform === 'win32' ? 'python' : 'python3';
   const built = spawnSync(py, [indexer, 'index', '--mirror-dir', mirror], { encoding: 'utf8' });
@@ -84,6 +104,17 @@ try {
     version: '5.3',
   });
   assert.deepEqual(parseCitation('a/b.md'), { path: 'a/b.md', anchor: null, version: null });
+  assert.deepEqual(parseCitation('g/class_@gdscript.md#42@4.7'), {
+    path: 'g/class_@gdscript.md',
+    anchor: '42',
+    version: '4.7',
+  });
+  assert.deepEqual(parseCitation('g/class_@gdscript.md'), {
+    path: 'g/class_@gdscript.md',
+    anchor: null,
+    version: null,
+  });
+  assert.equal(normalizeText('See [the *Node*](x.md) and `f(*args)`'), 'See the Node and f(*args)');
 
   // Search finds an API name whole, ranks the section that defines it, and gives a citation.
   const hits = callDocsTool('docs_search', { query: 'primitive_cube_add' }, dbPath);
@@ -91,6 +122,22 @@ try {
   assert.match(
     callDocsTool('docs_search', { query: 'Experimental', product: 'blender' }, dbPath),
     /No sections matched/,
+  );
+  // Search is pinned to the installed version: Unreal 5.8 is installed and only 5.7 docs are
+  // mirrored, so those stay out unless asked for.
+  assert.match(callDocsTool('docs_search', { query: 'Experimental' }, dbPath), /No sections/);
+  assert.match(
+    callDocsTool('docs_search', { query: 'Experimental', all_versions: true }, dbPath),
+    /^unreal\/5\.7\/unreal-mcp\/index\.md/,
+  );
+  assert.match(
+    callDocsTool('docs_search', { query: 'Experimental', version: '5.7' }, dbPath),
+    /^unreal\/5\.7/,
+  );
+  // A question whose words never share a section falls back to any word, and says so.
+  assert.match(
+    callDocsTool('docs_search', { query: 'primitive_cube_add zzznotaword' }, dbPath),
+    /^No section has every word[\s\S]*primitive_cube_add/,
   );
   // FTS syntax in user input is literal, not an operator.
   assert.doesNotThrow(() => callDocsTool('docs_search', { query: 'NEAR( "x" OR' }, dbPath));
@@ -149,8 +196,41 @@ try {
     /^NOT VERIFIED/,
   );
   assert.match(
-    callDocsTool('docs_verify', { path: cite.replace('@5.3', '@5.2'), quote: 'cube' }, dbPath),
+    callDocsTool(
+      'docs_verify',
+      { path: cite.replace('@5.3', '@5.2'), quote: 'Construct a cube mesh' },
+      dbPath,
+    ),
     /not 5\.2/,
+  );
+  // A two-word quote matches almost anywhere, so it proves nothing.
+  assert.match(
+    callDocsTool('docs_verify', { path: cite, quote: 'a cube' }, dbPath),
+    /^NOT VERIFIED: quote at least 12/,
+  );
+  // Godot: '@' in the path, a numeric heading anchor, and quotes copied as rendered text.
+  const gd = 'godot/4.7/docs/classes/class_@gdscript.md';
+  const gdOutline = callDocsTool('docs_outline', { path: gd }, dbPath);
+  const anchor = gdOutline.match(/4\.2 {2}#(\S+)/)[1];
+  assert.match(
+    callDocsTool(
+      'docs_verify',
+      { path: `${gd}#${anchor}@4.7`, quote: 'See the Node class for the full list of methods.' },
+      dbPath,
+    ),
+    /^VERIFIED/,
+  );
+  assert.match(
+    callDocsTool(
+      'docs_verify',
+      { path: `${gd}#${anchor}@4.7`, quote: 'Call print(*args) to print every argument.' },
+      dbPath,
+    ),
+    /^VERIFIED/,
+  );
+  assert.match(
+    callDocsTool('docs_read', { path: `${gd}#${anchor}@4.7` }, dbPath),
+    /cite as godot\/4\.7\/docs\/classes\/class_@gdscript\.md#/,
   );
   assert.match(
     callDocsTool(
@@ -165,6 +245,7 @@ try {
   const versions = callDocsTool('docs_versions', {}, dbPath);
   assert.match(versions, /blender: 5\.3\.1\n/);
   assert.match(versions, /unreal: 5\.8 {2}← MISMATCH: docs mirrored for 5\.7/);
+  assert.match(versions, /godot: 4\.7\.0\n/);
 
   console.log(`OK — docs tools, ${chunks} chunks read back whole`);
 } finally {

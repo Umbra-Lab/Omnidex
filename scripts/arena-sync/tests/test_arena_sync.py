@@ -150,6 +150,48 @@ themes = ["mood"]
         self.assertIn("arena_removed: true", note2.read_text())
         self.assertNotIn("Inventory", (root / "refs" / "_index.md").read_text())
 
+    def test_token_dropped_on_cross_host_redirect(self):
+        import urllib.request
+
+        h = self.mod._SameHostAuthRedirect()
+        req = urllib.request.Request("https://api.are.na/v3/x",
+                                     headers={"Authorization": "Bearer tok"})
+        same = h.redirect_request(req, None, 302, "Found", {}, "https://api.are.na/v3/y")
+        other = h.redirect_request(req, None, 302, "Found", {}, "https://cdn.example.com/y")
+        self.assertEqual(same.get_header("Authorization"), "Bearer tok")
+        self.assertIsNone(other.get_header("Authorization"))
+
+    def test_failed_channel_does_not_stop_others(self):
+        with open(self.config, "a") as f:
+            f.write('[[channel]]\nslug = "missing"\n')
+        calls = []
+        real = self.mod.sync_channel
+
+        def flaky(client, cfg, ch, *rest):
+            calls.append(ch["slug"])
+            if ch["slug"] == "refs":
+                raise TimeoutError("timed out")
+            return real(client, cfg, ch, *rest)
+
+        with mock.patch.object(self.mod, "sync_channel", flaky):
+            self.assertEqual(self.mod.main(["--config", str(self.config)]), 1)
+        self.assertEqual(calls, ["refs", "missing"])
+
+    def test_network_errors_are_retried(self):
+        import urllib.error
+
+        client = self.mod.Client(None)
+        real = self.mod._OPENER.open
+        failures = [urllib.error.URLError("reset"), TimeoutError()]
+
+        def flaky(req, timeout):
+            if failures:
+                raise failures.pop(0)
+            return real(req, timeout=timeout)
+
+        with mock.patch.object(self.mod._OPENER, "open", flaky):
+            self.assertEqual(client.get_json("/channels/refs")["slug"], "refs")
+
     def test_reset_seconds(self):
         import time
 

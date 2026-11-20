@@ -124,6 +124,9 @@ def load(mirror_dir: Path, home: Path | None = None) -> dict[str, dict]:
         with override.open("rb") as f:
             data = tomllib.load(f).get("versions", {})
         for product, version in data.items():
+            if not isinstance(version, str):
+                # Unquoted 4.10 is the TOML float 4.1: refuse rather than mirror the wrong docs.
+                raise SystemExit(f'{override}: quote the version, e.g. {product} = "{version}"')
             versions[product] = {"version": str(version), "path": versions.get(product, {}).get("path", ""),
                                  "source": "override"}
     return versions

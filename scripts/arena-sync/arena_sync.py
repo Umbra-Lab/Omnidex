@@ -52,6 +52,21 @@ def slugify(s: str, n: int = 60) -> str:
     return s[:n].rstrip("-") or "untitled"
 
 
+class _SameHostAuthRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow redirects, but drop the token when a redirect leaves the original host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urlsplit(newurl).netloc != urlsplit(req.full_url).netloc:
+            for key in [k for k in new.headers if k.lower() == "authorization"]:
+                del new.headers[key]
+            new.unredirected_hdrs.pop("Authorization", None)
+        return new
+
+
+_OPENER = urllib.request.build_opener(_SameHostAuthRedirect)
+
+
 class Client:
     """Are.na API client that paces itself from the X-RateLimit-* headers."""
 
@@ -74,7 +89,7 @@ class Client:
         for attempt in range(5):
             self._pace()
             try:
-                r = urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60)
+                r = _OPENER.open(urllib.request.Request(url, headers=headers), timeout=60)
                 self._last = time.monotonic()
                 self._respect_headers(r.headers)
                 return r
@@ -86,6 +101,14 @@ class Client:
                     time.sleep(delay)
                     continue
                 if e.code >= 500 and attempt < 4:
+                    time.sleep(5 * (attempt + 1))
+                    continue
+                raise
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+                # Dropped connections and timeouts are usually transient; retry with backoff.
+                self._last = time.monotonic()
+                if attempt < 4:
+                    log(f"  network error ({getattr(e, 'reason', e)}); retrying")
                     time.sleep(5 * (attempt + 1))
                     continue
                 raise
@@ -233,15 +256,17 @@ def write_atomic(path: Path, text: str) -> None:
 
 
 def list_contents(client: Client, channel_id) -> list[dict]:
-    items, page = [], 1
-    while True:
+    items, page, seen = [], 1, set()
+    while page not in seen and len(seen) < 1000:
+        seen.add(page)
         data = client.get_json(f"/channels/{channel_id}/contents", page=page, per=100,
                                sort="position_desc")
         items += data.get("data", [])
         meta = data.get("meta") or {}
         if not meta.get("has_more_pages"):
-            return items
+            break
         page = meta.get("next_page") or page + 1
+    return items
 
 
 def sync_channel(client: Client, cfg: dict, ch_cfg: dict, root: Path, state: dict,
@@ -338,7 +363,7 @@ def write_theme_mocs(root: Path, state: dict) -> None:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", required=True, help="arena.toml (see arena.example.toml)")
-    p.add_argument("--channel", action="append", help="only these channel slugs")
+    p.add_argument("--channel", action="append", help="only these channels (slug or id)")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
     with open(args.config, "rb") as f:
@@ -352,20 +377,28 @@ def main(argv=None) -> int:
         log("No ARENA_TOKEN set: reading as a guest (30 requests/minute).")
     channels = cfg.get("channel", [])
     if args.channel:
-        channels = [c for c in channels if c.get("slug") in args.channel]
+        wanted = set(args.channel)
+        channels = [c for c in channels
+                    if c.get("slug") in wanted or str(c.get("id", "")) in wanted]
     if not channels:
         log("No channels configured.")
         return 1
+    failed = 0
     for ch in channels:
+        name = ch.get("slug") or ch.get("id")
         try:
             sync_channel(client, cfg, ch, root, state, args.dry_run)
         except urllib.error.HTTPError as e:
-            log(f"! {ch.get('slug')}: HTTP {e.code} {e.reason}")
+            failed += 1
+            log(f"! {name}: HTTP {e.code} {e.reason}")
+        except Exception as e:  # one bad channel must not stop the others
+            failed += 1
+            log(f"! {name}: {type(e).__name__}: {e}")
         if not args.dry_run:
             write_atomic(state_path, json.dumps(state, indent=1))
     if not args.dry_run:
         write_theme_mocs(root, state)
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

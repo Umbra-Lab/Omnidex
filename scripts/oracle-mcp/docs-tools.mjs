@@ -4,8 +4,9 @@
  *
  * The point is whole-text reading with citations. Web fetch tools truncate or summarize
  * pages, so agents read a sliver and fill the rest from memory. These tools return full
- * sections in fixed-size chunks that say how much is left, and `docs_verify` checks a
- * citation against the stored text without spending model tokens.
+ * sections in chunks (about 20,000 characters, broken at a line end) that say how much is
+ * left, and `docs_verify` checks that a quoted passage is in the stored text without
+ * spending model tokens. It proves the words are there, not that the agent read them right.
  *
  * docs.db is opened per call and closed again: the mirror can be built or rebuilt while the
  * server runs (on Windows an open handle would block the indexer's atomic replace).
@@ -32,6 +33,10 @@ export const docsTools = [
         product: { type: 'string', description: 'Optional product key, e.g. blender, unreal' },
         version: { type: 'string', description: 'Optional docs version, e.g. 5.3' },
         kind: { type: 'string', description: 'Optional: reference | guide | best-practice' },
+        all_versions: {
+          type: 'boolean',
+          description: 'Also search docs for versions other than the installed one',
+        },
         limit: { type: 'number', description: 'Max sections, default 10' },
       },
       required: ['query'],
@@ -52,7 +57,7 @@ export const docsTools = [
     name: 'docs_read',
     description:
       'Full text of a mirrored page or one section, never summarized. Long text comes in chunks: ' +
-      'the header gives chunk i/n, total_chars and next_offset. Keep calling with next_offset ' +
+      'the header gives the percentage read, total_chars and next_offset. Keep calling with next_offset ' +
       'until has_more is false before concluding anything from the page.',
     inputSchema: {
       type: 'object',
@@ -104,20 +109,12 @@ function notBuilt(docsDbPath) {
 
 /** Split "path#anchor@version" into parts; a plain path passes through. */
 export function parseCitation(raw) {
-  let s = String(raw ?? '').trim();
-  let version = null;
-  let anchor = null;
-  const at = s.lastIndexOf('@');
-  if (at > s.lastIndexOf('/')) {
-    version = s.slice(at + 1);
-    s = s.slice(0, at);
-  }
-  const hash = s.indexOf('#');
-  if (hash !== -1) {
-    anchor = s.slice(hash + 1);
-    s = s.slice(0, hash);
-  }
-  return { path: s, anchor: anchor || null, version: version || null };
+  const s = String(raw ?? '').trim();
+  // Page paths can contain '@' (Godot's class_@gdscript.md), so '@version' and '#anchor'
+  // only count after the '.md' that ends the path.
+  const m = s.match(/^(.*?\.md)(?:#([^@]*))?(?:@([^@/#]+))?$/);
+  if (!m) return { path: s, anchor: null, version: null };
+  return { path: m[1], anchor: m[2] || null, version: m[3] || null };
 }
 
 function ftsQuote(query) {
@@ -128,9 +125,24 @@ function ftsQuote(query) {
     .join(' ');
 }
 
-function normalizeText(s) {
-  return String(s).replaceAll(/[*`]/g, '').replaceAll(/\s+/g, ' ').trim();
+/**
+ * Text as a reader sees it: links and images reduced to their text, emphasis markers and
+ * inline-code backticks removed (but `*` inside code, as in `f(*args)`, kept), whitespace
+ * collapsed.
+ */
+export function normalizeText(s) {
+  return String(s)
+    .replaceAll(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replaceAll(/`+([^`]*)`+/g, (_, code) => `\u0000${code.replaceAll('*', '\u0001')}\u0000`)
+    .replaceAll(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2')
+    .replaceAll(/(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])/g, '$1')
+    .replaceAll('\u0000', '')
+    .replaceAll('\u0001', '*')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
 }
+
+const MIN_QUOTE = 12;
 
 function fmt(n) {
   return Number(n).toLocaleString('en-US');
@@ -147,20 +159,41 @@ function getSections(db, pageId) {
 function findSection(sections, key) {
   if (key === null || key === undefined || key === '') return null;
   const k = String(key);
-  if (/^\d+$/.test(k)) return sections.find((s) => s.ord === Number(k)) ?? null;
-  return sections.find((s) => s.anchor === k) ?? null;
+  // Anchors first: a heading "4.2" has the anchor "42", which must not be read as index 42.
+  const byAnchor = sections.find((s) => s.anchor === k);
+  if (byAnchor) return byAnchor;
+  return /^\d+$/.test(k) ? (sections.find((s) => s.ord === Number(k)) ?? null) : null;
 }
 
 function citation(page, section) {
   return `${page.path}${section ? `#${section.anchor}` : ''}@${page.doc_version}`;
 }
 
+function installedDocVersions(db) {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'installed'").get();
+  const out = {};
+  try {
+    for (const [product, info] of Object.entries(JSON.parse(row?.value ?? '{}'))) {
+      const parts = info?.version ? String(info.version).match(/\d+/g) : null;
+      if (parts && parts.length >= 2) out[product] = `${parts[0]}.${parts[1]}`;
+    }
+  } catch {
+    // An unreadable meta row means no pinning, never an error.
+  }
+  return out;
+}
+
 function search(db, args) {
-  const match = ftsQuote(String(args.query ?? ''));
-  if (!match) return 'Empty query.';
+  const terms = String(args.query ?? '')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (terms.length === 0) return 'Empty query.';
   const limit = Math.max(1, Math.min(Math.trunc(Number(args.limit) || 10), 50));
-  const rows = db
-    .prepare(`
+  // Unless a version is asked for, search only the docs for the installed version of each
+  // product (plus unversioned "current" sets), so an old mirror never answers for a new app.
+  const pinned =
+    args.version || args.all_versions ? '{}' : JSON.stringify(installedDocVersions(db));
+  const stmt = db.prepare(`
       SELECT p.path, p.doc_version, p.title, p.source_url, p.fetched_at, p.kind,
              s.heading, s.anchor, s.chars, s.ord,
              snippet(sections_fts, 2, '«', '»', ' … ', 24) AS snip
@@ -171,9 +204,13 @@ function search(db, args) {
         AND (? IS NULL OR p.product = ?)
         AND (? IS NULL OR p.doc_version = ?)
         AND (? IS NULL OR p.kind = ?)
+        AND (p.doc_version = 'current'
+             OR json_extract(?, '$."' || p.product || '"') IS NULL
+             OR json_extract(?, '$."' || p.product || '"') = p.doc_version)
       ORDER BY bm25(sections_fts, 8.0, 6.0, 1.0)
-      LIMIT ?`)
-    .all(
+      LIMIT ?`);
+  const run = (match) =>
+    stmt.all(
       match,
       args.product ?? null,
       args.product ?? null,
@@ -181,8 +218,18 @@ function search(db, args) {
       args.version ?? null,
       args.kind ?? null,
       args.kind ?? null,
+      pinned,
+      pinned,
       limit,
     );
+  let rows = run(ftsQuote(terms.join(' ')));
+  let note = '';
+  if (rows.length === 0 && terms.length > 1) {
+    // Every word must match first; a natural-language question rarely does, so retry with
+    // any word and say so.
+    rows = run(terms.map((t) => ftsQuote(t)).join(' OR '));
+    note = 'No section has every word; these match some of them.\n';
+  }
   if (rows.length === 0) {
     return 'No sections matched in the local docs. Do not fill the gap from memory; say so.';
   }
@@ -194,7 +241,7 @@ function search(db, args) {
       `  ${r.snip.replaceAll(/\s+/g, ' ')}`
     );
   });
-  return `${lines.join('\n')}\n\nRead a section in full with docs_read(path, section=anchor) before citing it.`;
+  return `${note}${lines.join('\n')}\n\nRead a section in full with docs_read(path, section=anchor) before citing it.`;
 }
 
 function outline(db, args) {
@@ -240,14 +287,13 @@ function read(db, args) {
     const nl = text.lastIndexOf('\n', end);
     if (nl > offset + size * 0.9) end = nl + 1;
   }
-  const chunks = Math.max(1, Math.ceil(total / size));
-  const index = Math.min(chunks, Math.floor(offset / size) + 1);
   const hasMore = end < total;
+  const pct = total === 0 ? 100 : Math.round((end / total) * 100);
   const header = [
     `${page.title} — cite as ${citation(page, section)}`,
     `source: ${page.source_url} · fetched ${String(page.fetched_at).slice(0, 10)}` +
       (page.product_version ? ` · installed ${page.product_version}` : ''),
-    `chars ${fmt(offset)}–${fmt(end)} of total_chars ${fmt(total)} (chunk ${index}/${chunks}); ` +
+    `chars ${fmt(offset)}–${fmt(end)} of total_chars ${fmt(total)} (${pct}% read); ` +
       `has_more: ${hasMore}${hasMore ? `; next_offset: ${end}` : ''}`,
     '---',
   ];
@@ -260,28 +306,28 @@ function read(db, args) {
 function verify(db, args) {
   const cite = parseCitation(args.path);
   const quote = normalizeText(args.quote ?? '');
-  if (!quote) return 'NOT VERIFIED: empty quote.';
+  if (quote.length < MIN_QUOTE) {
+    return `NOT VERIFIED: quote at least ${MIN_QUOTE} characters, so a match means something.`;
+  }
   const page = getPage(db, cite.path);
   if (!page) return `NOT VERIFIED: no mirrored page at ${cite.path}.`;
   if (cite.version && cite.version !== page.doc_version) {
     return `NOT VERIFIED: the mirror holds ${page.path} for version ${page.doc_version}, not ${cite.version}.`;
   }
   const sections = getSections(db, page.id);
-  if (cite.anchor && !findSection(sections, cite.anchor)) {
-    return `NOT VERIFIED: ${page.path} has no section #${cite.anchor}.`;
+  const cited = cite.anchor ? findSection(sections, cite.anchor) : null;
+  if (cite.anchor && !cited) return `NOT VERIFIED: ${page.path} has no section #${cite.anchor}.`;
+  if (cited && normalizeText(cited.body).includes(quote)) {
+    return `VERIFIED: ${citation(page, cited)} (${page.source_url})`;
   }
   const hit = sections.find((s) => normalizeText(s.body).includes(quote));
-  if (!hit) return `NOT VERIFIED: the quote does not appear on ${page.path}.`;
-  if (cite.anchor && hit.anchor !== cite.anchor) {
-    const elsewhere = sections.find(
-      (s) => s.anchor === cite.anchor && normalizeText(s.body).includes(quote),
-    );
-    if (!elsewhere) {
-      return `PARTLY VERIFIED: the quote is on the page but in #${hit.anchor}, not #${cite.anchor}. Cite ${citation(page, hit)}.`;
-    }
-    return `VERIFIED: ${citation(page, elsewhere)} (${page.source_url})`;
+  const onPage = hit || normalizeText(sections.map((s) => s.body).join('\n\n')).includes(quote);
+  if (!onPage) return `NOT VERIFIED: the quote does not appear on ${page.path}.`;
+  if (cited) {
+    const where = hit ? `#${hit.anchor}` : 'across a section boundary';
+    return `PARTLY VERIFIED: the quote is on the page (${where}), not in #${cited.anchor}. Cite ${citation(page, hit ?? null)}.`;
   }
-  return `VERIFIED: ${citation(page, hit)} (${page.source_url})`;
+  return `VERIFIED: ${citation(page, hit ?? null)} (${page.source_url})`;
 }
 
 function versions(db) {
