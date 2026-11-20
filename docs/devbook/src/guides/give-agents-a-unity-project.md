@@ -36,4 +36,4 @@ The oracle answers questions about what exists. Changing the project (creating o
 | [Unity-MCP](https://github.com/IvanMurzak/Unity-MCP) (IvanMurzak) | Free core, Apache 2.0 | Also works in built players; any C# method can become a tool. The project path must not contain spaces. |
 | [Unity CLI](https://docs.unity.com/en-us/unity-cli/replace-mcp-server-unity-cli.md) (Unity) | Free, no Unity AI subscription | Unity's official route since November 2026, still in beta. Drives a running Editor on Unity 6.0 LTS or later over localhost. Agents with a shell call `unity command` and `unity eval` directly; `unity mcp` serves clients without one. Replaces the deprecated MCP server in `com.unity.ai.assistant`. |
 
-Use the Unity CLI when the project is on Unity 6 and you want Unity's supported path. Use MCP for Unity for older Editors, or when the CLI's beta gaps get in the way.
+The Unity CLI is the default: it is Unity's own, free route. Fall back to MCP for Unity only for Editors older than Unity 6.0 LTS.
