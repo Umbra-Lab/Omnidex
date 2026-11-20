@@ -239,6 +239,27 @@ selectors = ["[role=main]"]
         self.assertIn("primitive_cube_add", (root / "index.md").read_text(), "shell not saved")
         self.assertTrue((root / "other.md").is_file(), "pages it used to link to are kept")
 
+    def test_hub_page_losing_all_links_is_not_trusted(self):
+        broken = docs_mirror._looks_broken
+        prev = {"chars": 2000, "links": ["a", "b", "c"]}
+        self.assertTrue(broken({"md": "x" * 1500, "links": []}, prev, Path("/nonexistent")))
+        self.assertFalse(broken({"md": "x" * 1500, "links": ["a"]}, prev, Path("/nonexistent")))
+
+    def test_capped_refresh_finishes_on_the_next_run(self):
+        self.run_cli()
+        root = self.mirror / "docs" / "blender" / "5.3" / "python-api"
+        other = Path(self.tmp.name) / "site" / "api" / "5.3" / "other.html"
+        other.write_text(OTHER.replace("</div>", "<p>Edited later.</p></div>"), encoding="utf-8")
+        later = other.stat().st_mtime + 10
+        os.utime(other, (later, later))
+        capped = self.sources.read_text().replace('selectors = ["[role=main]"]',
+                                                  'selectors = ["[role=main]"]\nmax_pages = 1')
+        self.sources.write_text(capped)
+        self.run_cli("--refresh")  # checks index only, then stops at the cap
+        self.assertNotIn("Edited later", (root / "other.md").read_text())
+        self.run_cli()  # resumes: other.md was not checked in that run, so it is fetched
+        self.assertIn("Edited later", (root / "other.md").read_text())
+
     def test_unreadable_robots_removes_nothing(self):
         self.run_cli()
         root = self.mirror / "docs" / "blender" / "5.3" / "python-api"
@@ -273,6 +294,8 @@ selectors = ["[role=main]"]
         pin = "application_version=5.8"
         self.assertTrue(away("https://e/py/x?application_version=5.8",
                              "https://e/py/x?application_version=5.7", ["https://e/py/"], pin))
+        self.assertTrue(away("https://e/py/x?application_version=5.8", "https://e/py/x",
+                             ["https://e/py/"], pin), "a dropped pin is the default version")
         self.assertTrue(away("https://h/docs/page.html", "https://h/login", [], None))
         self.assertFalse(away("https://h/docs/page", "https://h/docs/page/", [], None))
 

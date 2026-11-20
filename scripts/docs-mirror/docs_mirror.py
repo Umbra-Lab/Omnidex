@@ -26,6 +26,7 @@ import re
 import sqlite3
 import sys
 import time
+import uuid
 import tomllib
 import urllib.error
 import urllib.request
@@ -168,25 +169,25 @@ class Fetcher:
                     self._last[host] = time.monotonic()
                     ctype = (r.headers.get_content_type() or "").lower()
                     if ctype not in TEXT_TYPES:
-                        return -1, None, dict(r.headers), r.geturl()
+                        return -1, None, _lower_keys(r.headers), r.geturl()
                     raw = r.read(MAX_PAGE_BYTES + 1)
                     if len(raw) > MAX_PAGE_BYTES:
-                        return -1, None, dict(r.headers), r.geturl()
+                        return -1, None, _lower_keys(r.headers), r.geturl()
                     charset = r.headers.get_content_charset() or "utf-8"
                     try:
                         text = raw.decode(charset, "replace")
                     except LookupError:
                         text = raw.decode("utf-8", "replace")
-                    return r.status, text, dict(r.headers), r.geturl()
+                    return r.status, text, _lower_keys(r.headers), r.geturl()
             except urllib.error.HTTPError as e:
                 self._last[host] = time.monotonic()
                 if e.code == 304:
-                    return 304, None, dict(e.headers), url
+                    return 304, None, _lower_keys(e.headers), url
                 if e.code in (429, 503) and attempt < 3:
                     retry = e.headers.get("Retry-After")
                     time.sleep(float(retry) if retry and retry.isdigit() else 10 * (attempt + 1))
                     continue
-                return e.code, None, dict(e.headers), url
+                return e.code, None, _lower_keys(e.headers), url
             except (OSError, http.client.HTTPException, ValueError) as e:
                 # URLError, timeouts, resets, IncompleteRead, bad URLs: retry, then give up on
                 # this page only.
@@ -204,6 +205,10 @@ BINARY_EXT = re.compile(
     r"\.(png|jpe?g|gif|webp|svg|ico|bmp|tiff?|pdf|zip|7z|gz|tgz|bz2|xz|rar|exe|msi|dmg|pkg|"
     r"mp4|mov|webm|mp3|wav|ogg|woff2?|ttf|otf|eot|css|js|json|xml|rss|atom|blend|fbx|obj|"
     r"uasset|hip|hda|sbs|sbsar|spp|unitypackage|txt)$", re.I)
+
+
+def _lower_keys(headers) -> dict:
+    return {k.lower(): v for k, v in headers.items()} if headers else {}
 
 
 def _deny_all():
@@ -384,6 +389,10 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
     path_owner: dict[str, str] = {e["path"].casefold(): u for u, e in pages.items()}
     count = 0
     resumed = bool(pages) and not manifest.get("complete") and not refresh
+    # Pages checked in the run being resumed carry its id; pages from older runs (a capped
+    # --refresh) are fetched again.
+    run_id = manifest.get("run_id") if resumed else None
+    run_id = run_id or uuid.uuid4().hex
     log(f"  {src['product']}/{doc_version}/{src['name']}: {'dry run, ' if dry_run else ''}"
         f"{'resuming, ' if resumed else ''}from {len(queue)} start page(s), cap {src['max_pages']}")
 
@@ -399,7 +408,7 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
         root.mkdir(parents=True, exist_ok=True)
         data = {"source": src["name"], "product": src["product"], "doc_version": doc_version,
                 "product_version": product_version, "fetched_at": now_iso(),
-                "complete": complete, "pages": pages}
+                "complete": complete, "run_id": run_id, "pages": pages}
         tmp = manifest_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
         os.replace(tmp, manifest_path)
@@ -420,8 +429,8 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
                     blocked += 1
                 enqueue(prev.get("links", []))
                 continue
-            if resumed and prev:
-                # An interrupted crawl: pages already saved this round are not fetched again.
+            if resumed and prev and prev.get("run_id") == run_id:
+                # An interrupted crawl: pages already checked this round are not fetched again.
                 enqueue(prev.get("links", []))
                 continue
             count += 1
@@ -434,6 +443,8 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
             status = outcome["status"]
             if status == 304:
                 unchanged.append(url)
+                if not dry_run:
+                    pages[url] = {**prev, "run_id": run_id}
                 # Pages reachable only through this one must still be visited (and not be
                 # mistaken for removed ones).
                 enqueue(prev.get("links", []))
@@ -442,7 +453,7 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
                 # Visit what this page linked to last time either way, so each of those pages
                 # is checked on its own instead of being dropped with its parent.
                 enqueue(prev.get("links", []))
-                if status in (404, 410) and url in starts:
+                if status in (404, 410) and url in starts and prev:
                     start_gone = True
                 if status in (404, 410) and prev:
                     gone.append(url)
@@ -458,9 +469,9 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
             enqueue(outcome["links"])
             enqueue(prev.get("links", []))
             rel = prev.get("path") or url_to_relpath(url, prefixes)
-            if prev and _looks_broken(outcome, prev, root / rel):
+            if prev and not prune and _looks_broken(outcome, prev, root / rel):
                 log(f"    ! {url}: {len(outcome['md'])} chars and {len(outcome['links'])} links "
-                    f"where the mirror has more; kept the mirrored copy")
+                    f"where the mirror has more; kept the mirrored copy (--prune accepts it)")
                 failed.append((url, "thin page"))
                 continue
             if not prev:
@@ -475,7 +486,8 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
             digest = hashlib.sha256(outcome["md"].encode("utf-8")).hexdigest()
             entry = {"path": rel, "sha256": digest, "etag": outcome["etag"],
                      "last_modified": outcome["last_modified"], "title": outcome["title"],
-                     "links": outcome["links"], "chars": len(outcome["md"])}
+                     "links": outcome["links"], "chars": len(outcome["md"]),
+                     "run_id": run_id}
             path_owner[rel.casefold()] = url
             if prev.get("sha256") == digest and (root / rel).is_file():
                 unchanged.append(url)
@@ -543,16 +555,16 @@ def _looks_broken(outcome: dict, prev: dict, path: Path) -> bool:
             prev_chars = 0
     if len(outcome["md"]) < min(MIN_CONTENT_CHARS, prev_chars // 4):
         return True
-    prev_links = len(prev.get("links", []))
-    return prev_links >= 10 and len(outcome["links"]) < prev_links // 5
+    prev_links, links = len(prev.get("links", [])), len(outcome["links"])
+    return (prev_links > 0 and links == 0) or (prev_links >= 10 and links < prev_links // 5)
 
 
 def _remove_page(root: Path, pages: dict, path_owner: dict, url: str) -> None:
     rel = pages[url]["path"]
     del pages[url]
     key = rel.casefold()
-    # Never delete a file another URL still maps to.
-    if path_owner.get(key) == url or not any(e["path"].casefold() == key for e in pages.values()):
+    # Never delete a file another page still uses.
+    if not any(e["path"].casefold() == key for e in pages.values()):
         path_owner.pop(key, None)
         stale = root / rel
         if stale.is_file():
@@ -565,7 +577,7 @@ def _fetch_one(src: dict, url: str, prev: dict, fetcher: Fetcher, prefixes: list
     status, body, headers, final = fetcher.get(fetch_url, prev.get("etag"), prev.get("last_modified"))
     if fetch_url != url and (
             (status != 200 and status != 304)
-            or (status == 200 and "html" in (headers or {}).get("Content-Type", "").lower())):
+            or (status == 200 and "html" in (headers or {}).get("content-type", "").lower())):
         # No markdown twin (a 404, or a site that answers every URL with its HTML app shell).
         fetch_url = url
         status, body, headers, final = fetcher.get(url, prev.get("etag"), prev.get("last_modified"))
@@ -575,7 +587,7 @@ def _fetch_one(src: dict, url: str, prev: dict, fetcher: Fetcher, prefixes: list
         # Redirected to another version, a login page or another site: not this doc set.
         log(f"    ! {url} redirected out of scope to {final}")
         return {"status": "redirected"}
-    ctype = headers.get("Content-Type", "").lower()
+    ctype = headers.get("content-type", "").lower()
     is_md = src["format"] == "markdown" or "markdown" in ctype or (
         urlsplit(fetch_url).path.endswith(".md") and "html" not in ctype)
     html = None
@@ -604,7 +616,7 @@ def _fetch_one(src: dict, url: str, prev: dict, fetcher: Fetcher, prefixes: list
         links = sorted({n for n in (normalize(u, pin) for u in raw)
                         if n != me and in_scope(n, prefixes)})
     return {"status": 200, "md": md, "title": title, "links": links,
-            "etag": headers.get("ETag"), "last_modified": headers.get("Last-Modified"),
+            "etag": headers.get("etag"), "last_modified": headers.get("last-modified"),
             "last_updated": _md_last_updated(md) if is_md else None}
 
 
@@ -615,7 +627,8 @@ def _redirected_away(requested: str, final: str, prefixes: list[str], pin: str |
         # Compare the raw pinned parameter: normalize() would force it back to our value.
         key, _, value = pin.partition("=")
         got = dict(parse_qsl(urlsplit(final).query)).get(key)
-        if got is not None and got != value:
+        if got != value:
+            # Another version, or none: the vendor's default version, whatever that is today.
             return True
     final_n = normalize(final, pin)
     if final_n == normalize(requested, pin):

@@ -144,11 +144,12 @@ export function normalizeText(s) {
 
 const MIN_QUOTE = 12;
 
-/** Looser form for a second try: a quote of inline code copied without its backticks
- * (a glob such as two asterisks, slash, asterisk, .js) has its asterisks read as emphasis,
- * so compare with the markers dropped. */
-function bare(s) {
-  return String(s).replaceAll(/[*_`]/g, '').replaceAll(/\s+/g, ' ').trim();
+/** The quote as typed, whitespace collapsed and nothing else removed. Second try for inline
+ * code copied without its backticks (a glob such as two asterisks, slash, asterisk, .gd),
+ * whose asterisks the first pass reads as emphasis. Nothing is stripped that the page
+ * text keeps, so this adds no looser matches. */
+function literal(s) {
+  return String(s).replaceAll(/\s+/g, ' ').trim();
 }
 
 function fmt(n) {
@@ -336,7 +337,8 @@ function read(db, args) {
 function verify(db, args) {
   const cite = parseCitation(args.path);
   const quote = normalizeText(args.quote ?? '');
-  if (quote.length < MIN_QUOTE) {
+  const raw = literal(args.quote ?? '');
+  if (quote.length < MIN_QUOTE || raw.replaceAll(/[\W_]/g, '').length < MIN_QUOTE / 2) {
     return `NOT VERIFIED: quote at least ${MIN_QUOTE} characters, so a match means something.`;
   }
   const page = getPage(db, cite.path);
@@ -347,18 +349,15 @@ function verify(db, args) {
   const sections = getSections(db, page.id);
   const cited = cite.anchor ? findSection(sections, cite.anchor) : null;
   if (cite.anchor && !cited) return `NOT VERIFIED: ${page.path} has no section #${cite.anchor}.`;
-  if (cited && normalizeText(cited.body).includes(quote)) {
+  const has = (text) => {
+    const t = normalizeText(text);
+    return t.includes(quote) || t.includes(raw);
+  };
+  if (cited && has(cited.body)) {
     return `VERIFIED: ${citation(page, cited)} (${page.source_url})`;
   }
-  if (cited && bare(normalizeText(cited.body)).includes(bare(quote))) {
-    return `VERIFIED: ${citation(page, cited)} (${page.source_url})`;
-  }
-  const hit = sections.find(
-    (s) =>
-      normalizeText(s.body).includes(quote) || bare(normalizeText(s.body)).includes(bare(quote)),
-  );
-  const onPage =
-    hit || bare(normalizeText(sections.map((s) => s.body).join('\n\n'))).includes(bare(quote));
+  const hit = sections.find((s) => has(s.body));
+  const onPage = hit || has(sections.map((s) => s.body).join('\n\n'));
   if (!onPage) return `NOT VERIFIED: the quote does not appear on ${page.path}.`;
   if (cited) {
     const where = hit ? `#${hit.anchor}` : 'across a section boundary';

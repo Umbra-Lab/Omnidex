@@ -240,6 +240,19 @@ try {
     ),
     /^VERIFIED/,
   );
+  // Dropped markup must not make different text match.
+  assert.match(
+    callDocsTool(
+      'docs_verify',
+      { path: `${gd}#${anchor}@4.7`, quote: 'Call print(args) to print every argument.' },
+      dbPath,
+    ),
+    /^NOT VERIFIED/,
+  );
+  assert.match(
+    callDocsTool('docs_verify', { path: gd, quote: '* * * * * * * * * * *' }, dbPath),
+    /^NOT VERIFIED: quote at least/,
+  );
   // "[1]" is the outline index even where a heading's anchor is a number.
   assert.match(
     callDocsTool('docs_read', { path: gd, section: '[1]' }, dbPath),
