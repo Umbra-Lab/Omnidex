@@ -241,6 +241,8 @@ selectors = ["[role=main]"]
 
     def test_hub_page_losing_all_links_is_not_trusted(self):
         broken = docs_mirror._looks_broken
+        self.assertFalse(broken({"md": "x" * 300, "links": []}, {"chars": 320, "links": ["a"]},
+                                Path("/nonexistent")), "losing a single link is a real edit")
         prev = {"chars": 2000, "links": ["a", "b", "c"]}
         self.assertTrue(broken({"md": "x" * 1500, "links": []}, prev, Path("/nonexistent")))
         self.assertFalse(broken({"md": "x" * 1500, "links": ["a"]}, prev, Path("/nonexistent")))
@@ -259,6 +261,17 @@ selectors = ["[role=main]"]
         self.assertNotIn("Edited later", (root / "other.md").read_text())
         self.run_cli()  # resumes: other.md was not checked in that run, so it is fetched
         self.assertIn("Edited later", (root / "other.md").read_text())
+
+    def test_dead_new_start_url_removes_nothing(self):
+        self.run_cli()
+        root = self.mirror / "docs" / "blender" / "5.3" / "python-api"
+        text = self.sources.read_text()
+        start = next(line for line in text.splitlines() if line.startswith("start = "))
+        self.sources.write_text(text.replace(
+            start, f'start = ["{self.base}/api/{{version}}/moved.html"]'))
+        self.run_cli("--refresh")
+        self.assertTrue((root / "index.md").is_file(), "a start that never answered removes nothing")
+        self.assertTrue((root / "other.md").is_file())
 
     def test_unreadable_robots_removes_nothing(self):
         self.run_cli()

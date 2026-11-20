@@ -338,7 +338,7 @@ function verify(db, args) {
   const cite = parseCitation(args.path);
   const quote = normalizeText(args.quote ?? '');
   const raw = literal(args.quote ?? '');
-  if (quote.length < MIN_QUOTE || raw.replaceAll(/[\W_]/g, '').length < MIN_QUOTE / 2) {
+  if (quote.length < MIN_QUOTE || raw.replaceAll(/[^\p{L}\p{N}]/gu, '').length < MIN_QUOTE / 2) {
     return `NOT VERIFIED: quote at least ${MIN_QUOTE} characters, so a match means something.`;
   }
   const page = getPage(db, cite.path);

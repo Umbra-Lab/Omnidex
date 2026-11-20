@@ -383,6 +383,7 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
     gone = []  # known pages the vendor answered 404/410 for; removed at the end if safe
     blocked = 0
     start_gone = False
+    start_ok = False  # some start page answered with real content this run
     visited_urls = set()
     # Keyed case-insensitively: on Windows and macOS two URLs differing only in case would
     # otherwise overwrite one file.
@@ -442,6 +443,7 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
             visited_urls.add(url)
             status = outcome["status"]
             if status == 304:
+                start_ok = start_ok or url in starts
                 unchanged.append(url)
                 if not dry_run:
                     pages[url] = {**prev, "run_id": run_id}
@@ -459,6 +461,10 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
                     gone.append(url)
                 elif prev or _transient(status):
                     failed.append((url, status))
+                    if prev and not dry_run:
+                        # Checked this run: a resume moves past it instead of spending the
+                        # page cap on it again.
+                        pages[url] = {**prev, "run_id": run_id}
                 else:
                     # A dead or non-text link to a page we never held says nothing about the
                     # pages we hold, so it does not block cleanup.
@@ -473,7 +479,10 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
                 log(f"    ! {url}: {len(outcome['md'])} chars and {len(outcome['links'])} links "
                     f"where the mirror has more; kept the mirrored copy (--prune accepts it)")
                 failed.append((url, "thin page"))
+                if not dry_run:
+                    pages[url] = {**prev, "run_id": run_id}
                 continue
+            start_ok = start_ok or url in starts
             if not prev:
                 owner = path_owner.get(rel.casefold())
                 if owner and owner != url and url_to_relpath(owner, prefixes) == rel:
@@ -509,7 +518,7 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
 
         # Removal by absence is only trusted after a crawl that finished, fetched something,
         # reached every page it was allowed to, and had no failures on pages we hold.
-        clean = (src["crawl"] and not queue and not failed and not blocked and visited_urls
+        clean = (src["crawl"] and not queue and not failed and not blocked and start_ok
                  and not start_gone)
         absent = [u for u in pages if u not in visited_urls and u not in seen] if clean else []
         if src["crawl"] and not clean and pages and not dry_run:
@@ -556,7 +565,7 @@ def _looks_broken(outcome: dict, prev: dict, path: Path) -> bool:
     if len(outcome["md"]) < min(MIN_CONTENT_CHARS, prev_chars // 4):
         return True
     prev_links, links = len(prev.get("links", [])), len(outcome["links"])
-    return (prev_links > 0 and links == 0) or (prev_links >= 10 and links < prev_links // 5)
+    return (prev_links >= 3 and links == 0) or (prev_links >= 10 and links < prev_links // 5)
 
 
 def _remove_page(root: Path, pages: dict, path_owner: dict, url: str) -> None:
