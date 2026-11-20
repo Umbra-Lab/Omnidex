@@ -19,6 +19,8 @@
 - [Write a migration](guides/write-a-migration.md)
 - [Run a data operation](guides/run-a-data-operation.md)
 - [Transcribe and translate a course](guides/transcribe-a-course.md)
+- [Mirror vendor docs for agents](guides/mirror-vendor-docs.md)
+- [Sync Are.na references into Obsidian](guides/sync-arena-references.md)
 - [Package a release](guides/package-a-release.md)
 
 # Subsystems

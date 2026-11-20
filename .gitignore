@@ -214,3 +214,6 @@ test-library/
 
 # mdbook rendered output
 docs/devbook/book/
+
+# Local config for scripts/arena-sync (may name private channels)
+scripts/arena-sync/arena.toml

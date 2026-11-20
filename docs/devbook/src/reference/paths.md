@@ -16,6 +16,7 @@ Everything Omnidex writes lives under Electron's `userData` directory. Resolved 
 | `thumbnails/` | Extracted PNGs |
 | `search_index/` | Reserved |
 | `logs/` | Application logs, and the Whisper backfill manifest |
+| `docs-mirror/` | Vendor docs as markdown, `docs.db`, `versions.json` (written by `scripts/docs-mirror/`) |
 
 ```admonish danger title="The directory name depends on app.setName"
 `app.setName('omnidex')` must run before `app.whenReady()`. Without it, dev, test, and packaged launches resolve *different* `userData` directories and therefore different databases.

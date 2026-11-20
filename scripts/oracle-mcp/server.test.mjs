@@ -47,6 +47,11 @@ const list = await rpc('tools/list', {});
 // while saying nothing about what is missing, and passes if a tool is swapped
 // for another.
 assert.deepEqual(list.result.tools.map((t) => t.name).sort(), [
+  'docs_outline',
+  'docs_read',
+  'docs_search',
+  'docs_verify',
+  'docs_versions',
   'get_context',
   'list_courses',
   'search_assets',

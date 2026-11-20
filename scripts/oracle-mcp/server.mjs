@@ -9,15 +9,20 @@
  *
  * DB resolution: ORACLE_DB env var, else %APPDATA%/omnidex/omnidex.db. The DB is opened
  * read-only; the running app and this server share it safely under WAL (asserted below).
+ *
+ * Docs tools (docs_*) read the vendor docs mirror: ORACLE_DOCS_DB, else docs-mirror/docs.db
+ * next to the library DB. See docs-tools.mjs and scripts/docs-mirror/.
  */
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
+import { callDocsTool, docsToolNames, docsTools } from './docs-tools.mjs';
 
 const PROTOCOL_VERSION = '2025-06-18';
 
 const dbPath = process.env.ORACLE_DB ?? join(process.env.APPDATA ?? '.', 'omnidex', 'omnidex.db');
 const db = new DatabaseSync(dbPath, { readOnly: true });
+const docsDbPath = process.env.ORACLE_DOCS_DB ?? join(dirname(dbPath), 'docs-mirror', 'docs.db');
 
 const journalMode = db.prepare('PRAGMA journal_mode').get()?.journal_mode;
 if (journalMode !== 'wal') {
@@ -215,10 +220,12 @@ const tools = [
       },
     },
   },
+  ...docsTools,
 ];
 const toolNames = new Set(tools.map((t) => t.name));
 
 function callTool(name, args) {
+  if (docsToolNames.has(name)) return callDocsTool(name, args, docsDbPath);
   if (name === 'search_transcripts') {
     const limit = Math.max(1, Math.min(Math.trunc(asFinite(args.limit, 20)), 100));
     const match = ftsQuote(String(args.query ?? ''));
