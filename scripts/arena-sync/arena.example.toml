@@ -1,0 +1,32 @@
+# Copy to arena.toml (kept out of git) and run:
+#   python scripts/arena-sync/arena_sync.py --config arena.toml
+#
+# Optional: set ARENA_TOKEN to a personal access token with `read` scope (free, created in
+# your Are.na account settings) to raise the limit from 30 to 120 requests per minute.
+
+vault = "C:/Users/you/Documents/Vault"
+folder = "References/Are.na"
+
+# small | medium | large | square | original. "large" keeps disk use modest while staying
+# sharp enough for an agent to study composition, palette and lighting.
+image_size = "large"
+download_images = true
+
+# Extra themes added to a block when one of these words appears in its title, description
+# or source title. Channel themes below are always applied.
+[keywords]
+lighting = ["light", "lighting", "rim", "volumetric", "god rays", "backlit", "golden hour"]
+palette = ["palette", "color", "colour", "swatch", "hue"]
+silhouette = ["silhouette", "shape language", "readability"]
+ui = ["ui", "hud", "menu", "interface", "inventory"]
+environment = ["environment", "landscape", "interior", "level design"]
+
+[[channel]]
+slug = "your-channel-slug"
+themes = ["lighting"]
+
+[[channel]]
+slug = "another-channel"
+themes = ["ui"]
+# download_images = false   # per-channel override
+# image_size = "original"

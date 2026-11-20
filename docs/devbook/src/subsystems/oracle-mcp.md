@@ -13,8 +13,21 @@ It is a standalone stdio server speaking newline-delimited JSON-RPC. It opens th
 | `get_context` | "What was said around that timestamp?" — cues in a window |
 | `list_courses` | What is in the library, with video counts and hours |
 | `search_assets` | "Do I already own something for this?" — packs and indexed DCC files, BM25 over `assets_fts` |
+| `docs_search` | "What do the official docs say about X?" — sections of the local vendor docs mirror, with citations. Only docs for the installed version are searched unless `version` or `all_versions` is given |
+| `docs_outline` | The heading tree of one mirrored page, with section sizes |
+| `docs_read` | A whole page or section, in chunks of about 20,000 characters that report `has_more` and `next_offset` |
+| `docs_verify` | Whether a cited `path#anchor@version` and quote really exist in the mirror |
+| `docs_versions` | Which docs versions are mirrored, and whether they match the installed apps |
 
 DCC results include the file kind, ecosystem and path. Search covers the filename and path as well as the ecosystem and kind. Archive results describe the archive itself; Oracle does not search inside it.
+
+## Why the docs tools read in chunks
+
+Web fetch tools cut long pages off, or summarize them, without saying so. An agent then reasons from a fraction of the page. `docs_read` never summarizes. It returns chunks of about 20,000 characters, broken at a line end, with a header that gives the percentage read, `has_more` and `next_offset`, and it ends an unfinished chunk with an explicit instruction to keep reading.
+
+`docs_verify` checks a citation against the stored text with a string match, ignoring whitespace, emphasis and link markup, without spending model tokens. Quotes shorter than 12 characters are refused, because they match almost anywhere. A match proves the words are in the docs, not that the agent drew the right conclusion from them.
+
+The mirror lives in its own database, `docs.db`, built by `scripts/docs-mirror/docs_mirror.py` ([Mirror vendor docs for agents](../guides/mirror-vendor-docs.md)). The server opens it per call and closes it again, so the mirror can be rebuilt while the server runs. Until it is built, every docs tool answers with the command that builds it. The index tokenizes with `unicode61 tokenchars '_'` and no stemming, so API names such as `primitive_cube_add` match whole.
 
 ## Why both transcript and title search
 
@@ -44,7 +57,7 @@ When the question is "does my library cover X at all", `search_lessons` is the b
 }
 ```
 
-`ORACLE_DB` defaults to the standard `%APPDATA%/omnidex/omnidex.db` location.
+`ORACLE_DB` defaults to the standard `%APPDATA%/omnidex/omnidex.db` location. `ORACLE_DOCS_DB` defaults to `docs-mirror/docs.db` in the same folder.
 
 ## Verify it
 
@@ -55,6 +68,12 @@ node scripts/oracle-mcp/server.test.mjs
 ```
 OK — 115 courses, search 2ms, context 1ms
 ```
+
+```bash
+node scripts/oracle-mcp/docs-tools.test.mjs
+```
+
+The docs-tools check builds a small mirror with the real Python indexer and exercises every `docs_*` tool, including reading a long page back in full across chunks.
 
 The self-check drives the real protocol against the live database: initialize, `tools/list`, a search, a `get_context` derived from that search's own result, and a set of malformed-input cases.
 
@@ -82,3 +101,4 @@ After moving cues into a real indexed table it is **about 1 ms**. See [The datab
 
 - [Learn: courses and transcripts](learn.md) — where the cues come from
 - [The database](database.md) — the index the oracle reads
+- [Mirror vendor docs for agents](../guides/mirror-vendor-docs.md) — build `docs.db`
