@@ -7,6 +7,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from urllib.parse import urlsplit
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -215,10 +216,65 @@ selectors = ["[role=main]"]
         self.run_cli()
         root = self.mirror / "docs" / "blender" / "5.3" / "python-api"
         site = Path(self.tmp.name) / "site" / "api" / "5.3"
-        (site / "index.html").unlink()  # start page now 404s: an outage, not a removal of all
+        (site / "other.html").unlink()
         self.run_cli("--refresh")
-        self.assertTrue((root / "other.md").is_file(), "pages behind a failed page are kept")
-        self.assertFalse((root / "index.md").exists(), "an explicit 404 removes that page")
+        self.assertFalse((root / "other.md").exists(), "an explicit 404 removes that page")
+        self.assertTrue((root / "index.md").is_file())
+
+        self.run_cli()
+        (site / "index.html").unlink()  # start page gone: the docs moved, not all removed
+        self.run_cli("--refresh")
+        self.assertTrue((root / "index.md").is_file(), "a missing start page removes nothing")
+        self.run_cli("--refresh", "--prune")
+        self.assertFalse((root / "index.md").exists(), "--prune lets the removal through")
+
+    def test_refresh_keeps_mirror_when_start_page_is_a_shell(self):
+        self.run_cli()
+        root = self.mirror / "docs" / "blender" / "5.3" / "python-api"
+        index = Path(self.tmp.name) / "site" / "api" / "5.3" / "index.html"
+        index.write_text("<html><body><p>Just a moment...</p></body></html>", encoding="utf-8")
+        later = index.stat().st_mtime + 10
+        os.utime(index, (later, later))
+        self.run_cli("--refresh")
+        self.assertIn("primitive_cube_add", (root / "index.md").read_text(), "shell not saved")
+        self.assertTrue((root / "other.md").is_file(), "pages it used to link to are kept")
+
+    def test_unreadable_robots_removes_nothing(self):
+        self.run_cli()
+        root = self.mirror / "docs" / "blender" / "5.3" / "python-api"
+        (Path(self.tmp.name) / "site" / "robots.txt").unlink()
+        (Path(self.tmp.name) / "site" / "robots.txt").mkdir()  # directory: the server errors
+        # A start URL the manifest has never seen, as after editing sources.toml.
+        self.sources.write_text(self.sources.read_text().replace("index.html", "index.html?x=1"))
+        with unittest.mock.patch.object(docs_mirror.Fetcher, "allowed",
+                                        lambda self, url: (self.unreadable.add(
+                                            "http://" + urlsplit(url).netloc), False)[1]):
+            self.run_cli("--refresh")
+        self.assertTrue((root / "index.md").is_file())
+        self.assertTrue((root / "other.md").is_file())
+
+    def test_case_only_paths_do_not_overwrite(self):
+        used = {}
+        a = docs_mirror._unique_rel("hou/Node.md", "https://h/hou/Node.html", used)
+        used[a.casefold()] = "https://h/hou/Node.html"
+        b = docs_mirror._unique_rel("hou/node.md", "https://h/hou/node.html", used)
+        self.assertEqual(a, "hou/Node.md")
+        self.assertNotEqual(a.casefold(), b.casefold())
+        self.assertNotEqual(docs_mirror._unique_rel("changes.md", "https://h/changes.html", {}),
+                            "changes.md")
+
+    def test_duplicate_heading_anchors_are_unique(self):
+        secs = docs_mirror.split_sections("## Foo\n\na\n\n## Foo\n\nb\n\n## Foo 1\n\nc\n")
+        anchors = [s["anchor"] for s in secs]
+        self.assertEqual(len(anchors), len(set(anchors)), anchors)
+
+    def test_redirect_to_other_version_or_login_is_out_of_scope(self):
+        away = docs_mirror._redirected_away
+        pin = "application_version=5.8"
+        self.assertTrue(away("https://e/py/x?application_version=5.8",
+                             "https://e/py/x?application_version=5.7", ["https://e/py/"], pin))
+        self.assertTrue(away("https://h/docs/page.html", "https://h/login", [], None))
+        self.assertFalse(away("https://h/docs/page", "https://h/docs/page/", [], None))
 
     def test_binary_links_are_not_saved(self):
         site = Path(self.tmp.name) / "site" / "api" / "5.3"
@@ -243,8 +299,9 @@ selectors = ["[role=main]"]
         os.utime(index, (later, later))
         self.run_cli()  # no --refresh: untouched
         self.assertTrue((root / "other.md").is_file())
+        (index.parent / "other.html").unlink()
         self.run_cli("--refresh")
-        self.assertFalse((root / "other.md").exists(), "page no longer linked is removed")
+        self.assertFalse((root / "other.md").exists(), "page gone from the site is removed")
         self.assertIn("Removed (1)", (root / "CHANGES.md").read_text())
 
 

@@ -19,6 +19,7 @@ ARENA_TOKEN environment variable raises the read limit from 30 to 120 requests p
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import mimetypes
 import os
@@ -53,11 +54,13 @@ def slugify(s: str, n: int = 60) -> str:
 
 
 class _SameHostAuthRedirect(urllib.request.HTTPRedirectHandler):
-    """Follow redirects, but drop the token when a redirect leaves the original host."""
+    """Follow redirects, but drop the token when a redirect leaves the original host or
+    drops to plain http."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is not None and urlsplit(newurl).netloc != urlsplit(req.full_url).netloc:
+        old, nxt = urlsplit(req.full_url), urlsplit(newurl)
+        if new is not None and (nxt.netloc != old.netloc or nxt.scheme != old.scheme):
             for key in [k for k in new.headers if k.lower() == "authorization"]:
                 del new.headers[key]
             new.unredirected_hdrs.pop("Authorization", None)
@@ -80,6 +83,19 @@ class Client:
         wait = self._last + self.min_interval - time.monotonic()
         if wait > 0:
             time.sleep(wait)
+
+    def _fetch(self, url: str, accept: str, auth: bool) -> tuple[bytes, str]:
+        """Body and Content-Type. A connection cut mid-body is retried like any other drop."""
+        for attempt in range(3):
+            try:
+                with self._open(url, accept, auth) as r:
+                    return r.read(), r.headers.get("Content-Type", "")
+            except (http.client.HTTPException, ConnectionError, TimeoutError) as e:
+                if attempt == 2:
+                    raise OSError(f"{type(e).__name__}: {e}") from e
+                log(f"  incomplete response ({type(e).__name__}); retrying")
+                time.sleep(5 * (attempt + 1))
+        raise AssertionError("unreachable")
 
     def _open(self, url: str, accept: str, auth: bool):
         headers = {"User-Agent": USER_AGENT, "Accept": accept}
@@ -122,13 +138,11 @@ class Client:
 
     def get_json(self, path: str, **params) -> dict:
         url = f"{API}{path}" + (f"?{urlencode(params)}" if params else "")
-        with self._open(url, "application/json", auth=True) as r:
-            return json.loads(r.read().decode("utf-8"))
+        body, _ = self._fetch(url, "application/json", auth=True)
+        return json.loads(body.decode("utf-8"))
 
     def download(self, url: str, dest: Path) -> str:
-        with self._open(url, "image/*,*/*", auth=False) as r:
-            data = r.read()
-            ctype = r.headers.get("Content-Type", "")
+        data, ctype = self._fetch(url, "image/*,*/*", auth=False)
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".part")
         tmp.write_bytes(data)

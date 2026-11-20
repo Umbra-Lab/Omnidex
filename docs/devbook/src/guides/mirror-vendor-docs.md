@@ -44,7 +44,8 @@ python scripts/docs-mirror/docs_mirror.py all
 |---|---|
 | `--product NAME` | Only this product (repeatable) |
 | `--source NAME` | Only this doc set, including disabled ones (repeatable) |
-| `--refresh` | Re-check mirrored sources; changed pages are rewritten. A page is deleted only when the vendor answers 404 or 410 for it, or when a crawl that finished with no failures no longer reaches it |
+| `--refresh` | Re-check mirrored sources; changed pages are rewritten. A page is deleted only when the vendor answers 404 or 410 for it, or when it falls outside the source's `prefix` after a crawl with no failures |
+| `--prune` | Allow a refresh to remove more than 10% of a doc set, or to remove pages after a start page has gone |
 | `--delay S` | Seconds between requests to one host, default 1. A `Crawl-delay` in robots.txt overrides it when larger |
 | `--mirror-dir DIR` | Default `<userData>/docs-mirror`, or `OMNIDEX_DOCS_MIRROR` |
 
@@ -55,6 +56,8 @@ The crawler always honours `robots.txt`. The mirror is a personal cache: never c
 ## Run it again when an app updates
 
 A new install changes the detected version, and `fetch` then mirrors the new docs version into its own folder. `docs_versions` in the oracle flags any product whose installed version has no matching docs.
+
+A refresh keeps the mirrored copy whenever the live site looks wrong rather than changed: a page that comes back nearly empty or without its links (a bot check, a JavaScript shell, a maintenance page), an unreadable `robots.txt`, a start page that has gone, or more than 10% of the doc set missing at once. The log says what it kept and why. If the vendor really did move or remove the docs, fix `sources.toml` or re-run with `--prune`.
 
 Each run writes `CHANGES.md` beside a doc set, listing pages added, changed, removed and failed. Read it to see what the vendor changed.
 

@@ -160,6 +160,28 @@ themes = ["mood"]
         other = h.redirect_request(req, None, 302, "Found", {}, "https://cdn.example.com/y")
         self.assertEqual(same.get_header("Authorization"), "Bearer tok")
         self.assertIsNone(other.get_header("Authorization"))
+        downgrade = h.redirect_request(req, None, 302, "Found", {}, "http://api.are.na/v3/y")
+        self.assertIsNone(downgrade.get_header("Authorization"))
+
+    def test_truncated_image_skips_only_that_image(self):
+        import http.client
+
+        real = self.mod.Client._open
+        hits = []
+
+        def cut(client, url, accept, auth):
+            r = real(client, url, accept, auth)
+            if "/IMG/" in url:
+                hits.append(url)
+                r.read = lambda *a: (_ for _ in ()).throw(http.client.IncompleteRead(b"x", 10))
+            return r
+
+        with mock.patch.object(self.mod.Client, "_open", cut):
+            self.run_sync()
+        refs = self.vault / "Refs" / "refs"
+        self.assertTrue((refs / "1-rim-light-study.md").is_file(), "note written without image")
+        self.assertTrue((refs / "_index.md").is_file())
+        self.assertEqual(len(hits), 3, "the cut download was retried")
 
     def test_failed_channel_does_not_stop_others(self):
         with open(self.config, "a") as f:

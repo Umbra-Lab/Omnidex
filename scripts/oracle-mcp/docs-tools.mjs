@@ -66,7 +66,7 @@ export const docsTools = [
         section: {
           type: 'string',
           description:
-            'Optional section anchor or index from docs_outline; omit for the whole page',
+            'Optional section anchor, or its index from docs_outline written as [3]; omit for the whole page',
         },
         offset: { type: 'number', description: 'Character offset from next_offset, default 0' },
         max_chars: { type: 'number', description: `Chunk size, default ${READ_CHUNK}` },
@@ -144,6 +144,13 @@ export function normalizeText(s) {
 
 const MIN_QUOTE = 12;
 
+/** Looser form for a second try: a quote of inline code copied without its backticks
+ * (a glob such as two asterisks, slash, asterisk, .js) has its asterisks read as emphasis,
+ * so compare with the markers dropped. */
+function bare(s) {
+  return String(s).replaceAll(/[*_`]/g, '').replaceAll(/\s+/g, ' ').trim();
+}
+
 function fmt(n) {
   return Number(n).toLocaleString('en-US');
 }
@@ -159,7 +166,10 @@ function getSections(db, pageId) {
 function findSection(sections, key) {
   if (key === null || key === undefined || key === '') return null;
   const k = String(key);
-  // Anchors first: a heading "4.2" has the anchor "42", which must not be read as index 42.
+  // "[3]" is always an index, as docs_outline prints it. A bare number is an anchor first: a
+  // heading "4.2" has the anchor "42", which must not be read as index 42.
+  const bracketed = k.match(/^\[(\d+)\]$/);
+  if (bracketed) return sections.find((s) => s.ord === Number(bracketed[1])) ?? null;
   const byAnchor = sections.find((s) => s.anchor === k);
   if (byAnchor) return byAnchor;
   return /^\d+$/.test(k) ? (sections.find((s) => s.ord === Number(k)) ?? null) : null;
@@ -188,6 +198,9 @@ function search(db, args) {
     .split(/\s+/)
     .filter(Boolean);
   if (terms.length === 0) return 'Empty query.';
+  if (!terms.some((t) => /[\p{L}\p{N}]/u.test(t))) {
+    return 'The query has no letters or digits; search for the words around the symbol instead.';
+  }
   const limit = Math.max(1, Math.min(Math.trunc(Number(args.limit) || 10), 50));
   // Unless a version is asked for, search only the docs for the installed version of each
   // product (plus unversioned "current" sets), so an old mirror never answers for a new app.
@@ -231,7 +244,24 @@ function search(db, args) {
     note = 'No section has every word; these match some of them.\n';
   }
   if (rows.length === 0) {
-    return 'No sections matched in the local docs. Do not fill the gap from memory; say so.';
+    let hint = '';
+    if (!args.version && !args.all_versions) {
+      const installed = installedDocVersions(db);
+      const others = db
+        .prepare(
+          `SELECT DISTINCT product, doc_version FROM pages
+           WHERE doc_version != 'current' AND (? IS NULL OR product = ?)`,
+        )
+        .all(args.product ?? null, args.product ?? null)
+        .filter((r) => installed[r.product] && installed[r.product] !== r.doc_version);
+      if (others.length > 0) {
+        hint =
+          ' Searched only the docs for the installed versions; the mirror also holds ' +
+          others.map((r) => `${r.product} ${r.doc_version}`).join(', ') +
+          '. Pass all_versions: true to include them, and say which version the answer is for.';
+      }
+    }
+    return `No sections matched in the local docs.${hint} Do not fill the gap from memory; say so.`;
   }
   const lines = rows.map((r) => {
     const where = r.heading && r.heading !== r.title ? `${r.title} › ${r.heading}` : r.title;
@@ -320,8 +350,15 @@ function verify(db, args) {
   if (cited && normalizeText(cited.body).includes(quote)) {
     return `VERIFIED: ${citation(page, cited)} (${page.source_url})`;
   }
-  const hit = sections.find((s) => normalizeText(s.body).includes(quote));
-  const onPage = hit || normalizeText(sections.map((s) => s.body).join('\n\n')).includes(quote);
+  if (cited && bare(normalizeText(cited.body)).includes(bare(quote))) {
+    return `VERIFIED: ${citation(page, cited)} (${page.source_url})`;
+  }
+  const hit = sections.find(
+    (s) =>
+      normalizeText(s.body).includes(quote) || bare(normalizeText(s.body)).includes(bare(quote)),
+  );
+  const onPage =
+    hit || bare(normalizeText(sections.map((s) => s.body).join('\n\n'))).includes(bare(quote));
   if (!onPage) return `NOT VERIFIED: the quote does not appear on ${page.path}.`;
   if (cited) {
     const where = hit ? `#${hit.anchor}` : 'across a section boundary';

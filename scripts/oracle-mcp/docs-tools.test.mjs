@@ -77,7 +77,7 @@ try {
     },
     '# @GDScript\n\nBuilt-in GDScript functions.\n\n## 4.2\n\n' +
       'See [the Node class](class_node.md) for the *full* list of methods.\n\n' +
-      'Call `print(*args)` to print every argument.',
+      'Call `print(*args)` to print every argument. Use `**/*.gd` to match every script.',
   );
   writeFileSync(
     join(mirror, 'versions.json'),
@@ -125,7 +125,11 @@ try {
   );
   // Search is pinned to the installed version: Unreal 5.8 is installed and only 5.7 docs are
   // mirrored, so those stay out unless asked for.
-  assert.match(callDocsTool('docs_search', { query: 'Experimental' }, dbPath), /No sections/);
+  assert.match(
+    callDocsTool('docs_search', { query: 'Experimental' }, dbPath),
+    /No sections matched[^\n]*also holds unreal 5\.7[^\n]*all_versions/,
+  );
+  assert.match(callDocsTool('docs_search', { query: '->' }, dbPath), /no letters or digits/);
   assert.match(
     callDocsTool('docs_search', { query: 'Experimental', all_versions: true }, dbPath),
     /^unreal\/5\.7\/unreal-mcp\/index\.md/,
@@ -227,6 +231,19 @@ try {
       dbPath,
     ),
     /^VERIFIED/,
+  );
+  assert.match(
+    callDocsTool(
+      'docs_verify',
+      { path: `${gd}#${anchor}@4.7`, quote: 'Use **/*.gd to match every script.' },
+      dbPath,
+    ),
+    /^VERIFIED/,
+  );
+  // "[1]" is the outline index even where a heading's anchor is a number.
+  assert.match(
+    callDocsTool('docs_read', { path: gd, section: '[1]' }, dbPath),
+    /cite as godot\/4\.7\/docs\/classes\/class_@gdscript\.md#/,
   );
   assert.match(
     callDocsTool('docs_read', { path: `${gd}#${anchor}@4.7` }, dbPath),

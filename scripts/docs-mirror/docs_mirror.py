@@ -117,6 +117,7 @@ class Fetcher:
         self.delay = delay
         self._last: dict[str, float] = {}
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+        self.unreadable: set[str] = set()  # origins whose robots.txt could not be read
 
     def allowed(self, url: str) -> bool:
         parts = urlsplit(url)
@@ -132,8 +133,11 @@ class Fetcher:
                 # 404/410: the site has no robots.txt, so everything is allowed (RFC 9309).
                 # 401/403/5xx or anything else: we cannot read the rules, so fetch nothing.
                 self._robots[origin] = None if e.code in (404, 410) else _deny_all()
+                if e.code not in (404, 410):
+                    self.unreadable.add(origin)
             except Exception:
                 self._robots[origin] = _deny_all()
+                self.unreadable.add(origin)
         rp = self._robots[origin]
         if rp is None:
             return True
@@ -328,10 +332,30 @@ def read_page(path: Path) -> tuple[dict, str]:
 # ---------------------------------------------------------------------------- fetch
 
 MANIFEST_FLUSH_EVERY = 50
+# Removals in one run above this share of the mirrored pages are held back unless --prune is
+# given: a vendor outage, a moved site or a bot challenge looks exactly like mass deletion.
+MAX_REMOVAL_SHARE = 0.10
+MAX_REMOVAL_FLOOR = 5
+# Files the mirror writes beside the pages; a page may never be saved under these names.
+RESERVED_NAMES = {"changes.md", "_manifest.json"}
+
+
+def _transient(status) -> bool:
+    return status == 0 or status == 429 or (isinstance(status, int) and status >= 500)
+
+
+def _unique_rel(rel: str, url: str, path_owner: dict) -> str:
+    """A path no other URL owns, compared case-insensitively (Windows and macOS file systems
+    are), e.g. Houdini's hou/Node.html and hou/node.html."""
+    key = rel.casefold()
+    if key not in path_owner and key not in RESERVED_NAMES:
+        return rel
+    stem = rel[:-3]
+    return f"{stem}__{hashlib.sha1(url.encode('utf-8')).hexdigest()[:8]}.md"
 
 
 def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path,
-                 fetcher: Fetcher, refresh: bool, dry_run: bool) -> dict:
+                 fetcher: Fetcher, refresh: bool, dry_run: bool, prune: bool = False) -> dict:
     root = mirror / "docs" / src["product"] / doc_version / src["name"]
     manifest_path = root / "_manifest.json"
     manifest: dict = {}
@@ -347,11 +371,17 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
     prefixes = [normalize(p) for p in src.get("prefix", [])]
     queue = deque(dict.fromkeys(normalize(u, pin) for u in (src.get("start", []) if src["crawl"]
                                                              else src.get("pages", []))))
+    starts = set(queue)
     seen = set(queue)
     added, changed, unchanged, failed, removed = [], [], [], [], []
+    removed_paths: dict = {}
+    gone = []  # known pages the vendor answered 404/410 for; removed at the end if safe
     blocked = 0
+    start_gone = False
     visited_urls = set()
-    path_owner: dict[str, str] = {e["path"]: u for u, e in pages.items()}
+    # Keyed case-insensitively: on Windows and macOS two URLs differing only in case would
+    # otherwise overwrite one file.
+    path_owner: dict[str, str] = {e["path"].casefold(): u for u, e in pages.items()}
     count = 0
     resumed = bool(pages) and not manifest.get("complete") and not refresh
     log(f"  {src['product']}/{doc_version}/{src['name']}: {'dry run, ' if dry_run else ''}"
@@ -380,12 +410,15 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
             url = queue.popleft()
             prev = pages.get(url, {})
             if not fetcher.allowed(url):
-                log(f"    robots.txt disallows {url}")
-                if prev:
-                    # A page we hold is now off limits: keep it and what it links to, and
-                    # don't trust absence as removal this run.
+                # Off limits: keep what we hold and visit what it linked to. A page we hold
+                # going off limits, or robots.txt we could not read, means this run cannot
+                # tell what was removed.
+                parts = urlsplit(url)
+                unreadable = f"{parts.scheme}://{parts.netloc}" in fetcher.unreadable
+                log(f"    robots.txt {'unreadable, skipped' if unreadable else 'disallows'} {url}")
+                if prev or unreadable:
                     blocked += 1
-                    enqueue(prev.get("links", []))
+                enqueue(prev.get("links", []))
                 continue
             if resumed and prev:
                 # An interrupted crawl: pages already saved this round are not fetched again.
@@ -409,27 +442,41 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
                 # Visit what this page linked to last time either way, so each of those pages
                 # is checked on its own instead of being dropped with its parent.
                 enqueue(prev.get("links", []))
+                if status in (404, 410) and url in starts:
+                    start_gone = True
                 if status in (404, 410) and prev:
-                    removed.append(url)
-                    if not dry_run:
-                        _remove_page(root, pages, path_owner, url)
-                else:
+                    gone.append(url)
+                elif prev or _transient(status):
                     failed.append((url, status))
+                else:
+                    # A dead or non-text link to a page we never held says nothing about the
+                    # pages we hold, so it does not block cleanup.
+                    log(f"    - {url}: {status}, not mirrored")
                 continue
+            # Last run's links too: a page that suddenly links to nothing (a bot challenge, a
+            # JS shell, a maintenance page) must not hide the rest of the mirror.
             enqueue(outcome["links"])
-            rel = url_to_relpath(url, prefixes)
-            owner = path_owner.get(rel)
-            if owner and owner != url:
-                log(f"    = {url} is the same file as {owner}; skipped")
+            enqueue(prev.get("links", []))
+            rel = prev.get("path") or url_to_relpath(url, prefixes)
+            if prev and _looks_broken(outcome, prev, root / rel):
+                log(f"    ! {url}: {len(outcome['md'])} chars and {len(outcome['links'])} links "
+                    f"where the mirror has more; kept the mirrored copy")
+                failed.append((url, "thin page"))
                 continue
+            if not prev:
+                owner = path_owner.get(rel.casefold())
+                if owner and owner != url and url_to_relpath(owner, prefixes) == rel:
+                    log(f"    = {url} is the same file as {owner}; skipped")
+                    continue
+                rel = _unique_rel(rel, url, path_owner)
             if dry_run:
                 log(f"    {rel}  ({len(outcome['md']):,} chars)")
                 continue
             digest = hashlib.sha256(outcome["md"].encode("utf-8")).hexdigest()
             entry = {"path": rel, "sha256": digest, "etag": outcome["etag"],
                      "last_modified": outcome["last_modified"], "title": outcome["title"],
-                     "links": outcome["links"]}
-            path_owner[rel] = url
+                     "links": outcome["links"], "chars": len(outcome["md"])}
+            path_owner[rel.casefold()] = url
             if prev.get("sha256") == digest and (root / rel).is_file():
                 unchanged.append(url)
                 pages[url] = {**prev, **entry}
@@ -448,21 +495,35 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
             if (len(added) + len(changed)) % MANIFEST_FLUSH_EVERY == 0:
                 flush(False)
 
-        # Removal by absence is only trusted after a crawl that finished, reached every page
-        # it was allowed to, and had no failures. Anything less keeps the existing pages.
-        clean = src["crawl"] and not queue and not failed and not blocked and not dry_run
-        if clean:
-            for url in list(pages):
-                if url not in visited_urls and url not in seen:
-                    removed.append(url)
-                    _remove_page(root, pages, path_owner, url)
-        elif src["crawl"] and (failed or blocked) and not dry_run:
-            log("    some pages failed or were blocked: kept pages the crawl did not reach")
+        # Removal by absence is only trusted after a crawl that finished, fetched something,
+        # reached every page it was allowed to, and had no failures on pages we hold.
+        clean = (src["crawl"] and not queue and not failed and not blocked and visited_urls
+                 and not start_gone)
+        absent = [u for u in pages if u not in visited_urls and u not in seen] if clean else []
+        if src["crawl"] and not clean and pages and not dry_run:
+            log("    some pages failed, were blocked or not reached: kept pages the crawl "
+                "did not reach")
+        doomed = gone + absent
+        limit = max(MAX_REMOVAL_FLOOR, int(len(pages) * MAX_REMOVAL_SHARE))
+        if start_gone and gone and not prune:
+            log(f"    ! a start page is gone (404/410): the vendor may have moved these docs. "
+                f"Kept all {len(pages)} pages; check sources.toml, or pass --prune to remove "
+                f"{len(gone)} missing page(s)")
+            doomed = []
+        elif len(doomed) > limit and not prune:
+            log(f"    ! {len(doomed)} pages look removed, more than the {limit} allowed in one run. "
+                f"Kept them all; check the site, then pass --prune to remove them")
+            doomed = []
+        for url in doomed:
+            removed.append(url)
+            removed_paths[url] = {"path": pages[url]["path"]}
+            if not dry_run:
+                _remove_page(root, pages, path_owner, url)
         completed = not queue
     finally:
         flush(completed)
         if not dry_run:
-            write_changes(root, added, changed, removed, failed, pages)
+            write_changes(root, added, changed, removed, failed, {**removed_paths, **pages})
     if queue:
         log(f"    stopped at max_pages={src['max_pages']} with {len(queue)} URL(s) left; "
             f"the next run resumes")
@@ -471,12 +532,28 @@ def fetch_source(src: dict, product_version: str, doc_version: str, mirror: Path
     return {"added": added, "changed": changed, "removed": removed, "failed": failed}
 
 
+def _looks_broken(outcome: dict, prev: dict, path: Path) -> bool:
+    """True when a page we hold comes back as a shell of itself: almost no text where there
+    was some, or no links where there were many."""
+    prev_chars = prev.get("chars")
+    if prev_chars is None:
+        try:
+            prev_chars = path.stat().st_size
+        except OSError:
+            prev_chars = 0
+    if len(outcome["md"]) < min(MIN_CONTENT_CHARS, prev_chars // 4):
+        return True
+    prev_links = len(prev.get("links", []))
+    return prev_links >= 10 and len(outcome["links"]) < prev_links // 5
+
+
 def _remove_page(root: Path, pages: dict, path_owner: dict, url: str) -> None:
     rel = pages[url]["path"]
     del pages[url]
+    key = rel.casefold()
     # Never delete a file another URL still maps to.
-    if path_owner.get(rel) == url or not any(e["path"] == rel for e in pages.values()):
-        path_owner.pop(rel, None)
+    if path_owner.get(key) == url or not any(e["path"].casefold() == key for e in pages.values()):
+        path_owner.pop(key, None)
         stale = root / rel
         if stale.is_file():
             stale.unlink()
@@ -486,19 +563,21 @@ def _fetch_one(src: dict, url: str, prev: dict, fetcher: Fetcher, prefixes: list
                pin: str | None) -> dict:
     fetch_url = url + ".md" if src["prefer_md"] and not urlsplit(url).path.endswith(".md") else url
     status, body, headers, final = fetcher.get(fetch_url, prev.get("etag"), prev.get("last_modified"))
-    if status != 200 and status != 304 and fetch_url != url:
+    if fetch_url != url and (
+            (status != 200 and status != 304)
+            or (status == 200 and "html" in (headers or {}).get("Content-Type", "").lower())):
+        # No markdown twin (a 404, or a site that answers every URL with its HTML app shell).
         fetch_url = url
         status, body, headers, final = fetcher.get(url, prev.get("etag"), prev.get("last_modified"))
     if status != 200 or body is None:
         return {"status": status}
-    final_n = normalize(final, pin)
-    if final_n != normalize(fetch_url, pin) and prefixes and not in_scope(final_n, prefixes):
+    if _redirected_away(fetch_url, final, prefixes, pin):
         # Redirected to another version, a login page or another site: not this doc set.
         log(f"    ! {url} redirected out of scope to {final}")
         return {"status": "redirected"}
-    ctype = headers.get("Content-Type", "")
-    is_md = src["format"] == "markdown" or urlsplit(fetch_url).path.endswith(".md") or \
-        "markdown" in ctype
+    ctype = headers.get("Content-Type", "").lower()
+    is_md = src["format"] == "markdown" or "markdown" in ctype or (
+        urlsplit(fetch_url).path.endswith(".md") and "html" not in ctype)
     html = None
     if is_md:
         title_m = re.search(r"^#\s+(.+)$", body, re.M)
@@ -527,6 +606,27 @@ def _fetch_one(src: dict, url: str, prev: dict, fetcher: Fetcher, prefixes: list
     return {"status": 200, "md": md, "title": title, "links": links,
             "etag": headers.get("ETag"), "last_modified": headers.get("Last-Modified"),
             "last_updated": _md_last_updated(md) if is_md else None}
+
+
+def _redirected_away(requested: str, final: str, prefixes: list[str], pin: str | None) -> bool:
+    if not final or final.split("#", 1)[0] == requested:
+        return False
+    if pin:
+        # Compare the raw pinned parameter: normalize() would force it back to our value.
+        key, _, value = pin.partition("=")
+        got = dict(parse_qsl(urlsplit(final).query)).get(key)
+        if got is not None and got != value:
+            return True
+    final_n = normalize(final, pin)
+    if final_n == normalize(requested, pin):
+        return False
+    if prefixes:
+        return not in_scope(final_n, prefixes)
+    # A fixed page list has no prefix: only the same page (modulo a trailing slash or a
+    # .md twin) on the same host counts.
+    a, b = urlsplit(final_n), urlsplit(normalize(requested, pin))
+    strip = lambda p: re.sub(r"(\.md|/)$", "", p)  # noqa: E731
+    return a.netloc != b.netloc or strip(a.path) != strip(b.path)
 
 
 def _md_last_updated(md: str) -> str | None:
@@ -587,10 +687,12 @@ def split_sections(md: str) -> list[dict]:
         if not body.strip() and not s["heading"]:
             continue
         anchor = re.sub(r"[^\w\- ]", "", s["heading"].lower()).strip().replace(" ", "-") or "top"
-        n = used.get(anchor, 0)
-        used[anchor] = n + 1
-        if n:
-            anchor = f"{anchor}-{n}"
+        base, n = anchor, used.get(anchor, 0)
+        while anchor in used:
+            n += 1
+            anchor = f"{base}-{n}"
+        used[base] = n
+        used.setdefault(anchor, 0)
         out.append({"heading": s["heading"], "level": s["level"], "anchor": anchor, "body": body})
     return out
 
@@ -720,7 +822,8 @@ def cmd_fetch(args, mirror: Path, installed: dict) -> None:
             continue
         doc_version, filled = resolved
         product_version = installed[src["product"]].get("version")
-        fetch_source(filled, product_version, doc_version, mirror, fetcher, args.refresh, args.dry_run)
+        fetch_source(filled, product_version, doc_version, mirror, fetcher, args.refresh,
+                     args.dry_run, args.prune)
         ran += 1
     if ran == 0:
         log("No sources matched an installed product. Run `versions`, or add the product to "
@@ -753,6 +856,8 @@ def main(argv=None) -> int:
     p.add_argument("--refresh", action="store_true", help="re-check already mirrored sources")
     p.add_argument("--dry-run", action="store_true", help="list pages without writing")
     p.add_argument("--delay", type=float, default=1.0, help="seconds between requests per host")
+    p.add_argument("--prune", action="store_true",
+                   help="allow removing more pages in one run than the safety limit")
     args = p.parse_args(argv)
     mirror = Path(args.mirror_dir) if args.mirror_dir else default_mirror_dir()
     log(f"Mirror: {mirror}")
