@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3';
 import { pruneAssetsNotIn } from '../db/repos/assets';
 import { type DccFile, discoverDccFiles } from './dcc-discovery';
+import { claimOf, foldDccRowsIntoUnity, unityClaims } from './unity/ownership';
 
 export async function scanDccLocation(
   db: Database,
@@ -8,7 +9,11 @@ export async function scanDccLocation(
   root: string,
   signal: AbortSignal,
 ): Promise<{ total: number; existing: number }> {
-  const files = await discoverDccFiles(root, signal);
+  // Counted without the files a Unity entry already holds, which are not indexed here.
+  const claims = unityClaims(db);
+  const files = (await discoverDccFiles(root, signal)).filter(
+    (file) => !claimOf(file.path, claims),
+  );
   signal.throwIfAborted();
   const existing = db.prepare('SELECT 1 FROM assets WHERE file_path = ?');
   const count = files.filter((file) => existing.get(file.path)).length;
@@ -16,8 +21,14 @@ export async function scanDccLocation(
   return { total: files.length, existing: count };
 }
 
-/** Commit a complete discovery atomically; never take ownership of another location's row. */
-export function indexDccFiles(db: Database, locationId: number, files: DccFile[]): void {
+/**
+ * Commit a complete discovery atomically; never take ownership of another location's row.
+ * Files inside an indexed Unity project or package are left to the Unity entry, and rows
+ * this location made there earlier are folded into it (see `unity/ownership.ts`).
+ */
+export function indexDccFiles(db: Database, locationId: number, discovered: DccFile[]): void {
+  const claims = unityClaims(db);
+  const files = discovered.filter((file) => !claimOf(file.path, claims));
   const owner = db.prepare('SELECT scan_location_id FROM assets WHERE file_path = ?');
   const upsert = db.prepare(`INSERT INTO assets
     (name, file_path, asset_type, file_size, file_size_is_partial, created_date, modified_date,
@@ -56,6 +67,7 @@ export function indexDccFiles(db: Database, locationId: number, files: DccFile[]
         `${metadata} ${aliases}`,
       );
     }
+    foldDccRowsIntoUnity(db, claims);
     pruneAssetsNotIn(
       db,
       locationId,

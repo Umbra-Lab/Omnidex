@@ -53,6 +53,12 @@ const formats: Record<string, [DccFileKind, AssetEcosystem]> = {
   '.bz2': ['archive', 'agnostic'],
   '.xz': ['archive', 'agnostic'],
 };
+/** The DCC kind and tool a file name maps to, or undefined when it is not a DCC format. */
+export function dccFormatOf(fileName: string): [DccFileKind, AssetEcosystem] | undefined {
+  const extension = extname(fileName).toLowerCase();
+  return Object.hasOwn(formats, extension) ? formats[extension] : undefined;
+}
+
 const ignored = new Set([
   'node_modules',
   '.git',
