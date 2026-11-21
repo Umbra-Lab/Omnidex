@@ -85,6 +85,13 @@ const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 /** Folders that are course scaffolding, not chapters. */
 const IGNORED = new Set(['.git', 'node_modules', '__macosx', '.ds_store']);
 
+/**
+ * Folders Unity regenerates inside a project. A course that ships its project files
+ * (`Assets/` beside `ProjectSettings/`) would otherwise list thousands of cached package
+ * docs and images from `Library/` as lessons' materials, and pick one as the cover.
+ */
+const UNITY_GENERATED = new Set(['library', 'temp', 'logs', 'obj', 'usersettings']);
+
 /** Stop walking absurdly deep trees; a course is not 12 levels of nesting. */
 const MAX_DEPTH = 6;
 
@@ -236,10 +243,15 @@ export async function buildCourseManifest(
     } catch {
       return;
     }
+    const dirNames = new Set(
+      entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name.toLowerCase()),
+    );
+    const unityProject = dirNames.has('assets') && dirNames.has('projectsettings');
     for (const entry of entries) {
       if (entry.name.startsWith('.') || IGNORED.has(entry.name.toLowerCase())) continue;
       const abs = join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (unityProject && UNITY_GENERATED.has(entry.name.toLowerCase())) continue;
         await walk(abs, depth + 1);
         continue;
       }
