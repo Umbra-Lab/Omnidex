@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -144,6 +144,80 @@ describe('Unity scan on a flaky drive', () => {
     faults.open.set(pack, 'EBUSY');
     await scanUnityLocation(db, 7, root, signal(), tempDir());
     expect(db.prepare('SELECT store_id FROM unity_packages').get()).toEqual({ store_id: '102321' });
+  });
+});
+
+describe('Unity scan keeps what is still on disk', () => {
+  const meta = (guid: string) => `fileFormatVersion: 2\nguid: ${guid}\n`;
+  const material = (shader: string) =>
+    `%YAML 1.1\n--- !u!21 &2100000\nMaterial:\n  m_Shader: {fileID: 4800000, guid: ${shader}, type: 3}\n`;
+  function put(base: string, files: Record<string, string | Buffer>): void {
+    for (const [rel, body] of Object.entries(files)) {
+      mkdirSync(join(base, rel, '..'), { recursive: true });
+      writeFileSync(join(base, rel), body);
+    }
+  }
+  const packagePaths = (db: Database, base: string) =>
+    (
+      db.prepare("SELECT file_path FROM assets WHERE asset_type = 'unity_package'").all() as Array<{
+        file_path: string;
+      }>
+    )
+      .map((row) => row.file_path.slice(base.length + 1).replaceAll('\\', '/'))
+      .sort();
+
+  it('keeps packages beside a loose Assets folder once the folder becomes a project', async () => {
+    const db = unityDb();
+    const root = tempDir();
+    const course = join(root, 'Course');
+    put(course, {
+      'Assets/A.mat': material('8'.repeat(32)),
+      'Assets/A.mat.meta': meta('1'.repeat(32)),
+      'c05/Assets/B.mat': material('8'.repeat(32)),
+      'c05/Assets/B.mat.meta': meta('2'.repeat(32)),
+      'Top.unitypackage': samplePackage(),
+      'c05/Beside.unitypackage': samplePackage(),
+      'd1/d2/Ok.unitypackage': samplePackage(),
+      'd1/d2/d3/Deep.unitypackage': samplePackage(),
+    });
+    await scanUnityLocation(db, 7, root, signal(), tempDir());
+    const expected = [
+      'c05/Beside.unitypackage',
+      'd1/d2/Ok.unitypackage',
+      'd1/d2/d3/Deep.unitypackage',
+      'Top.unitypackage',
+    ].sort();
+    expect(packagePaths(db, course)).toEqual(expected);
+
+    // Opened in Unity: the folder gains project settings and is a full project now.
+    put(course, { 'ProjectSettings/ProjectVersion.txt': 'm_EditorVersion: 6000.0.1f1\n' });
+    const result = await scanUnityLocation(db, 7, root, signal(), tempDir());
+    expect(result.failures).toEqual([]);
+    expect(packagePaths(db, course)).toEqual(expected);
+  });
+
+  it("re-reads a kept copy whose twin's change cleared the references they share", async () => {
+    const db = unityDb();
+    const root = tempDir();
+    const project = join(root, 'P');
+    const shared = '1'.repeat(32);
+    put(project, {
+      'ProjectSettings/ProjectVersion.txt': 'm_EditorVersion: 2022.3.1f1\n',
+      'Assets/A.mat': material('8'.repeat(32)),
+      'Assets/A.mat.meta': meta(shared),
+      'Assets/Copy/A.mat': material('8'.repeat(32)),
+      'Assets/Copy/A.mat.meta': meta(shared),
+    });
+    await scanUnityLocation(db, 7, root, signal(), tempDir());
+    rmSync(join(project, 'Assets', 'A.mat'));
+    rmSync(join(project, 'Assets', 'A.mat.meta'));
+    faults.open.set(join(project, 'Assets', 'Copy', 'A.mat.meta'), 'EBUSY');
+    const first = await scanUnityLocation(db, 7, root, signal(), tempDir());
+    expect(first.failures).toEqual([`${project}: Assets/Copy/A.mat.meta: could not be read`]);
+
+    faults.open.clear();
+    await scanUnityLocation(db, 7, root, signal(), tempDir());
+    expect(count(db, 'SELECT COUNT(*) AS n FROM unity_refs WHERE from_guid = ?', shared)).toBe(1);
   });
 });
 

@@ -106,10 +106,12 @@ interface NestedFound {
   unreadable: string[];
 }
 
-/** What a project holds beside its own Assets/ and Packages/, up to three levels down. */
+/** What a project holds beside its own Assets/ and Packages/, as deep as discovery walks. */
 async function findNested(projectRoot: string, signal?: AbortSignal): Promise<NestedFound> {
   const found: NestedFound = { projects: [], assetFolders: [], packages: [], unreadable: [] };
-  async function visit(dir: string, depth: number): Promise<void> {
+  // `skipOwn` is set for the project root and for a loose Assets folder: their own
+  // Assets/, Packages/ and ProjectSettings/ belong to that container, not to this walk.
+  async function visit(dir: string, depth: number, skipOwn: boolean): Promise<void> {
     signal?.throwIfAborted();
     let entries: Dirent[];
     try {
@@ -127,7 +129,7 @@ async function findNested(projectRoot: string, signal?: AbortSignal): Promise<Ne
         continue;
       }
       if (!entry.isDirectory()) continue;
-      if (depth === 0 && PROJECT_DIRS.has(lower)) continue;
+      if (skipOwn && PROJECT_DIRS.has(lower)) continue;
       const path = join(dir, entry.name);
       const project = await projectState(path);
       if (project === 'unreadable') {
@@ -141,10 +143,14 @@ async function findNested(projectRoot: string, signal?: AbortSignal): Promise<Ne
       const assets = await hasAssetsFolder(path);
       if (assets === 'unreadable') found.unreadable.push(path);
       else if (assets) found.assetFolders.push(path);
-      else if (depth < 2) await visit(path, depth + 1);
+      // Keep walking past a loose Assets folder, as discovery does: a package kept beside
+      // it was indexed while the folder was loose and must not be pruned now.
+      if (assets !== 'unreadable' && depth < MAX_DISCOVERY_DEPTH) {
+        await visit(path, depth + 1, assets === true);
+      }
     }
   }
-  await visit(projectRoot, 0);
+  await visit(projectRoot, 0, true);
   return found;
 }
 

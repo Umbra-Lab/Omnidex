@@ -299,6 +299,9 @@ export async function indexUnityProject(
 
   // Read changed files before taking the write transaction, so the app stays responsive.
   const fresh: FreshRow[] = [];
+  // Stored rows kept because a read failed: their timestamps are cleared so the next scan
+  // reads them again (a twin's change may have deleted the refs they share by GUID).
+  const retry: number[] = [];
   for (const file of files) {
     signal?.throwIfAborted();
     const before = stored.get(file.relPath);
@@ -310,12 +313,14 @@ export async function indexUnityProject(
     } catch {
       // The .meta exists but could not be read: keep the stored row and its references.
       problems.push(`${file.relPath}.meta: could not be read`);
+      if (before) retry.push(before.id);
       continue;
     }
     const contents = await readProjectFile(file, guid);
     if (contents.failed && before) {
       // Keep what the last good read found rather than wiping its references.
       problems.push(`${file.relPath}: could not be read`);
+      retry.push(before.id);
       continue;
     }
     fresh.push({
@@ -390,6 +395,8 @@ export async function indexUnityProject(
       if (before?.guid) deleteRefs.run(containerId, before.guid);
     }
     writeRows(db, containerId, fresh);
+    const clearTime = db.prepare('UPDATE unity_assets SET mtime_ms = 0 WHERE id = ?');
+    for (const id of retry) clearTime.run(id);
     db.exec('COMMIT');
     return {
       containerId,
