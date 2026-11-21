@@ -25,7 +25,7 @@ It is a standalone stdio server speaking newline-delimited JSON-RPC. It opens th
 
 DCC results include the file kind, ecosystem and path. Search covers the filename and path as well as the ecosystem and kind. Archive results describe the archive itself; Oracle does not search inside it.
 
-The Unity tools read the tables a Unity location fills (see [The scanner](scanner.md)). They live in `scripts/oracle-mcp/unity-tools.mjs`. A database from before the Unity migration answers every Unity tool with a short "not indexed yet" message instead of an error. Dependencies come only from text-serialized assets: a binary-serialized file shows no references. A reference into one of Unity's own packages is named from `unity_known_guids` (a seed plus what scanned projects' `Library/PackageCache` taught); anything else not indexed prints as a bare GUID marked not found.
+The Unity tools read the tables a Unity location fills (see [The scanner](scanner.md)). They live in `scripts/oracle-mcp/unity-tools.mjs`. A database from before the Unity migration answers every Unity tool with a short "not indexed yet" message instead of an error. Dependencies come only from text-serialized assets: a binary-serialized file shows no references. A reference into one of Unity's own packages is named from `unity_known_guids` (a seed plus what scanned projects' `Library/PackageCache` taught); a reference into another indexed project or package names that container and marks it as not in this one; anything else prints as a bare GUID marked not found (missing, or from content not scanned). Counts of outside references are distinct GUIDs.
 
 ## Why the docs tools read in chunks
 

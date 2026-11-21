@@ -53,7 +53,8 @@ export async function scanUnityLocation(
     signal.throwIfAborted();
     if (existingStmt.get(projectRoot)) existing += 1;
     try {
-      await indexUnityProject(db, locationId, projectRoot, signal);
+      const { problems } = await indexUnityProject(db, locationId, projectRoot, signal);
+      failures.push(...problems.map((p) => `${projectRoot}: ${p}`));
       seen.push(projectRoot);
     } catch (error) {
       if (signal.aborted) throw error;
@@ -65,9 +66,10 @@ export async function scanUnityLocation(
     signal.throwIfAborted();
     if (existingStmt.get(folder.root)) existing += 1;
     try {
-      await indexUnityProject(db, locationId, folder.root, signal, {
+      const { problems } = await indexUnityProject(db, locationId, folder.root, signal, {
         settingsFrom: folder.project,
       });
+      failures.push(...problems.map((p) => `${folder.root}: ${p}`));
       seen.push(folder.root);
     } catch (error) {
       if (signal.aborted) throw error;
@@ -103,12 +105,29 @@ export async function scanUnityLocation(
     }
     failures.push(...found.unreadable.map((dir) => `${dir}: could not be listed`));
   }
+  // A root that lists but holds nothing (an unmounted mount point, a cloud folder not yet
+  // synced) looks exactly like everything being deleted. Keep the index and say so; a
+  // person who really emptied the folder can remove the location.
+  if (keep.length === 0) {
+    const indexed = db
+      .prepare('SELECT COUNT(*) AS n FROM assets WHERE scan_location_id = ?')
+      .get(locationId) as { n: number };
+    if (indexed.n > 0) {
+      failures.push(
+        `${root}: no Unity projects or packages found; kept the ${indexed.n} already indexed`,
+      );
+    }
+    return {
+      total: 0,
+      existing,
+      projects: 0,
+      packages: 0,
+      failures,
+    };
+  }
   db.exec('BEGIN');
   try {
-    // pruneAssetsNotIn treats an empty list as "nothing was seen, prune nothing", a guard
-    // for walks that fail silently. Discovery here throws when the root is unreadable, so
-    // an empty result really means every project and package is gone.
-    pruneAssetsNotIn(db, locationId, keep.length > 0 ? keep : ['\0']);
+    pruneAssetsNotIn(db, locationId, keep);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
@@ -224,7 +243,14 @@ export async function indexUnityProject(
   projectRoot: string,
   signal?: AbortSignal,
   options: { settingsFrom?: string | null } = {},
-): Promise<{ containerId: number; info: UnityProjectInfo; changed: number; files: number }> {
+): Promise<{
+  containerId: number;
+  info: UnityProjectInfo;
+  changed: number;
+  files: number;
+  /** Files or folders that could not be read; their stored rows were kept. */
+  problems: string[];
+}> {
   const assetsOnly = options.settingsFrom !== undefined;
   const settingsFrom = options.settingsFrom ?? null;
   let info = await readProjectInfo(settingsFrom ?? projectRoot);
@@ -238,9 +264,12 @@ export async function indexUnityProject(
           renderPipeline: Object.keys(own.packages).length ? own.renderPipeline : 'unknown',
         };
   }
-  const files = await listProjectFiles(projectRoot, signal);
+  const listing = await listProjectFiles(projectRoot, signal);
+  const files = listing.files;
+  const problems: string[] = listing.unreadable.map((rel) => `${rel}: could not be read`);
+  const keptUnread = (relPath: string) =>
+    listing.unreadable.some((u) => (u.endsWith('/') ? relPath.startsWith(u) : relPath === u));
   if (!assetsOnly) await learnPackageCache(db, projectRoot, signal);
-  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
 
   const prior = db.prepare('SELECT id FROM assets WHERE file_path = ?').get(projectRoot) as
     | { id: number }
@@ -275,8 +304,20 @@ export async function indexUnityProject(
     const before = stored.get(file.relPath);
     const twin = before?.guid ? touchedGuids.has(before.guid) : false;
     if (!isChanged(file) && !twin) continue;
-    const guid = await readMetaGuid(file.absPath);
+    let guid: string | null;
+    try {
+      guid = await readMetaGuid(file.absPath);
+    } catch {
+      // The .meta exists but could not be read: keep the stored row and its references.
+      problems.push(`${file.relPath}.meta: could not be read`);
+      continue;
+    }
     const contents = await readProjectFile(file, guid);
+    if (contents.failed && before) {
+      // Keep what the last good read found rather than wiping its references.
+      problems.push(`${file.relPath}: could not be read`);
+      continue;
+    }
     fresh.push({
       guid,
       relPath: file.relPath,
@@ -291,7 +332,15 @@ export async function indexUnityProject(
       refs: contents.refs,
     });
   }
-  const removed = [...stored.entries()].filter(([relPath]) => !byPath.has(relPath));
+  // Rows kept because their folder could not be read still count toward the size.
+  const totalSize =
+    files.reduce((sum, file) => sum + file.size, 0) +
+    [...stored.entries()]
+      .filter(([relPath]) => !byPath.has(relPath) && keptUnread(relPath))
+      .reduce((sum, [, row]) => sum + row.size, 0);
+  const removed = [...stored.entries()].filter(
+    ([relPath]) => !byPath.has(relPath) && !keptUnread(relPath),
+  );
 
   db.exec('BEGIN');
   try {
@@ -342,7 +391,13 @@ export async function indexUnityProject(
     }
     writeRows(db, containerId, fresh);
     db.exec('COMMIT');
-    return { containerId, info, changed: fresh.length + removed.length, files: files.length };
+    return {
+      containerId,
+      info,
+      changed: fresh.length + removed.length,
+      files: files.length,
+      problems,
+    };
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;
@@ -375,12 +430,19 @@ async function learnPackageCache(
     return;
   }
   if (found.length === 0) return;
-  // A seed row (version NULL) gives way to a learned one; a learned row stays put.
+  // A seed row (version NULL) gives way to the same package, or to a Unity one, learned
+  // from a real cache; a fork elsewhere cannot relabel it. A learned row follows the most
+  // recently read version of its own package, so a renamed file gets its new path.
   const insert = db.prepare(
     `INSERT INTO unity_known_guids (guid, package, version, rel_path) VALUES (?, ?, ?, ?)
        ON CONFLICT(guid) DO UPDATE SET package = excluded.package, version = excluded.version,
          rel_path = excluded.rel_path
-       WHERE unity_known_guids.version IS NULL`,
+       WHERE (unity_known_guids.version IS NULL
+              AND (excluded.package = unity_known_guids.package
+                   OR excluded.package LIKE 'com.unity.%'))
+          OR (unity_known_guids.version IS NOT NULL
+              AND excluded.package = unity_known_guids.package
+              AND excluded.version <> unity_known_guids.version)`,
   );
   const markSeen = db.prepare(
     'INSERT OR IGNORE INTO unity_package_cache_seen (package, version) VALUES (?, ?)',
@@ -459,9 +521,10 @@ export async function indexUnityPackage(
     | undefined;
   // One small read, done even for an unchanged package so a library indexed before this
   // field was read picks it up without re-reading every archive.
-  const store = await readAssetStoreInfo(packagePath).catch(() => null);
+  // undefined: the header could not be read this time, so what is stored stays.
+  const store = await readAssetStoreInfo(packagePath).catch(() => undefined);
   if (prior && prior.file_size === info.size && prior.file_mtime_ms === mtimeMs) {
-    writeStoreInfo(db, prior.id, store);
+    if (store !== undefined) writeStoreInfo(db, prior.id, store);
     return { containerId: prior.id, reread: false };
   }
 
@@ -506,7 +569,7 @@ export async function indexUnityPackage(
         ON CONFLICT(asset_id) DO UPDATE SET file_size=excluded.file_size,
           file_mtime_ms=excluded.file_mtime_ms, scanned_at=excluded.scanned_at`,
     ).run(containerId, info.size, mtimeMs, new Date().toISOString());
-    writeStoreInfo(db, containerId, store);
+    writeStoreInfo(db, containerId, store ?? null);
     db.prepare('DELETE FROM unity_assets WHERE container_id = ?').run(containerId);
     db.prepare('DELETE FROM unity_refs WHERE container_id = ?').run(containerId);
     writeRows(

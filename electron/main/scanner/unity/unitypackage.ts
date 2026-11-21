@@ -24,6 +24,10 @@ import { readUnityYamlText, type UnityOutline, type UnityYamlResult } from './ya
 const MAX_TEXT_ASSET_BYTES = 8 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 512 * 1024;
 const MAX_PREVIEW_TOTAL = 8 * 1024 * 1024;
+/** A `pathname` entry is one project path; anything longer is not a real package. */
+const MAX_PATHNAME_BYTES = 4096;
+/** GNU long-name and pax header bodies are buffered whole, so they are capped. */
+const MAX_TAR_META_BYTES = 64 * 1024;
 
 export interface UnityPackageEntry {
   guid: string;
@@ -104,9 +108,10 @@ export async function readUnityPackage(
         };
       }
       if (part === 'pathname') {
+        if (size > MAX_PATHNAME_BYTES) return null;
         return (body) => {
           // Unity writes the path on the first line, sometimes followed by a "00" line.
-          item.pathname = body.toString('utf8').split(/\r?\n/)[0].trim();
+          item.pathname = body.toString('utf8').split(/\r?\n/)[0].trim().normalize('NFC');
         };
       }
       if (size > MAX_PREVIEW_BYTES || previewBytes + size > MAX_PREVIEW_TOTAL) return null;
@@ -247,6 +252,12 @@ export async function walkTar(
         if (paxSize !== null && type !== 'x' && type !== 'L') {
           size = paxSize;
           paxSize = null;
+        }
+        if (!Number.isSafeInteger(size) || size < 0) {
+          throw new Error('Corrupt tar header in .unitypackage');
+        }
+        if ((type === 'L' || type === 'x') && size > MAX_TAR_META_BYTES) {
+          throw new Error('Oversized tar header in .unitypackage');
         }
         if (type === 'L') {
           special = 'longname';

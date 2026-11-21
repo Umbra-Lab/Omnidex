@@ -159,42 +159,51 @@ export function createUnityTools(db) {
   // Every term is a LIKE in SQL, so the limit applies after all of them, not before.
   const MAX_TERMS = 8;
   const findStmts = new Map();
-  function find(terms, container, kind, limit) {
+  /** `container` matches a project or package by name or by part of its folder path. */
+  const scopeOf = (container) => `%${likeEscape(String(container ?? '').normalize('NFC'))}%`;
+  function find(terms, container, kinds, limit) {
     const n = Math.min(terms.length, MAX_TERMS);
     let stmt = findStmts.get(n);
     if (!stmt) {
       stmt = db.prepare(`
         SELECT u.id, u.container_id, u.guid, u.rel_path, u.kind, u.size, u.variant_of,
-               u.summary_json, a.name AS container
+               u.summary_json, a.name AS container, a.file_path AS container_path
         FROM unity_assets u JOIN assets a ON a.id = u.container_id
-        WHERE a.missing_since IS NULL AND a.name LIKE ? ESCAPE '\\'
-          AND (? IS NULL OR u.kind = ?)
-          ${"AND u.rel_path LIKE ? ESCAPE '\\' ".repeat(n)}
+        WHERE a.missing_since IS NULL
+          AND (a.name LIKE ?1 ESCAPE '\\' OR a.file_path LIKE ?1 ESCAPE '\\')
+          AND (?2 IS NULL OR u.kind IN (SELECT value FROM json_each(?2)))
+          ${Array.from({ length: n }, (_, i) => `AND u.rel_path LIKE ?${i + 4} ESCAPE '\\' `).join('')}
         ORDER BY length(u.rel_path)
-        LIMIT ?`);
+        LIMIT ?3`);
       findStmts.set(n, stmt);
     }
     return stmt.all(
-      `%${likeEscape(String(container ?? ''))}%`,
-      kind,
-      kind,
-      ...terms.slice(0, n).map((term) => `%${likeEscape(term)}%`),
+      scopeOf(container),
+      kinds ? JSON.stringify(kinds) : null,
       limit,
+      // LIKE folds ASCII case only, so a query is matched as typed, in NFC form.
+      ...terms.slice(0, n).map((term) => `%${likeEscape(term.normalize('NFC'))}%`),
     );
   }
   const byGuidStmt = db.prepare(`
     SELECT u.id, u.container_id, u.guid, u.rel_path, u.kind, u.variant_of, u.summary_json,
-           a.name AS container
+           a.name AS container, a.file_path AS container_path
     FROM unity_assets u JOIN assets a ON a.id = u.container_id
-    WHERE u.guid = ? AND a.missing_since IS NULL AND a.name LIKE ? ESCAPE '\\'`);
+    WHERE u.guid = ?1 AND a.missing_since IS NULL
+      AND (a.name LIKE ?2 ESCAPE '\\' OR a.file_path LIKE ?2 ESCAPE '\\')`);
+  // What an asset uses is looked up in its own project or package only; anything else is
+  // named afterwards (a Unity package, or another container, said as such).
   const usesStmt = db.prepare(`
-    SELECT r.to_guid AS guid,
-      (SELECT u.rel_path FROM unity_assets u WHERE u.guid = r.to_guid
-        ORDER BY u.container_id = r.container_id DESC LIMIT 1) AS rel_path,
-      (SELECT u.kind FROM unity_assets u WHERE u.guid = r.to_guid
-        ORDER BY u.container_id = r.container_id DESC LIMIT 1) AS kind
-    FROM unity_refs r WHERE r.container_id = ? AND r.from_guid = ?
-    ORDER BY rel_path IS NULL, rel_path LIMIT ?`);
+    SELECT r.to_guid AS guid, u.rel_path, u.kind
+    FROM unity_refs r
+    LEFT JOIN unity_assets u ON u.container_id = r.container_id AND u.guid = r.to_guid
+    WHERE r.container_id = ? AND r.from_guid = ?
+    ORDER BY u.rel_path IS NULL, u.rel_path LIMIT ?`);
+  const otherStmt = db.prepare(`
+    SELECT u.rel_path, u.kind, a.name AS container
+    FROM unity_assets u JOIN assets a ON a.id = u.container_id
+    WHERE u.guid = ? AND u.container_id <> ? AND a.missing_since IS NULL
+    ORDER BY a.name LIMIT 1`);
   const usedByStmt = db.prepare(`
     SELECT r.from_guid AS guid, u.rel_path, u.kind
     FROM unity_refs r
@@ -202,7 +211,7 @@ export function createUnityTools(db) {
     WHERE r.container_id = ? AND r.to_guid = ?
     ORDER BY u.rel_path LIMIT ?`);
   const guidPathStmt = db.prepare(
-    'SELECT rel_path FROM unity_assets WHERE guid = ? ORDER BY container_id = ? DESC LIMIT 1',
+    'SELECT rel_path FROM unity_assets WHERE guid = ? AND container_id = ? LIMIT 1',
   );
   // Known Unity package GUIDs arrived in a later migration too.
   const hasKnown =
@@ -217,11 +226,12 @@ export function createUnityTools(db) {
     const k = knownStmt?.get(guid);
     return k ? `Unity package ${k.package}: ${k.rel_path}` : null;
   }
-  // References that leave their own project or package: to another indexed one, to a
-  // Unity package, or to nothing Omnidex knows (missing, or content never scanned).
+  // References that leave their own project or package: to a Unity package, to another
+  // indexed container, or to nothing Omnidex knows (missing, or content never scanned).
   const outsideStmt = db.prepare(`
     SELECT r.to_guid AS guid,
-      EXISTS (SELECT 1 FROM unity_assets o WHERE o.guid = r.to_guid) AS elsewhere,
+      EXISTS (SELECT 1 FROM unity_assets o JOIN assets oa ON oa.id = o.container_id
+              WHERE o.guid = r.to_guid AND oa.missing_since IS NULL) AS elsewhere,
       ${hasKnown ? '(SELECT k.package FROM unity_known_guids k WHERE k.guid = r.to_guid)' : 'NULL'} AS package
     FROM unity_refs r
     WHERE r.container_id = ? AND NOT EXISTS
@@ -229,39 +239,46 @@ export function createUnityTools(db) {
   function outsideLine(containerId) {
     const rows = outsideStmt.all(containerId);
     if (rows.length === 0) return '';
-    let elsewhere = 0;
-    let missing = 0;
+    // Counted as distinct assets: one missing shader used by 300 materials is one.
+    const elsewhere = new Set();
+    const missing = new Set();
     const byPackage = new Map();
     for (const row of rows) {
-      if (row.elsewhere) elsewhere += 1;
-      else if (row.package) byPackage.set(row.package, (byPackage.get(row.package) ?? 0) + 1);
-      else missing += 1;
+      if (row.package) {
+        const set = byPackage.get(row.package) ?? new Set();
+        set.add(row.guid);
+        byPackage.set(row.package, set);
+      } else if (row.elsewhere) elsewhere.add(row.guid);
+      else missing.add(row.guid);
     }
     const n = (v) => v.toLocaleString('en-US');
     const parts = [];
     if (byPackage.size) {
-      const top = [...byPackage.entries()].sort((a, b) => b[1] - a[1]);
+      const top = [...byPackage.entries()]
+        .map(([k, set]) => [k, set.size])
+        .sort((a, b) => b[1] - a[1]);
       const total = top.reduce((sum, [, v]) => sum + v, 0);
       parts.push(
-        `${n(total)} into Unity packages (${top
+        `${n(total)} in Unity packages (${top
           .slice(0, 4)
           .map(([k, v]) => `${k.replace(/^com\.unity\./, '')} ${n(v)}`)
           .join(', ')}${top.length > 4 ? ', …' : ''})`,
       );
     }
-    if (elsewhere) parts.push(`${n(elsewhere)} into other indexed projects or packages`);
-    if (missing) parts.push(`${n(missing)} not found`);
-    return `\n  references outside: ${parts.join('; ')}`;
+    if (elsewhere.size) parts.push(`${n(elsewhere.size)} in other indexed projects or packages`);
+    if (missing.size) parts.push(`${n(missing.size)} not found`);
+    return `\n  assets used from outside: ${parts.join('; ')}`;
   }
 
   function resolve(asset, container, kinds) {
     const text = String(asset ?? '').trim();
-    const scope = `%${likeEscape(String(container ?? ''))}%`;
     if (!text) return { error: 'Name an asset by GUID or path fragment.' };
+    const isGuid = /^[0-9a-f]{32}$/i.test(text);
     let rows;
-    if (/^[0-9a-f]{32}$/i.test(text)) rows = byGuidStmt.all(text.toLowerCase(), scope);
-    else rows = find([text], container, null, 200);
-    if (kinds) rows = rows.filter((row) => kinds.includes(row.kind));
+    if (isGuid) {
+      rows = byGuidStmt.all(text.toLowerCase(), scopeOf(container));
+      if (kinds) rows = rows.filter((row) => kinds.includes(row.kind));
+    } else rows = find([text], container, kinds ?? null, 200);
     if (rows.length === 0) return { error: `No Unity asset matches "${text}".` };
     if (rows.length > 1) {
       const exact = rows.filter(
@@ -270,25 +287,32 @@ export function createUnityTools(db) {
           row.rel_path.toLowerCase().endsWith(`/${text.toLowerCase()}`),
       );
       if (exact.length === 1) return { row: exact[0] };
+      const hint = isGuid
+        ? 'pass container= with part of its folder path'
+        : 'pass a GUID, a longer path, or container= with part of its folder path';
       return {
         error:
-          `"${text}" matches ${rows.length} assets; pass a GUID or a longer path:\n` +
+          `"${text}" matches ${rows.length} assets; ${hint}:\n` +
           rows
             .slice(0, 15)
-            .map((row) => `  [${row.container}] ${row.rel_path}  guid=${row.guid}`)
+            .map(
+              (row) =>
+                `  [${row.container}] ${row.rel_path}  guid=${row.guid}  (${row.container_path})`,
+            )
             .join('\n'),
       };
     }
     return { row: rows[0] };
   }
 
-  function nameOf(guid, containerId) {
-    const row = guidPathStmt.get(guid, containerId);
-    if (row) return row.rel_path;
-    return (
-      knownName(guid) ??
-      `guid ${guid} (not found: missing, or from a package or content not scanned)`
-    );
+  /** Name a GUID used by an asset in `containerId`: own file, Unity package, elsewhere. */
+  function nameOf(guid, containerId, own = guidPathStmt.get(guid, containerId)) {
+    if (own) return own.kind ? `${own.rel_path} (${own.kind})` : own.rel_path;
+    const known = knownName(guid);
+    if (known) return known;
+    const other = otherStmt.get(guid, containerId);
+    if (other) return `[${other.container}] ${other.rel_path} (${other.kind}, not in this one)`;
+    return `guid ${guid} (not found: missing, or from content not scanned)`;
   }
 
   function call(name, args) {
@@ -333,12 +357,11 @@ export function createUnityTools(db) {
 
     if (name === 'unity_find_asset') {
       const terms = String(args.query ?? '')
-        .toLowerCase()
         .split(/\s+/)
         .filter(Boolean);
       if (terms.length === 0) return 'Empty query.';
-      const kind = args.kind ? String(args.kind) : null;
-      const rows = find(terms, args.container, kind, limitOf(args.limit, 30, 200));
+      const kinds = args.kind ? [String(args.kind)] : null;
+      const rows = find(terms, args.container, kinds, limitOf(args.limit, 30, 200));
       if (rows.length === 0) return 'No Unity assets matched.';
       return rows
         .map(
@@ -358,10 +381,7 @@ export function createUnityTools(db) {
       const limit = limitOf(args.limit, 50, 500);
       const out = [`[${row.container}] ${row.rel_path} — ${row.kind}, guid=${row.guid}`];
       if (row.variant_of) out.push(`Variant of: ${nameOf(row.variant_of, row.container_id)}`);
-      const line = (r) =>
-        r.rel_path
-          ? `  ${r.rel_path} (${r.kind})`
-          : `  ${knownName(r.guid) ?? `guid ${r.guid} (not found: missing, or not scanned)`}`;
+      const line = (r) => `  ${nameOf(r.guid, row.container_id, r.rel_path ? r : undefined)}`;
       if (direction !== 'used_by') {
         const uses = usesStmt.all(row.container_id, row.guid, limit);
         out.push(`Uses ${uses.length}${uses.length === limit ? '+' : ''}:`);
@@ -370,7 +390,11 @@ export function createUnityTools(db) {
       if (direction !== 'uses') {
         const usedBy = usedByStmt.all(row.container_id, row.guid, limit);
         out.push(`Used by ${usedBy.length}${usedBy.length === limit ? '+' : ''}:`);
-        out.push(...(usedBy.length ? usedBy.map(line) : ['  nothing in this project or package']));
+        out.push(
+          ...(usedBy.length
+            ? usedBy.map((r) => (r.rel_path ? `  ${r.rel_path} (${r.kind})` : `  guid ${r.guid}`))
+            : ['  nothing in this project or package']),
+        );
       }
       return out.join('\n');
     }

@@ -57,14 +57,19 @@ export interface UnityDiscovery {
 }
 
 export async function isUnityProject(dir: string): Promise<boolean> {
+  return (await projectState(dir)) === true;
+}
+
+/** Like isUnityProject, but `unreadable` when the answer could not be read this time. */
+async function projectState(dir: string): Promise<boolean | 'unreadable'> {
   try {
     const [assets, version] = await Promise.all([
       stat(join(dir, 'Assets')),
       stat(join(dir, 'ProjectSettings', 'ProjectVersion.txt')),
     ]);
     return assets.isDirectory() && version.isFile();
-  } catch {
-    return false;
+  } catch (error) {
+    return isMissing(error) ? false : 'unreadable';
   }
 }
 
@@ -96,12 +101,14 @@ interface NestedFound {
   projects: string[];
   /** Assets-only folders inside the project but outside its own Assets/. */
   assetFolders: string[];
+  /** `.unitypackage` files kept in the project folder but outside Assets/ and Packages/. */
+  packages: string[];
   unreadable: string[];
 }
 
 /** What a project holds beside its own Assets/ and Packages/, up to three levels down. */
 async function findNested(projectRoot: string, signal?: AbortSignal): Promise<NestedFound> {
-  const found: NestedFound = { projects: [], assetFolders: [], unreadable: [] };
+  const found: NestedFound = { projects: [], assetFolders: [], packages: [], unreadable: [] };
   async function visit(dir: string, depth: number): Promise<void> {
     signal?.throwIfAborted();
     let entries: Dirent[];
@@ -114,10 +121,20 @@ async function findNested(projectRoot: string, signal?: AbortSignal): Promise<Ne
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
       const lower = entry.name.toLowerCase();
-      if (!entry.isDirectory() || ignoredByUnity(entry.name) || SKIPPED_DIRS.has(lower)) continue;
+      if (ignoredByUnity(entry.name) || SKIPPED_DIRS.has(lower)) continue;
+      if (entry.isFile() && extname(lower) === '.unitypackage') {
+        found.packages.push(join(dir, entry.name));
+        continue;
+      }
+      if (!entry.isDirectory()) continue;
       if (depth === 0 && PROJECT_DIRS.has(lower)) continue;
       const path = join(dir, entry.name);
-      if (await isUnityProject(path)) {
+      const project = await projectState(path);
+      if (project === 'unreadable') {
+        found.unreadable.push(path);
+        continue;
+      }
+      if (project) {
         found.projects.push(path);
         continue;
       }
@@ -151,12 +168,19 @@ export async function discoverUnity(root: string, signal?: AbortSignal): Promise
     const nested = await findNested(dir, signal);
     unreadable.push(...nested.unreadable);
     for (const root of nested.assetFolders) assetFolders.push({ root, project: dir });
+    packages.push(...nested.packages);
     for (const inner of nested.projects) await addProject(inner);
   }
   async function visit(dir: string, depth: number): Promise<void> {
     signal?.throwIfAborted();
-    if (await isUnityProject(dir)) {
+    const project = await projectState(dir);
+    if (project === true) {
       await addProject(dir);
+      return;
+    }
+    if (project === 'unreadable') {
+      if (depth === 0) throw new Error(`${dir} could not be read`);
+      unreadable.push(dir);
       return;
     }
     // A loose Assets/ is recorded, and the walk goes on: packages and projects can sit
@@ -274,17 +298,32 @@ export interface UnityFileEntry {
 }
 
 /** List every asset file under `Assets/` and any embedded package under `Packages/`. */
+export interface UnityProjectListing {
+  files: UnityFileEntry[];
+  /**
+   * What exists but could not be read this time (a locked file, a flaky drive), as
+   * forward-slash paths relative to the root: folders end in `/`. Rows stored under
+   * them must be kept, not treated as deleted.
+   */
+  unreadable: string[];
+}
+
 export async function listProjectFiles(
   root: string,
   signal?: AbortSignal,
-): Promise<UnityFileEntry[]> {
+): Promise<UnityProjectListing> {
   const files: UnityFileEntry[] = [];
-  async function walk(dir: string): Promise<void> {
+  const unreadable: string[] = [];
+  // NFC, so a name unzipped on macOS (NFD) matches what a person types.
+  const rel = (path: string) => relative(root, path).split(sep).join('/').normalize('NFC');
+  async function walk(dir: string, optional = false): Promise<void> {
     signal?.throwIfAborted();
     let entries: Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      // A folder that vanished mid-walk is a deletion, except the project's own Assets/.
+      if (!isMissing(error) || !optional) unreadable.push(`${rel(dir)}/`);
       return;
     }
     const names = new Set(entries.map((entry) => entry.name));
@@ -303,46 +342,50 @@ export async function listProjectFiles(
           mtimeMs = Math.max(mtimeMs, (await stat(`${path}.meta`)).mtimeMs);
         }
         files.push({
-          relPath: relative(root, path).split(sep).join('/'),
+          relPath: rel(path),
           absPath: path,
           name: entry.name,
           kind: unityKindOf(entry.name),
           size: info.size,
           mtimeMs: Math.trunc(mtimeMs),
         });
-      } catch {
-        // Vanished mid-walk; the next scan will see the truth.
+      } catch (error) {
+        // Gone mid-walk is a deletion; anything else is kept for the next scan.
+        if (!isMissing(error)) unreadable.push(rel(path));
       }
     }
   }
+  // A missing Assets/ is unexpected for a project that was just discovered: keep its rows.
   await walk(join(root, 'Assets'));
   // Embedded packages are folders under Packages/; manifest.json and the lock file are not assets.
   try {
     for (const entry of await readdir(join(root, 'Packages'), { withFileTypes: true })) {
       if (entry.isDirectory() && !ignoredByUnity(entry.name)) {
-        await walk(join(root, 'Packages', entry.name));
+        await walk(join(root, 'Packages', entry.name), true);
       }
     }
-  } catch {
-    // No Packages/ folder: an old or partial project.
+  } catch (error) {
+    // No Packages/ folder is an old or partial project; an unreadable one is kept.
+    if (!isMissing(error)) unreadable.push('Packages/');
   }
-  return files;
+  return { files, unreadable };
 }
 
-/** The GUID from an asset's `.meta` sidecar (it sits on the second line). */
-export function readMetaGuid(assetPath: string): Promise<string | null> {
-  return readGuidFrom(`${assetPath}.meta`);
-}
-
-async function readGuidFrom(metaPath: string): Promise<string | null> {
+/**
+ * The GUID from an asset's `.meta` sidecar (it sits on the second line): null when there
+ * is no .meta or it holds no GUID. A .meta that exists but cannot be read throws, so the
+ * caller keeps what it knew instead of storing the asset as having no GUID.
+ */
+export async function readMetaGuid(assetPath: string): Promise<string | null> {
   try {
-    return await readGuidStrict(metaPath);
-  } catch {
-    return null;
+    return await readGuidStrict(`${assetPath}.meta`);
+  } catch (error) {
+    if (isMissing(error)) return null;
+    throw error;
   }
 }
 
-/** Like readGuidFrom, but a failed read throws instead of looking like "no GUID". */
+/** The GUID in a .meta file, or null when it holds none; a failed read throws. */
 async function readGuidStrict(metaPath: string): Promise<string | null> {
   const handle = await open(metaPath, 'r');
   try {
@@ -474,7 +517,11 @@ export async function readProjectFile(
     return { serialization: 'none', refs: [], variantOf: null, outline: null };
   }
   // Sniff before streaming: readline would buffer a binary file's whole first "line".
-  if (!(await looksLikeText(entry.absPath))) {
+  const sniff = await looksLikeText(entry.absPath);
+  if (sniff === 'failed') {
+    return { serialization: 'none', failed: true, refs: [], variantOf: null, outline: null };
+  }
+  if (!sniff) {
     return { serialization: 'binary', refs: [], variantOf: null, outline: null };
   }
   const reader = new UnityYamlReader({
@@ -500,7 +547,7 @@ export async function readProjectFile(
 }
 
 /** Unity text assets open with `%YAML`; Shader Graph and friends are JSON. */
-async function looksLikeText(path: string): Promise<boolean> {
+async function looksLikeText(path: string): Promise<boolean | 'failed'> {
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
     handle = await open(path, 'r');
@@ -512,7 +559,7 @@ async function looksLikeText(path: string): Promise<boolean> {
       .trimStart();
     return head.startsWith('%YAML') || head.startsWith('{');
   } catch {
-    return false;
+    return 'failed';
   } finally {
     await handle?.close();
   }

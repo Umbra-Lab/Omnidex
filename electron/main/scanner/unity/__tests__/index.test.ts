@@ -107,7 +107,7 @@ describe('Unity location scan', () => {
     (db as unknown as { close(): void }).close();
   });
 
-  it('fails the scan when the root itself cannot be read, and prunes the last container', async () => {
+  it('fails the scan when the root cannot be read, and keeps the index when it lists empty', async () => {
     const db = unityDb();
     const signal = new AbortController().signal;
     await expect(
@@ -121,7 +121,11 @@ describe('Unity location scan', () => {
     rmSync(pack);
     const result = await scanUnityLocation(db, 7, root, signal, thumbs);
     expect(result.total).toBe(0);
-    expect(rows(db, 'SELECT 1 FROM assets WHERE scan_location_id = 7')).toEqual([]);
+    // An empty root may be an unmounted drive or an unsynced folder: nothing is pruned.
+    expect(rows(db, 'SELECT 1 FROM assets WHERE scan_location_id = 7')).toHaveLength(2);
+    expect(result.failures).toEqual([
+      `${root}: no Unity projects or packages found; kept the 2 already indexed`,
+    ]);
     (db as unknown as { close(): void }).close();
   });
 
@@ -366,7 +370,7 @@ describe('Unity location scan', () => {
     const { createUnityTools } = await import('../../../../../scripts/oracle-mcp/unity-tools.mjs');
     const tools = createUnityTools(db);
     expect(tools.call('unity_projects', {})).toContain('PROJECT Old');
-    expect(tools.call('unity_projects', {})).toContain('references outside: 1 not found');
+    expect(tools.call('unity_projects', {})).toContain('assets used from outside: 1 not found');
     expect(tools.call('unity_dependencies', { asset: 'A.mat' })).toContain(
       `guid ${'b'.repeat(32)}`,
     );
@@ -554,9 +558,11 @@ describe('Unity location scan', () => {
       expect(water).toContain(
         'Unity package com.unity.render-pipelines.universal: Textures/BlueNoise16/L/LDR_LLL1_9.png',
       );
-      expect(water).toContain(`guid ${PACKAGE_GUID.missing} (not found: missing, or not scanned)`);
+      expect(water).toContain(
+        `guid ${PACKAGE_GUID.missing} (not found: missing, or from content not scanned)`,
+      );
       expect(projects).toContain(
-        'references outside: 2 into Unity packages (render-pipelines.universal 2); 1 not found',
+        'assets used from outside: 2 in Unity packages (render-pipelines.universal 2); 1 not found',
       );
 
       const twoWords = await ask('unity_find_asset', { query: 'prefabs ship variant' });
