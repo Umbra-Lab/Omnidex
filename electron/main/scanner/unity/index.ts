@@ -60,6 +60,20 @@ export async function scanUnityLocation(
       failedPaths.push(projectRoot);
     }
   }
+  for (const folder of found.assetFolders) {
+    signal.throwIfAborted();
+    if (existingStmt.get(folder.root)) existing += 1;
+    try {
+      await indexUnityProject(db, locationId, folder.root, signal, {
+        settingsFrom: folder.project,
+      });
+      seen.push(folder.root);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      failures.push(`${folder.root}: ${(error as Error).message}`);
+      failedPaths.push(folder.root);
+    }
+  }
   for (const packagePath of found.packages) {
     signal.throwIfAborted();
     if (existingStmt.get(packagePath)) existing += 1;
@@ -98,9 +112,9 @@ export async function scanUnityLocation(
     throw error;
   }
   return {
-    total: found.projects.length + found.packages.length,
+    total: found.projects.length + found.assetFolders.length + found.packages.length,
     existing,
-    projects: found.projects.length,
+    projects: found.projects.length + found.assetFolders.length,
     packages: found.packages.length,
     failures,
   };
@@ -196,15 +210,29 @@ interface FreshRow {
   refs: string[];
 }
 
+/**
+ * Index a Unity project, or an Assets/ folder with no ProjectSettings/ of its own
+ * (`assetsOnly`). Such a folder borrows the Editor version, pipeline and packages of the
+ * project it sits inside (`settingsFrom`), or has none when it stands alone.
+ */
 export async function indexUnityProject(
   db: Database,
   locationId: number,
   projectRoot: string,
   signal?: AbortSignal,
+  options: { settingsFrom?: string | null } = {},
 ): Promise<{ containerId: number; info: UnityProjectInfo; changed: number; files: number }> {
-  const info = await readProjectInfo(projectRoot);
+  const assetsOnly = options.settingsFrom !== undefined;
+  const settingsFrom = options.settingsFrom ?? null;
+  let info = await readProjectInfo(settingsFrom ?? projectRoot);
+  if (assetsOnly) {
+    const own = await readProjectInfo(projectRoot);
+    info = settingsFrom
+      ? { ...info, name: own.name, root: projectRoot }
+      : { ...own, renderPipeline: 'unknown' };
+  }
   const files = await listProjectFiles(projectRoot, signal);
-  await learnPackageCache(db, projectRoot, signal);
+  if (!assetsOnly) await learnPackageCache(db, projectRoot, signal);
   const totalSize = files.reduce((sum, file) => sum + file.size, 0);
 
   const prior = db.prepare('SELECT id FROM assets WHERE file_path = ?').get(projectRoot) as
@@ -267,7 +295,8 @@ export async function indexUnityProject(
       size: totalSize,
       searchText: searchText([
         info.name,
-        'unity project',
+        assetsOnly ? 'unity assets folder' : 'unity project',
+        settingsFrom ? basename(settingsFrom) : null,
         info.editorVersion,
         info.renderPipeline,
         ...Object.keys(info.packages),
@@ -275,11 +304,13 @@ export async function indexUnityProject(
     });
     db.prepare(
       `INSERT INTO unity_projects
-        (asset_id, root_path, editor_version, render_pipeline, packages_json, scanned_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        (asset_id, root_path, editor_version, render_pipeline, packages_json, scanned_at,
+         assets_only, settings_from)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(asset_id) DO UPDATE SET root_path=excluded.root_path,
           editor_version=excluded.editor_version, render_pipeline=excluded.render_pipeline,
-          packages_json=excluded.packages_json, scanned_at=excluded.scanned_at`,
+          packages_json=excluded.packages_json, scanned_at=excluded.scanned_at,
+          assets_only=excluded.assets_only, settings_from=excluded.settings_from`,
     ).run(
       containerId,
       projectRoot,
@@ -287,6 +318,8 @@ export async function indexUnityProject(
       info.renderPipeline,
       JSON.stringify(info.packages),
       new Date().toISOString(),
+      assetsOnly ? 1 : 0,
+      settingsFrom,
     );
     const deleteRow = db.prepare('DELETE FROM unity_assets WHERE id = ?');
     const deleteRefs = db.prepare(

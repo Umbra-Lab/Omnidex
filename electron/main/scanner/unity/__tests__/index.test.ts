@@ -23,6 +23,7 @@ const MIGRATIONS = [
   'electron/main/db/migrations/20261120000000_unity_index.up.sql',
   'electron/main/db/migrations/20261120010000_unity_asset_store.up.sql',
   'electron/main/db/migrations/20261121000000_unity_known_guids.up.sql',
+  'electron/main/db/migrations/20261121010000_unity_asset_folders.up.sql',
 ];
 
 const dirs: string[] = [];
@@ -239,6 +240,64 @@ describe('Unity location scan', () => {
     (db as unknown as { close(): void }).close();
   });
 
+  it('indexes Assets folders that have no project settings of their own', async () => {
+    const db = unityDb();
+    const { root, project, thumbs } = library();
+    dirs.push(thumbs);
+    // A course chapter's materials inside the project, its name garbled by a zip tool
+    // (CP949 bytes read as cp437), and an Assets folder copied out on its own.
+    const chapter = join(project, 'c04_░╘└╙ └╠╞σ┼═', 'Assets');
+    const loose = join(root, 'Loose Effects', 'Assets');
+    for (const [dir, guid] of [
+      [chapter, '44444444444444444444444444444444'],
+      [loose, '55555555555555555555555555555555'],
+    ]) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'Fx.mat'), '%YAML 1.1\nMaterial:\n  m_Name: Fx\n');
+      writeFileSync(join(dir, 'Fx.mat.meta'), `fileFormatVersion: 2\nguid: ${guid}\n`);
+    }
+    const result = await scanUnityLocation(db, 7, root, new AbortController().signal, thumbs);
+    expect(result).toMatchObject({ total: 4, projects: 3, packages: 1, failures: [] });
+    expect(
+      rows(
+        db,
+        `SELECT a.name, p.editor_version, p.render_pipeline, p.assets_only, p.settings_from
+           FROM assets a JOIN unity_projects p ON p.asset_id = a.id ORDER BY a.name`,
+      ),
+    ).toEqual([
+      {
+        name: 'GalaxyDemo',
+        editor_version: '6000.3.0f1',
+        render_pipeline: 'urp',
+        assets_only: 0,
+        settings_from: null,
+      },
+      {
+        name: 'Loose Effects',
+        editor_version: null,
+        render_pipeline: 'unknown',
+        assets_only: 1,
+        settings_from: null,
+      },
+      {
+        name: 'c04_게임 이펙터',
+        editor_version: '6000.3.0f1',
+        render_pipeline: 'urp',
+        assets_only: 1,
+        settings_from: project,
+      },
+    ]);
+    // The chapter's files belong to the chapter, not to the project around it.
+    const chapterFiles = rows(
+      db,
+      `SELECT u.rel_path FROM unity_assets u JOIN assets a ON a.id = u.container_id
+         WHERE a.name = 'c04_게임 이펙터'`,
+    );
+    expect(chapterFiles).toEqual([{ rel_path: 'Assets/Fx.mat' }]);
+    expect(rows(db, "SELECT 1 FROM unity_assets WHERE rel_path LIKE 'c04%'")).toEqual([]);
+    (db as unknown as { close(): void }).close();
+  });
+
   it('rescans only what changed and forgets what was deleted', async () => {
     const db = unityDb();
     const { root, project, thumbs } = library();
@@ -354,8 +413,12 @@ describe('Unity location scan', () => {
     db.exec(`CREATE TABLE course_files (id INTEGER, asset_id INTEGER, kind TEXT, rel_path TEXT, abs_path TEXT, duration_seconds REAL, chapter TEXT, order_index INTEGER);
       CREATE TABLE transcript_cues (id INTEGER, file_id INTEGER, text TEXT, start_ms INTEGER);
       CREATE VIRTUAL TABLE transcript_fts USING fts5(text, file_id UNINDEXED);`);
-    const { root, thumbs } = library();
+    const { root, project, thumbs } = library();
     dirs.push(thumbs);
+    const chapter = join(project, 'c05', 'Assets');
+    mkdirSync(chapter, { recursive: true });
+    writeFileSync(join(chapter, 'Fx.mat.meta'), `fileFormatVersion: 2\nguid: ${'6'.repeat(32)}\n`);
+    writeFileSync(join(chapter, 'Fx.mat'), '%YAML 1.1\nMaterial:\n  m_Name: Fx\n');
     await scanUnityLocation(db, 7, root, new AbortController().signal, thumbs);
     const dbPath = join(tempDir(), 'oracle.db');
     db.prepare('VACUUM INTO ?').run(dbPath);
@@ -384,6 +447,9 @@ describe('Unity location scan', () => {
       const projects = await ask('unity_projects', { packages: true });
       expect(projects).toContain('PROJECT GalaxyDemo — Unity 6000.3.0f1, urp');
       expect(projects).toContain('com.unity.inputsystem@1.14.0');
+      expect(projects).toContain(
+        `ASSETS FOLDER c05 — inside project ${project}, Unity 6000.3.0f1, urp`,
+      );
       expect(projects).toContain('PACKAGE POLYGON Fleet');
       expect(projects).toContain(
         'Asset Store 102321: POLYGON - Fleet by Synty Studios (3D/Vehicles/Sea), v1.4.0, ' +

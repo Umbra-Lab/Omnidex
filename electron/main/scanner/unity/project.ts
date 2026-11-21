@@ -37,9 +37,21 @@ const SKIPPED_DIRS = new Set([
 /** How deep under a scan root to look for project folders and packages. */
 const MAX_DISCOVERY_DEPTH = 5;
 
+export interface UnityAssetFolder {
+  /** The folder holding `Assets/`, e.g. a course chapter's `c04_.../`. */
+  root: string;
+  /** The Unity project it sits inside, whose settings it shares; null when on its own. */
+  project: string | null;
+}
+
 export interface UnityDiscovery {
   projects: string[];
   packages: string[];
+  /**
+   * `Assets/` folders with no `ProjectSettings/` beside them: chapter folders a course
+   * ships inside or next to its project, or an `Assets/` copied out on its own.
+   */
+  assetFolders: UnityAssetFolder[];
   /** Folders that could not be listed; what was indexed under them must not be pruned. */
   unreadable: string[];
 }
@@ -56,6 +68,47 @@ export async function isUnityProject(dir: string): Promise<boolean> {
   }
 }
 
+/** True when `dir/Assets` exists and holds `.meta` files, the mark of Unity content. */
+async function hasAssetsFolder(dir: string): Promise<boolean> {
+  try {
+    const names = await readdir(join(dir, 'Assets'));
+    return names.some((name) => name.endsWith('.meta'));
+  } catch {
+    return false;
+  }
+}
+
+/** A project's own top-level folders; anything else holding Assets/ is extra content. */
+const PROJECT_DIRS = new Set(['assets', 'packages', 'projectsettings']);
+
+/** `Assets/` folders inside a project but outside its own Assets/, up to three levels down. */
+async function findNestedAssetFolders(
+  projectRoot: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const found: string[] = [];
+  async function visit(dir: string, depth: number): Promise<void> {
+    signal?.throwIfAborted();
+    let entries: Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const lower = entry.name.toLowerCase();
+      if (!entry.isDirectory() || ignoredByUnity(entry.name) || SKIPPED_DIRS.has(lower)) continue;
+      if (depth === 0 && PROJECT_DIRS.has(lower)) continue;
+      const path = join(dir, entry.name);
+      if (await hasAssetsFolder(path)) found.push(path);
+      else if (depth < 2) await visit(path, depth + 1);
+    }
+  }
+  await visit(projectRoot, 0);
+  return found;
+}
+
 /** Unity skips hidden folders, folders ending in `~`, and `cvs`; so does Omnidex. */
 function ignoredByUnity(name: string): boolean {
   return name.startsWith('.') || name.endsWith('~') || name.toLowerCase() === 'cvs';
@@ -69,11 +122,19 @@ function ignoredByUnity(name: string): boolean {
 export async function discoverUnity(root: string, signal?: AbortSignal): Promise<UnityDiscovery> {
   const projects: string[] = [];
   const packages: string[] = [];
+  const assetFolders: UnityAssetFolder[] = [];
   const unreadable: string[] = [];
   async function visit(dir: string, depth: number): Promise<void> {
     signal?.throwIfAborted();
     if (await isUnityProject(dir)) {
       projects.push(dir);
+      for (const root of await findNestedAssetFolders(dir, signal)) {
+        assetFolders.push({ root, project: dir });
+      }
+      return;
+    }
+    if (await hasAssetsFolder(dir)) {
+      assetFolders.push({ root: dir, project: null });
       return;
     }
     let entries: Dirent[];
@@ -96,14 +157,15 @@ export async function discoverUnity(root: string, signal?: AbortSignal): Promise
     }
   }
   await visit(root, 0);
-  return { projects, packages, unreadable };
+  return { projects, packages, assetFolders, unreadable };
 }
 
 export interface UnityProjectInfo {
   name: string;
   root: string;
   editorVersion: string | null;
-  renderPipeline: 'urp' | 'hdrp' | 'built-in';
+  /** `unknown` for an Assets/ folder with no project settings to read. */
+  renderPipeline: 'urp' | 'hdrp' | 'built-in' | 'unknown';
   /** Package name to version (or local path/git URL) from Packages/manifest.json. */
   packages: Record<string, string>;
 }
@@ -135,7 +197,39 @@ export async function readProjectInfo(root: string): Promise<UnityProjectInfo> {
     : Object.hasOwn(packages, 'com.unity.render-pipelines.universal')
       ? 'urp'
       : 'built-in';
-  return { name: basename(root), root, editorVersion, renderPipeline, packages };
+  return { name: repairZipName(basename(root)), root, editorVersion, renderPipeline, packages };
+}
+
+/** cp437's upper half, which is how most zip tools decode a name with no UTF-8 flag. */
+const CP437_HIGH =
+  'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀' +
+  'αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\u00a0';
+
+/**
+ * Undo the garbling a Korean folder name gets when a zip made on a Korean Windows is
+ * unpacked elsewhere: its CP949 bytes come out as cp437 box-drawing characters, so
+ * `c04_░╘└╙` was `c04_게임`. Only for display; the folder keeps its name on disk. A name
+ * that does not decode cleanly to Hangul is returned as it is.
+ */
+export function repairZipName(name: string): string {
+  if (!/[\u2500-\u25ff]/.test(name)) return name;
+  const bytes: number[] = [];
+  for (const ch of name) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 0x80) {
+      bytes.push(code);
+      continue;
+    }
+    const index = CP437_HIGH.indexOf(ch);
+    if (index < 0) return name;
+    bytes.push(0x80 + index);
+  }
+  try {
+    const text = new TextDecoder('euc-kr', { fatal: true }).decode(Uint8Array.from(bytes));
+    return /[\uac00-\ud7a3]/.test(text) ? text : name;
+  } catch {
+    return name;
+  }
 }
 
 export interface UnityFileEntry {

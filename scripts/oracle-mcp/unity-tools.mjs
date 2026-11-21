@@ -13,7 +13,8 @@ export const unityTools = [
   {
     name: 'unity_projects',
     description:
-      'List indexed Unity projects and .unitypackage files: Editor version, render pipeline ' +
+      'List indexed Unity projects, loose Assets folders and .unitypackage files: Editor ' +
+      'version, render pipeline ' +
       '(URP/HDRP/Built-in), installed packages and how many scenes, prefabs, materials, ' +
       'scripts etc. each holds. Start here to learn what Unity content exists.',
     inputSchema: {
@@ -117,9 +118,14 @@ export function createUnityTools(db) {
     return { names: new Set(unityTools.map((t) => t.name)), call: () => NOT_INDEXED };
   }
 
+  // Assets-only folders arrived in a later migration; an older database just lacks them.
+  const hasFolders = db
+    .prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?')
+    .get('unity_projects', 'assets_only');
   const containersStmt = db.prepare(`
     SELECT a.id, a.name, a.asset_type, a.file_path, a.file_size,
-           p.editor_version, p.render_pipeline, p.packages_json
+           p.editor_version, p.render_pipeline, p.packages_json,
+           ${hasFolders ? 'p.assets_only, p.settings_from' : '0 AS assets_only, NULL AS settings_from'}
     FROM assets a LEFT JOIN unity_projects p ON p.asset_id = a.id
     WHERE a.asset_type IN ('unity_project', 'unity_package') AND a.missing_since IS NULL
       AND a.name LIKE ? ESCAPE '\\'
@@ -308,10 +314,17 @@ export function createUnityTools(db) {
                   .join(', ') || 'none'
               }`
             : `\n  ${Object.keys(deps).length} packages (pass packages=true to list)`;
+          const head = row.assets_only
+            ? `ASSETS FOLDER ${row.name} — ${
+                row.settings_from
+                  ? `inside project ${row.settings_from}, Unity ${row.editor_version ?? 'unknown'}, ` +
+                    `${row.render_pipeline ?? 'built-in'}`
+                  : 'no project settings, Editor version unknown'
+              }, ${size(row.file_size)} in Assets\n`
+            : `PROJECT ${row.name} — Unity ${row.editor_version ?? 'unknown'}, ` +
+              `${row.render_pipeline ?? 'built-in'}, ${size(row.file_size)} in Assets/Packages\n`;
           return (
-            `PROJECT ${row.name} — Unity ${row.editor_version ?? 'unknown'}, ` +
-            `${row.render_pipeline ?? 'built-in'}, ${size(row.file_size)} in Assets/Packages\n` +
-            `  ${row.file_path}\n  ${counts || 'no assets'}${outsideLine(row.id)}${depLine}`
+            head + `  ${row.file_path}\n  ${counts || 'no assets'}${outsideLine(row.id)}${depLine}`
           );
         })
         .join('\n');
