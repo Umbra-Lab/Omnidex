@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
-import { basename, extname, join, sep } from 'node:path';
+import { basename, dirname, extname, join, sep } from 'node:path';
 import type { Database } from 'better-sqlite3';
 import { pruneAssetsNotIn } from '../../db/repos/assets';
-import { dccFormatOf } from '../dcc-discovery';
+import { dccFormatOf, isTextureMapName } from '../dcc-discovery';
 import { type AssetStoreInfo, readAssetStoreInfo } from './asset-store';
 import { foldDccRowsIntoUnity, unityClaims } from './ownership';
 import {
@@ -217,19 +217,30 @@ function writeStoreInfo(db: Database, containerId: number, store: AssetStoreInfo
 const MAX_DCC_SEARCH_NAMES = 2000;
 
 /**
- * The 3D and DCC files in a project (models, Blender, Maya, Substance and the like), as
- * the DCC catalogue would describe them: name, kind and tool. The Unity entry replaces
- * their DCC rows, so this keeps them findable from the library search.
+ * The 3D and DCC files in a project (models, Blender, Maya, Substance, archives, and
+ * folders of texture maps), as the DCC catalogue would describe them: name, kind and
+ * tool. The Unity entry replaces their DCC rows, so this keeps them findable from the
+ * library search.
  */
-function dccSearchTerms(files: Array<{ name: string }>): string {
+function dccSearchTerms(files: Array<{ name: string; relPath: string }>): string {
   const names = new Set<string>();
   const tools = new Set<string>();
+  const textureMaps = new Map<string, number>();
   for (const file of files) {
+    if (isTextureMapName(file.name)) {
+      const dir = dirname(file.relPath);
+      textureMaps.set(dir, (textureMaps.get(dir) ?? 0) + 1);
+      continue;
+    }
     const format = dccFormatOf(file.name);
     if (!format) continue;
-    if (format[0] === 'archive') continue;
     tools.add(`${format[0]} ${format[1].replaceAll('_', ' ')}`);
     if (names.size < MAX_DCC_SEARCH_NAMES) names.add(file.name);
+  }
+  for (const [dir, count] of textureMaps) {
+    if (count < 2) continue;
+    tools.add('texture set');
+    if (names.size < MAX_DCC_SEARCH_NAMES) names.add(basename(dir));
   }
   return [...tools, ...names].join(' ');
 }

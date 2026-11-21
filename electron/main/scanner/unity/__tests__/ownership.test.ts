@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Database } from 'better-sqlite3';
@@ -64,15 +64,22 @@ function library() {
   writeFileSync(model, 'fbx');
   writeFileSync(`${model}.meta`, `fileFormatVersion: 2\nguid: ${'5'.repeat(32)}\n`);
   writeFileSync(source, 'blend');
+  const textures = join(project, 'Assets', 'Rock');
+  mkdirSync(textures, { recursive: true });
+  for (const map of ['Rock_BaseColor.png', 'Rock_Normal.png']) {
+    writeFileSync(join(textures, map), 'png');
+    writeFileSync(join(textures, `${map}.meta`), `fileFormatVersion: 2\nguid: ${'6'.repeat(32)}\n`);
+  }
   writeFileSync(pack, samplePackage());
-  return { root, project, model, source, pack };
+  return { root, project, model, source, pack, textures };
 }
 
 describe('a DCC and a Unity location over the same Unity project', () => {
   it('folds the DCC rows into the Unity entry, keeping what the person added', async () => {
     const database = db();
-    const { root, project, model, source, pack } = library();
+    const { root, project, model, source, pack, textures } = library();
     await scanDccLocation(database, DCC, root, signal());
+    expect(idOf(database, textures)).toBeDefined();
     const modelId = idOf(database, model);
     const packId = idOf(database, pack);
     expect(modelId).toBeDefined();
@@ -116,9 +123,12 @@ describe('a DCC and a Unity location over the same Unity project', () => {
       { tags: '["hero"]', is_favorite: 1 },
     ]);
     expect(
-      rows(database, 'SELECT note_text FROM asset_notes WHERE asset_id = ?', projectId),
+      rows(database, 'SELECT note_text, rating FROM asset_notes WHERE asset_id = ?', projectId),
     ).toEqual([
-      { note_text: `${join('Assets', 'Models', 'Hero_Body.fbx')} (rated 4/5): rig is clean` },
+      {
+        note_text: `${join('Assets', 'Models', 'Hero_Body.fbx')} (rated 4/5): rig is clean`,
+        rating: 4,
+      },
     ]);
     // The model stays findable from the library search, through the project.
     const search = String(
@@ -127,6 +137,9 @@ describe('a DCC and a Unity location over the same Unity project', () => {
     );
     expect(search).toContain('Hero Body fbx');
     expect(search).toContain('mesh general 3d');
+    expect(idOf(database, textures)).toBeUndefined();
+    expect(search).toContain('texture set');
+    expect(search).toContain('Rock');
 
     // The package row is taken over in place: same id, so its tag stays.
     expect(
@@ -180,4 +193,39 @@ describe('a DCC and a Unity location over the same Unity project', () => {
       { asset_type: 'dcc_mesh' },
     ]);
   });
+  it('skips a file whose Unity entry is stamped missing instead of failing the scan', async () => {
+    const database = db();
+    const { root, pack, source } = library();
+    await scanUnityLocation(database, UNITY, root, signal(), tempDir());
+    database
+      .prepare("UPDATE assets SET missing_since = '2026-11-01' WHERE file_path = ?")
+      .run(pack);
+    await scanDccLocation(database, DCC, root, signal());
+    expect(rows(database, 'SELECT scan_location_id FROM assets WHERE file_path = ?', pack)).toEqual(
+      [{ scan_location_id: UNITY }],
+    );
+    expect(idOf(database, source)).toBeDefined();
+  });
+});
+
+// better-sqlite3 binds numbered parameters (?1) as named ones, so a positional .run()
+// throws in the app while node:sqlite in these tests accepts it. Keep them out of SQL.
+it('uses no numbered SQL parameters in the main process', () => {
+  const offenders: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== '__tests__') walk(path);
+      } else if (entry.name.endsWith('.ts')) {
+        readFileSync(path, 'utf8')
+          .split('\n')
+          .forEach((line, index) => {
+            if (/(?<![?\w)\]'"])\?\d/.test(line)) offenders.push(`${path}:${index + 1}`);
+          });
+      }
+    }
+  };
+  walk(resolve('electron/main'));
+  expect(offenders).toEqual([]);
 });

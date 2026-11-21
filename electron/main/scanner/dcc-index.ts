@@ -1,7 +1,7 @@
 import type { Database } from 'better-sqlite3';
 import { pruneAssetsNotIn } from '../db/repos/assets';
 import { type DccFile, discoverDccFiles } from './dcc-discovery';
-import { claimOf, foldDccRowsIntoUnity, unityClaims } from './unity/ownership';
+import { claimLookup, foldDccRowsIntoUnity, unityClaims } from './unity/ownership';
 
 export async function scanDccLocation(
   db: Database,
@@ -10,10 +10,8 @@ export async function scanDccLocation(
   signal: AbortSignal,
 ): Promise<{ total: number; existing: number }> {
   // Counted without the files a Unity entry already holds, which are not indexed here.
-  const claims = unityClaims(db);
-  const files = (await discoverDccFiles(root, signal)).filter(
-    (file) => !claimOf(file.path, claims),
-  );
+  const claimOf = claimLookup(unityClaims(db));
+  const files = (await discoverDccFiles(root, signal)).filter((file) => !claimOf(file.path));
   signal.throwIfAborted();
   const existing = db.prepare('SELECT 1 FROM assets WHERE file_path = ?');
   const count = files.filter((file) => existing.get(file.path)).length;
@@ -28,8 +26,9 @@ export async function scanDccLocation(
  */
 export function indexDccFiles(db: Database, locationId: number, discovered: DccFile[]): void {
   const claims = unityClaims(db);
-  const files = discovered.filter((file) => !claimOf(file.path, claims));
-  const owner = db.prepare('SELECT scan_location_id FROM assets WHERE file_path = ?');
+  const claimOf = claimLookup(claims);
+  const files = discovered.filter((file) => !claimOf(file.path));
+  const owner = db.prepare('SELECT scan_location_id, asset_type FROM assets WHERE file_path = ?');
   const upsert = db.prepare(`INSERT INTO assets
     (name, file_path, asset_type, file_size, file_size_is_partial, created_date, modified_date,
      scan_location_id, is_favorite, ecosystem, asset_ecosystem, content_format, scan_search_text)
@@ -42,8 +41,13 @@ export function indexDccFiles(db: Database, locationId: number, discovered: DccF
   try {
     const now = new Date().toISOString();
     for (const file of files) {
-      const existing = owner.get(file.path) as { scan_location_id: number } | undefined;
+      const existing = owner.get(file.path) as
+        | { scan_location_id: number; asset_type: string }
+        | undefined;
       if (existing && existing.scan_location_id !== locationId) {
+        // A Unity entry stamped missing (a folder Unity ignores, say) is not a claim any
+        // more, but it is still Unity's row: skip the file rather than fail the scan.
+        if (existing.asset_type.startsWith('unity_')) continue;
         throw new Error(`Asset path belongs to another scan location: ${file.path}`);
       }
       const metadata =
