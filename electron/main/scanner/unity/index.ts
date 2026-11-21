@@ -225,11 +225,13 @@ const MAX_DCC_SEARCH_NAMES = 2000;
 function dccSearchTerms(files: Array<{ name: string; relPath: string }>): string {
   const names = new Set<string>();
   const tools = new Set<string>();
-  const textureMaps = new Map<string, number>();
+  const textureMaps = new Map<string, string[]>();
   for (const file of files) {
     if (isTextureMapName(file.name)) {
       const dir = dirname(file.relPath);
-      textureMaps.set(dir, (textureMaps.get(dir) ?? 0) + 1);
+      const maps = textureMaps.get(dir) ?? [];
+      maps.push(file.name);
+      textureMaps.set(dir, maps);
       continue;
     }
     const format = dccFormatOf(file.name);
@@ -237,10 +239,13 @@ function dccSearchTerms(files: Array<{ name: string; relPath: string }>): string
     tools.add(`${format[0]} ${format[1].replaceAll('_', ' ')}`);
     if (names.size < MAX_DCC_SEARCH_NAMES) names.add(file.name);
   }
-  for (const [dir, count] of textureMaps) {
-    if (count < 2) continue;
+  for (const [dir, maps] of textureMaps) {
+    if (maps.length < 2) continue;
     tools.add('texture set');
-    if (names.size < MAX_DCC_SEARCH_NAMES) names.add(basename(dir));
+    // The folder and its map names, as the DCC texture-set row was searchable by both.
+    for (const name of [basename(dir), ...maps]) {
+      if (names.size < MAX_DCC_SEARCH_NAMES) names.add(name);
+    }
   }
   return [...tools, ...names].join(' ');
 }
