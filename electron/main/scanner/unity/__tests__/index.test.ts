@@ -362,6 +362,7 @@ describe('Unity location scan', () => {
       INSERT INTO unity_assets (container_id, guid, rel_path, name, kind)
         VALUES (1, '${'a'.repeat(32)}', 'Assets/A.mat', 'A.mat', 'material');
       INSERT INTO unity_refs VALUES (1, '${'a'.repeat(32)}', '${'b'.repeat(32)}');`);
+    // @ts-expect-error -- the Oracle server is plain .mjs with no type declarations.
     const { createUnityTools } = await import('../../../../../scripts/oracle-mcp/unity-tools.mjs');
     const tools = createUnityTools(db);
     expect(tools.call('unity_projects', {})).toContain('PROJECT Old');
