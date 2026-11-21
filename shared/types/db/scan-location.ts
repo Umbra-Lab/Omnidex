@@ -32,7 +32,7 @@ export interface ScanLocation {
    */
   content_format: ContentFormat | null;
   /** Discovery rules chosen when the location is created. */
-  scan_mode?: 'packs' | 'dcc';
+  scan_mode?: 'packs' | 'dcc' | 'unity';
 }
 
 /**

@@ -32,4 +32,5 @@ export const ASSET_UPSERT_SQL = `INSERT INTO assets (
        -- that: move a pack away, scan, move it back, scan — and its
        -- collections, tags and notes are still attached.
        missing_since = NULL
-     WHERE assets.asset_type NOT GLOB 'dcc_*' OR assets.scan_location_id = excluded.scan_location_id`;
+     WHERE (assets.asset_type NOT GLOB 'dcc_*' AND assets.asset_type NOT GLOB 'unity_*')
+       OR assets.scan_location_id = excluded.scan_location_id`;

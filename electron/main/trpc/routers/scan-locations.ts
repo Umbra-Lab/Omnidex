@@ -35,10 +35,13 @@ export const scanLocationsRouter = router({
   update: publicProcedure.input(scanLocationUpdateSchema).mutation(({ input }) => {
     const { id, ...fields } = input;
     const current = scanLocationsRepo.getScanLocation(openDatabase(), id);
-    if (current?.scan_mode === 'dcc' && fields.content_format != null) {
+    if (
+      (current?.scan_mode === 'dcc' || current?.scan_mode === 'unity') &&
+      fields.content_format != null
+    ) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
-        message: 'DCC locations cannot be Learn locations',
+        message: 'DCC and Unity locations cannot be Learn locations',
       });
     }
     scanLocationsRepo.updateScanLocationFull(openDatabase(), id, fields);

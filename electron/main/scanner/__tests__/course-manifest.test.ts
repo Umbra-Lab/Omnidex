@@ -60,6 +60,40 @@ describe('buildCourseManifest', () => {
     expect(files.some((f) => f.relPath.endsWith('.uasset'))).toBe(false);
   });
 
+  it('skips the folders Unity regenerates inside a bundled project, and only there', async () => {
+    const course = mkdtempSync(join(tmpdir(), 'omnidex-course-unity-'));
+    try {
+      const project = join(course, 'Files', 'RPG Effects');
+      for (const dir of [
+        'Assets/Textures',
+        'ProjectSettings',
+        'Library/PackageCache/x',
+        'Temp',
+        'Logs',
+      ]) {
+        mkdirSync(join(project, dir), { recursive: true });
+      }
+      writeFileSync(join(course, '01 - Portal.mp4'), 'x');
+      writeFileSync(join(project, 'Assets', 'Textures', 'Noise.png'), 'x');
+      writeFileSync(join(project, 'Library', 'PackageCache', 'x', 'LookDev.png'), 'x');
+      writeFileSync(join(project, 'Library', 'PackageCache', 'x', 'README.pdf'), 'x');
+      writeFileSync(join(project, 'Temp', 'Shot.png'), 'x');
+      writeFileSync(join(project, 'Logs', 'Editor.txt'), 'x');
+      // A Library folder outside a Unity project is ordinary course material.
+      mkdirSync(join(course, 'Library'));
+      writeFileSync(join(course, 'Library', 'Cheatsheet.pdf'), 'x');
+
+      const files = (await buildCourseManifest(course)).map((f) => f.relPath).sort();
+      expect(files).toEqual([
+        '01 - Portal.mp4',
+        'Files/RPG Effects/Assets/Textures/Noise.png',
+        'Library/Cheatsheet.pdf',
+      ]);
+    } finally {
+      rmSync(course, { recursive: true, force: true });
+    }
+  });
+
   it('assigns the parent folder as the chapter, and null at the root', async () => {
     const files = await buildCourseManifest(root);
     expect(files.find((f) => f.relPath.endsWith('01 - Welcome.mp4'))?.chapter).toBe('01 - Intro');

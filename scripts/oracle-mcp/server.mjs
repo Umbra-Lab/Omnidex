@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { callDocsTool, docsToolNames, docsTools } from './docs-tools.mjs';
+import { createUnityTools, unityTools } from './unity-tools.mjs';
 
 const PROTOCOL_VERSION = '2025-06-18';
 
@@ -220,11 +221,14 @@ const tools = [
       },
     },
   },
+  ...unityTools,
   ...docsTools,
 ];
 const toolNames = new Set(tools.map((t) => t.name));
+const unity = createUnityTools(db);
 
 function callTool(name, args) {
+  if (unity.names.has(name)) return unity.call(name, args);
   if (docsToolNames.has(name)) return callDocsTool(name, args, docsDbPath);
   if (name === 'search_transcripts') {
     const limit = Math.max(1, Math.min(Math.trunc(asFinite(args.limit, 20)), 100));
