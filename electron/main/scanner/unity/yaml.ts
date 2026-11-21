@@ -227,11 +227,20 @@ export class UnityYamlReader {
         break;
       }
     }
+    // Everything returned is copied out of the lines it was cut from: see `detach`.
+    const outline = this.outline ? this.buildOutline() : null;
+    if (outline) {
+      for (const root of outline.roots) {
+        root.name = detach(root.name);
+        if (root.prefab) root.prefab = detach(root.prefab);
+      }
+      outline.scripts = outline.scripts.map(detach);
+    }
     return {
       serialization,
-      refs: this.refs,
-      variantOf,
-      outline: this.outline ? this.buildOutline() : null,
+      refs: new Set([...this.refs].map(detach)),
+      variantOf: variantOf === null ? null : detach(variantOf),
+      outline,
     };
   }
 
@@ -309,6 +318,16 @@ export class UnityYamlReader {
       partial: this.docCount > MAX_OUTLINE_DOCS,
     };
   }
+}
+
+/**
+ * A copy of `text` that shares no memory with the string it was sliced from. V8 keeps a
+ * substring as a pointer into its parent, so one GUID cut from a 7 MB scene would hold
+ * the whole scene in memory for as long as the GUID lives: measured on a 678 MB package,
+ * 90 MB of heap for 0.7 MB of results.
+ */
+function detach(text: string): string {
+  return Buffer.from(text, 'utf8').toString('utf8');
 }
 
 /** Read a whole in-memory text (a file inside a .unitypackage). */
