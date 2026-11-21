@@ -406,7 +406,7 @@ export async function readPackageCache(
     }
     if (alreadyRead(name, version)) continue;
 
-    // Any read that fails leaves the package incomplete, so a later scan tries again.
+    // A folder that fails to list leaves the package incomplete, so a later scan tries again.
     let failed = false;
     let truncated = false;
     const metas: string[] = [];
@@ -443,7 +443,8 @@ export async function readPackageCache(
         try {
           guid = await readGuidStrict(meta);
         } catch {
-          failed = true;
+          // One unreadable .meta is skipped, not retried: a file that fails every time
+          // would otherwise have the whole package re-read on every scan.
         }
         if (guid) guids.set(guid, relative(dir, meta.slice(0, -5)).split(sep).join('/'));
       }

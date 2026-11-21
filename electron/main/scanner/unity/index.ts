@@ -385,8 +385,8 @@ async function learnPackageCache(
   const markSeen = db.prepare(
     'INSERT OR IGNORE INTO unity_package_cache_seen (package, version) VALUES (?, ?)',
   );
-  db.exec('BEGIN');
   try {
+    db.exec('BEGIN');
     for (const entry of found) {
       for (const [guid, relPath] of entry.guids) {
         insert.run(guid, entry.package, entry.version, relPath);
@@ -396,7 +396,11 @@ async function learnPackageCache(
     db.exec('COMMIT');
   } catch {
     // Only the package names are lost; the project itself still indexes.
-    db.exec('ROLLBACK');
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // No transaction was open.
+    }
   }
 }
 
