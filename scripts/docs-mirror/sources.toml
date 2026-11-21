@@ -1,0 +1,183 @@
+# Vendor documentation sources for the local docs mirror.
+#
+# Each [[source]] is one documentation set. `{version}` is replaced by the installed
+# product version in docs form (e.g. Blender 5.3.1 -> "5.3"); sources with
+# `versioned = false` mirror the vendor's current docs into a `current/` folder.
+#
+# Fields
+#   product      key matching versions.py (blender, houdini, unity, unreal, godot, ...)
+#   name         folder name for this set under docs/<product>/<version>/
+#   kind         reference | guide | best-practice  (agents can filter on it)
+#   versioned    true if the URL carries the product version
+#   start        crawl entry points
+#   prefix       only URLs starting with one of these are followed and saved
+#   pages        fixed page list instead of a crawl (crawl = false)
+#   format       html (default) | markdown (page is already markdown, saved as-is)
+#   selectors    content region selectors tried before the defaults (main, article, [role=main], body)
+#   mode         static (default) | auto (static, then a headless browser via Crawl4AI if the page is
+#                nearly empty) | browser (always Crawl4AI). Crawl4AI is optional; see the guide.
+#   pin_query    query parameter forced onto every URL of the set, e.g.
+#                "application_version={version}" for Epic, so links that omit it stay on this version
+#   max_pages    hard cap per run; a capped crawl resumes where it stopped on the next run
+#   enabled      false to skip by default (run it with --source <name>)
+#
+# These entry points were written from first-party URLs seen on 2026-11-20 but have not
+# been crawled end-to-end yet. Run `docs_mirror.py fetch --dry-run` first and adjust.
+
+[[source]]
+product = "blender"
+name = "python-api"
+kind = "reference"
+versioned = true
+start = ["https://docs.blender.org/api/{version}/"]
+prefix = ["https://docs.blender.org/api/{version}/"]
+selectors = ["[role=main]"]
+max_pages = 5000
+
+[[source]]
+product = "blender"
+name = "manual"
+kind = "guide"
+versioned = true
+start = ["https://docs.blender.org/manual/en/{version}/"]
+prefix = ["https://docs.blender.org/manual/en/{version}/"]
+selectors = ["[role=main]"]
+max_pages = 4000
+
+[[source]]
+product = "blender"
+name = "lab-mcp"
+kind = "guide"
+versioned = false
+crawl = false
+format = "markdown"
+pages = ["https://projects.blender.org/lab/blender_mcp/raw/branch/main/readme.md"]
+
+[[source]]
+product = "houdini"
+name = "hom"
+kind = "reference"
+versioned = true
+start = ["https://www.sidefx.com/docs/houdini{version}/hom/index.html"]
+prefix = ["https://www.sidefx.com/docs/houdini{version}/hom/"]
+max_pages = 5000
+
+[[source]]
+product = "houdini"
+name = "tops"
+kind = "guide"
+versioned = true
+start = ["https://www.sidefx.com/docs/houdini{version}/tops/index.html"]
+prefix = ["https://www.sidefx.com/docs/houdini{version}/tops/"]
+max_pages = 1500
+
+[[source]]
+product = "houdini"
+name = "licensing"
+kind = "guide"
+versioned = true
+crawl = false
+pages = ["https://www.sidefx.com/docs/houdini{version}/licensing/system.html"]
+
+[[source]]
+product = "unity"
+name = "manual"
+kind = "guide"
+versioned = true
+start = ["https://docs.unity3d.com/{version}/Documentation/Manual/index.html"]
+prefix = ["https://docs.unity3d.com/{version}/Documentation/Manual/"]
+max_pages = 4000
+
+[[source]]
+product = "unity"
+name = "script-reference"
+kind = "reference"
+versioned = true
+start = ["https://docs.unity3d.com/{version}/Documentation/ScriptReference/index.html"]
+prefix = ["https://docs.unity3d.com/{version}/Documentation/ScriptReference/"]
+# The full scripting reference is ~15,000 pages (hours at 1 request/second). Raise the cap
+# when you want all of it.
+max_pages = 6000
+
+[[source]]
+product = "unity"
+name = "unity-cli"
+kind = "guide"
+versioned = false
+start = ["https://docs.unity.com/en-us/unity-cli/replace-mcp-server-unity-cli"]
+prefix = ["https://docs.unity.com/en-us/unity-cli/"]
+# docs.unity.com serves every page as markdown at <url>.md, with last_updated frontmatter.
+prefer_md = true
+max_pages = 500
+
+[[source]]
+product = "unreal"
+name = "unreal-mcp"
+kind = "guide"
+versioned = true
+crawl = false
+mode = "auto"
+pin_query = "application_version={version}"
+pages = ["https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-mcp-in-unreal-editor"]
+
+[[source]]
+product = "unreal"
+name = "python-api"
+kind = "reference"
+versioned = true
+mode = "auto"
+pin_query = "application_version={version}"
+start = ["https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/"]
+prefix = ["https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/"]
+max_pages = 6000
+
+[[source]]
+product = "godot"
+name = "docs"
+kind = "reference"
+versioned = true
+start = ["https://docs.godotengine.org/en/{version}/classes/index.html",
+         "https://docs.godotengine.org/en/{version}/tutorials/editor/command_line_tutorial.html"]
+prefix = ["https://docs.godotengine.org/en/{version}/classes/",
+          "https://docs.godotengine.org/en/{version}/tutorials/"]
+selectors = ["[role=main]"]
+max_pages = 4000
+
+[[source]]
+product = "cascadeur"
+name = "python-api"
+kind = "reference"
+versioned = false
+start = ["https://cascadeur.com/python-api/index.html"]
+prefix = ["https://cascadeur.com/python-api/"]
+selectors = ["[role=main]"]
+max_pages = 1500
+
+[[source]]
+product = "substance-painter"
+name = "python-api"
+kind = "reference"
+versioned = false
+start = ["https://adobedocs.github.io/painter-python-api/"]
+prefix = ["https://adobedocs.github.io/painter-python-api/"]
+max_pages = 800
+
+[[source]]
+product = "substance-designer"
+name = "scripting"
+kind = "reference"
+versioned = false
+mode = "auto"
+start = ["https://experienceleague.adobe.com/en/docs/substance-3d-designer/using/scripting/scripting-api-reference"]
+prefix = ["https://experienceleague.adobe.com/en/docs/substance-3d-designer/using/scripting/"]
+max_pages = 800
+
+[[source]]
+product = "substance-designer"
+name = "automation-toolkit"
+kind = "reference"
+versioned = false
+mode = "auto"
+start = ["https://helpx.adobe.com/substance-3d-sat/command-line-tools.html"]
+prefix = ["https://helpx.adobe.com/substance-3d-sat/"]
+max_pages = 1500

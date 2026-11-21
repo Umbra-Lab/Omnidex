@@ -20,6 +20,8 @@
 - [Run a data operation](guides/run-a-data-operation.md)
 - [Transcribe and translate a course](guides/transcribe-a-course.md)
 - [Give agents a Unity project](guides/give-agents-a-unity-project.md)
+- [Mirror vendor docs for agents](guides/mirror-vendor-docs.md)
+- [Sync Are.na references into Obsidian](guides/sync-arena-references.md)
 - [Package a release](guides/package-a-release.md)
 
 # Subsystems
