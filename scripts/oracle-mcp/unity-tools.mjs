@@ -1,6 +1,7 @@
 /**
  * Unity tools for the Oracle MCP server: read-only lookups over what a `scan_mode =
- * 'unity'` location indexed (unity_projects, unity_packages, unity_assets, unity_refs).
+ * 'unity'` location indexed (unity_projects, unity_packages, unity_assets, unity_refs,
+ * and unity_known_guids for references into Unity's own packages).
  *
  * They answer from the database alone, so an agent can learn a project's structure
  * without the Unity Editor open and without spending Editor MCP calls. A database from
@@ -197,6 +198,55 @@ export function createUnityTools(db) {
   const guidPathStmt = db.prepare(
     'SELECT rel_path FROM unity_assets WHERE guid = ? ORDER BY container_id = ? DESC LIMIT 1',
   );
+  // Known Unity package GUIDs arrived in a later migration too.
+  const hasKnown =
+    db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'unity_known_guids'")
+      .get() !== undefined;
+  const knownStmt = hasKnown
+    ? db.prepare('SELECT package, version, rel_path FROM unity_known_guids WHERE guid = ?')
+    : null;
+  /** "Unity package com.unity.ugui: Runtime/UI/Core/Image.cs", or null. */
+  function knownName(guid) {
+    const k = knownStmt?.get(guid);
+    return k ? `Unity package ${k.package}: ${k.rel_path}` : null;
+  }
+  // References that leave their own project or package: to another indexed one, to a
+  // Unity package, or to nothing Omnidex knows (missing, or content never scanned).
+  const outsideStmt = db.prepare(`
+    SELECT r.to_guid AS guid,
+      EXISTS (SELECT 1 FROM unity_assets o WHERE o.guid = r.to_guid) AS elsewhere,
+      ${hasKnown ? '(SELECT k.package FROM unity_known_guids k WHERE k.guid = r.to_guid)' : 'NULL'} AS package
+    FROM unity_refs r
+    WHERE r.container_id = ? AND NOT EXISTS
+      (SELECT 1 FROM unity_assets u WHERE u.container_id = r.container_id AND u.guid = r.to_guid)`);
+  function outsideLine(containerId) {
+    const rows = outsideStmt.all(containerId);
+    if (rows.length === 0) return '';
+    let elsewhere = 0;
+    let missing = 0;
+    const byPackage = new Map();
+    for (const row of rows) {
+      if (row.elsewhere) elsewhere += 1;
+      else if (row.package) byPackage.set(row.package, (byPackage.get(row.package) ?? 0) + 1);
+      else missing += 1;
+    }
+    const n = (v) => v.toLocaleString('en-US');
+    const parts = [];
+    if (byPackage.size) {
+      const top = [...byPackage.entries()].sort((a, b) => b[1] - a[1]);
+      const total = top.reduce((sum, [, v]) => sum + v, 0);
+      parts.push(
+        `${n(total)} into Unity packages (${top
+          .slice(0, 4)
+          .map(([k, v]) => `${k.replace(/^com\.unity\./, '')} ${n(v)}`)
+          .join(', ')}${top.length > 4 ? ', …' : ''})`,
+      );
+    }
+    if (elsewhere) parts.push(`${n(elsewhere)} into other indexed projects or packages`);
+    if (missing) parts.push(`${n(missing)} not found`);
+    return `\n  references outside: ${parts.join('; ')}`;
+  }
 
   function resolve(asset, container, kinds) {
     const text = String(asset ?? '').trim();
@@ -228,7 +278,8 @@ export function createUnityTools(db) {
 
   function nameOf(guid, containerId) {
     const row = guidPathStmt.get(guid, containerId);
-    return row ? row.rel_path : `guid ${guid} (not in the index: built-in, a package, or missing)`;
+    if (row) return row.rel_path;
+    return knownName(guid) ?? `guid ${guid} (not found: missing, or from content not scanned)`;
   }
 
   function call(name, args) {
@@ -242,7 +293,7 @@ export function createUnityTools(db) {
             .map((c) => `${c.n.toLocaleString('en-US')} ${c.kind}`)
             .join(', ');
           if (row.asset_type === 'unity_package') {
-            return `PACKAGE ${row.name} — ${size(row.file_size)}${storeLine(row.id)}\n  ${row.file_path}\n  ${counts || 'empty'}`;
+            return `PACKAGE ${row.name} — ${size(row.file_size)}${storeLine(row.id)}\n  ${row.file_path}\n  ${counts || 'empty'}${outsideLine(row.id)}`;
           }
           let deps = {};
           try {
@@ -260,7 +311,7 @@ export function createUnityTools(db) {
           return (
             `PROJECT ${row.name} — Unity ${row.editor_version ?? 'unknown'}, ` +
             `${row.render_pipeline ?? 'built-in'}, ${size(row.file_size)} in Assets/Packages\n` +
-            `  ${row.file_path}\n  ${counts || 'no assets'}${depLine}`
+            `  ${row.file_path}\n  ${counts || 'no assets'}${outsideLine(row.id)}${depLine}`
           );
         })
         .join('\n');
@@ -294,7 +345,9 @@ export function createUnityTools(db) {
       const out = [`[${row.container}] ${row.rel_path} — ${row.kind}, guid=${row.guid}`];
       if (row.variant_of) out.push(`Variant of: ${nameOf(row.variant_of, row.container_id)}`);
       const line = (r) =>
-        r.rel_path ? `  ${r.rel_path} (${r.kind})` : `  guid ${r.guid} (not in the index)`;
+        r.rel_path
+          ? `  ${r.rel_path} (${r.kind})`
+          : `  ${knownName(r.guid) ?? `guid ${r.guid} (not found)`}`;
       if (direction !== 'used_by') {
         const uses = usesStmt.all(row.container_id, row.guid, limit);
         out.push(`Uses ${uses.length}${uses.length === limit ? '+' : ''}:`);

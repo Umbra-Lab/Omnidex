@@ -8,6 +8,7 @@ import {
   discoverUnity,
   listProjectFiles,
   readMetaGuid,
+  readPackageCache,
   readProjectFile,
   readProjectInfo,
   type UnityProjectInfo,
@@ -203,6 +204,7 @@ export async function indexUnityProject(
 ): Promise<{ containerId: number; info: UnityProjectInfo; changed: number; files: number }> {
   const info = await readProjectInfo(projectRoot);
   const files = await listProjectFiles(projectRoot, signal);
+  await learnPackageCache(db, projectRoot, signal);
   const totalSize = files.reduce((sum, file) => sum + file.size, 0);
 
   const prior = db.prepare('SELECT id FROM assets WHERE file_path = ?').get(projectRoot) as
@@ -301,6 +303,57 @@ export async function indexUnityProject(
     writeRows(db, containerId, fresh);
     db.exec('COMMIT');
     return { containerId, info, changed: fresh.length + removed.length, files: files.length };
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+/**
+ * Record which Unity package owns each GUID in the project's Library/PackageCache, so
+ * references into URP, uGUI and the rest name the package instead of looking missing.
+ * Each package version is read once, from whichever project has it first. A failed read
+ * costs only the names, so it never fails the project's scan.
+ */
+async function learnPackageCache(
+  db: Database,
+  projectRoot: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const seen = db.prepare(
+    'SELECT 1 FROM unity_package_cache_seen WHERE package = ? AND version = ?',
+  );
+  let found: Awaited<ReturnType<typeof readPackageCache>>;
+  try {
+    found = await readPackageCache(
+      projectRoot,
+      (name, version) => seen.get(name, version) !== undefined,
+      signal,
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return;
+  }
+  if (found.length === 0) return;
+  // A seed row (version NULL) gives way to a learned one; a learned row stays put.
+  const insert = db.prepare(
+    `INSERT INTO unity_known_guids (guid, package, version, rel_path) VALUES (?, ?, ?, ?)
+       ON CONFLICT(guid) DO UPDATE SET package = excluded.package, version = excluded.version,
+         rel_path = excluded.rel_path
+       WHERE unity_known_guids.version IS NULL`,
+  );
+  const markSeen = db.prepare(
+    'INSERT OR IGNORE INTO unity_package_cache_seen (package, version) VALUES (?, ?)',
+  );
+  db.exec('BEGIN');
+  try {
+    for (const entry of found) {
+      for (const [guid, relPath] of entry.guids) {
+        insert.run(guid, entry.package, entry.version, relPath);
+      }
+      if (entry.complete) markSeen.run(entry.package, entry.version);
+    }
+    db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;

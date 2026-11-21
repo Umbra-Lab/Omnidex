@@ -7,8 +7,9 @@ import { type UnityOutline, UnityYamlReader } from './yaml';
 
 /**
  * Finding and reading Unity projects on disk. Everything here is read-only: it never
- * opens a file for writing, never touches `Library/` (Unity's regenerable cache, often
- * tens of GB), and never needs the Editor.
+ * opens a file for writing and never needs the Editor. Of `Library/` (Unity's regenerable
+ * cache, often tens of GB) it reads only the `.meta` files under `Library/PackageCache`,
+ * to learn which package each built-in GUID belongs to.
  */
 
 /**
@@ -205,10 +206,14 @@ export async function listProjectFiles(
 }
 
 /** The GUID from an asset's `.meta` sidecar (it sits on the second line). */
-export async function readMetaGuid(assetPath: string): Promise<string | null> {
+export function readMetaGuid(assetPath: string): Promise<string | null> {
+  return readGuidFrom(`${assetPath}.meta`);
+}
+
+async function readGuidFrom(metaPath: string): Promise<string | null> {
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    handle = await open(`${assetPath}.meta`, 'r');
+    handle = await open(metaPath, 'r');
     const buffer = Buffer.alloc(512);
     const { bytesRead } = await handle.read(buffer, 0, 512, 0);
     return /guid:\s*([0-9a-f]{32})/.exec(buffer.toString('utf8', 0, bytesRead))?.[1] ?? null;
@@ -217,6 +222,95 @@ export async function readMetaGuid(assetPath: string): Promise<string | null> {
   } finally {
     await handle?.close();
   }
+}
+
+export interface PackageCacheEntry {
+  package: string;
+  version: string;
+  /** GUID to the file's path inside the package, e.g. `Shaders/Lit.shader`. */
+  guids: Map<string, string>;
+  /** False when the read stopped at the file budget; read it again next scan. */
+  complete: boolean;
+}
+
+/** Most `.meta` files read from one project's PackageCache in one scan. */
+const MAX_PACKAGE_CACHE_METAS = 50_000;
+/** `.meta` files read at once; the cache often sits on a slow or network drive. */
+const META_READ_CONCURRENCY = 8;
+
+/**
+ * GUIDs of the packages in a project's `Library/PackageCache`, one entry per
+ * `name@version` folder that `alreadyRead` does not claim. `Tests/` folders are skipped:
+ * content never references them. Missing or unreadable folders yield nothing.
+ */
+export async function readPackageCache(
+  root: string,
+  alreadyRead: (name: string, version: string) => boolean,
+  signal?: AbortSignal,
+): Promise<PackageCacheEntry[]> {
+  const cache = join(root, 'Library', 'PackageCache');
+  let folders: Dirent[];
+  try {
+    folders = await readdir(cache, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const result: PackageCacheEntry[] = [];
+  let budget = MAX_PACKAGE_CACHE_METAS;
+  for (const folder of folders) {
+    signal?.throwIfAborted();
+    const at = folder.name.lastIndexOf('@');
+    if (!folder.isDirectory() || at <= 0) continue;
+    const dir = join(cache, folder.name);
+    const name = folder.name.slice(0, at);
+    // Unity 6 names folders name@<hash>; package.json holds the real version.
+    let version = folder.name.slice(at + 1);
+    try {
+      const manifest = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'));
+      if (typeof manifest?.version === 'string' && manifest.version) version = manifest.version;
+    } catch {
+      // No readable package.json: keep the folder's suffix.
+    }
+    if (alreadyRead(name, version)) continue;
+
+    const metas: string[] = [];
+    async function walk(at: string): Promise<void> {
+      signal?.throwIfAborted();
+      let entries: Dirent[];
+      try {
+        entries = await readdir(at, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (ignoredByUnity(entry.name)) continue;
+        const path = join(at, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name !== 'Tests') await walk(path);
+        } else if (entry.isFile() && entry.name.endsWith('.meta') && metas.length < budget) {
+          metas.push(path);
+        }
+      }
+    }
+    await walk(dir);
+    const complete = metas.length < budget;
+    budget -= metas.length;
+
+    const guids = new Map<string, string>();
+    let next = 0;
+    const worker = async () => {
+      while (next < metas.length) {
+        signal?.throwIfAborted();
+        const meta = metas[next++];
+        const guid = await readGuidFrom(meta);
+        if (guid) guids.set(guid, relative(dir, meta.slice(0, -5)).split(sep).join('/'));
+      }
+    };
+    await Promise.all(Array.from({ length: META_READ_CONCURRENCY }, worker));
+    result.push({ package: name, version, guids, complete });
+    if (budget <= 0) break;
+  }
+  return result;
 }
 
 export interface UnityFileContents {

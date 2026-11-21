@@ -147,6 +147,30 @@ export const SHADER_GRAPH = `{
     "m_SerializedSubGraph": "{\\"subgraph\\":{\\"fileID\\":0,\\"guid\\":\\"${GUID.albedo}\\"}}"
 }`;
 
+/** GUIDs that live in Unity's own packages, not in the project. */
+export const PACKAGE_GUID = {
+  /** Learned from the sample project's Library/PackageCache. */
+  urpLit: 'abcdefabcdefabcdefabcdefabcdef01',
+  /** Under a Tests/ folder in the PackageCache, so never learned. */
+  urpTest: 'deadbeefdeadbeefdeadbeefdeadbeef',
+  /** In the migration's seed: URP's Textures/BlueNoise16/L/LDR_LLL1_9.png. */
+  seededNoise: '071e954febf155243a6c81e48f452644',
+  /** In no project, package or seed. */
+  missing: '12121212121212121212121212121212',
+};
+
+export const WATER_MATERIAL = `${YAML_HEAD}--- !u!21 &2100000
+Material:
+  m_Name: Water
+  m_Shader: {fileID: 4800000, guid: ${PACKAGE_GUID.urpLit}, type: 3}
+  m_SavedProperties:
+    m_TexEnvs:
+    - _BlueNoise:
+        m_Texture: {fileID: 2800000, guid: ${PACKAGE_GUID.seededNoise}, type: 3}
+    - _Foam:
+        m_Texture: {fileID: 2800000, guid: ${PACKAGE_GUID.missing}, type: 3}
+`;
+
 function meta(guid: string): string {
   return `fileFormatVersion: 2\nguid: ${guid}\nNativeFormatImporter:\n  mainObjectFileID: 0\n`;
 }
@@ -169,6 +193,8 @@ export function writeSampleProject(root: string): void {
     'Packages/com.galaxy.tools/Runtime/Tool.cs.meta': meta('9999999999999999aaaaaaaaaaaaaaaa'),
     'Assets/Materials/Hull.mat': HULL_MATERIAL,
     'Assets/Materials/Hull.mat.meta': meta(GUID.hull),
+    'Assets/Materials/Water.mat': WATER_MATERIAL,
+    'Assets/Materials/Water.mat.meta': meta('77777777777777777777777777777777'),
     'Assets/Prefabs/Ship.prefab': SHIP_PREFAB,
     'Assets/Prefabs/Ship.prefab.meta': meta(GUID.ship),
     'Assets/Prefabs/Ship Variant.prefab': VARIANT_PREFAB,
@@ -189,6 +215,13 @@ export function writeSampleProject(root: string): void {
     'Assets/.hidden/Ignored.mat': HULL_MATERIAL,
     'Library/ArtifactDB': 'cache',
     'Library/PackageCache/x/Ignored.prefab': SHIP_PREFAB,
+    // Unity 6 names cache folders by hash; package.json carries the version.
+    'Library/PackageCache/com.unity.render-pipelines.universal@2c4f1a9e7b3d/package.json':
+      '{"name":"com.unity.render-pipelines.universal","version":"17.3.0"}',
+    'Library/PackageCache/com.unity.render-pipelines.universal@2c4f1a9e7b3d/Shaders/Lit.shader.meta':
+      meta(PACKAGE_GUID.urpLit),
+    'Library/PackageCache/com.unity.render-pipelines.universal@2c4f1a9e7b3d/Tests/LitTest.cs.meta':
+      meta(PACKAGE_GUID.urpTest),
     'Temp/Ignored.unity': MAIN_SCENE,
   };
   for (const [rel, body] of Object.entries(files)) {

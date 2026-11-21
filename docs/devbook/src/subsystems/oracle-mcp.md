@@ -13,9 +13,9 @@ It is a standalone stdio server speaking newline-delimited JSON-RPC. It opens th
 | `get_context` | "What was said around that timestamp?" — cues in a window |
 | `list_courses` | What is in the library, with video counts and hours |
 | `search_assets` | "Do I already own something for this?" — packs and indexed DCC files, BM25 over `assets_fts` |
-| `unity_projects` | Which Unity projects and packages are indexed: Editor version, render pipeline, packages, counts by kind, and each package's Asset Store id, title, publisher and version when its file carries them |
+| `unity_projects` | Which Unity projects and packages are indexed: Editor version, render pipeline, packages, counts by kind, and each package's Asset Store id, title, publisher and version when its file carries them, and how many references point outside it (into which Unity packages, and how many are not found) |
 | `unity_find_asset` | "Where is the ship prefab?" — path words ANDed, optional kind and project filters, returns GUIDs |
-| `unity_dependencies` | "What breaks if I change this?" — what an asset uses and what uses it, from GUID references |
+| `unity_dependencies` | "What breaks if I change this?" — what an asset uses and what uses it, from GUID references. A GUID in a Unity package (URP, uGUI, …) is shown as that package and path rather than as missing |
 | `unity_scene_outline` | "What is in this scene?" — root GameObjects, components, scripts, prefab variant parent |
 
 DCC results include the file kind, ecosystem and path. Search covers the filename and path as well as the ecosystem and kind. Archive results describe the archive itself; Oracle does not search inside it.

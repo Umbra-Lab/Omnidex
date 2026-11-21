@@ -16,12 +16,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedAsset } from '../../../db/repos/__tests__/fixtures/test-db';
 import { scanUnityLocation } from '..';
 import { boundedLines } from '../project';
-import { GUID, samplePackage, withStoreHeader, writeSampleProject } from './fixtures';
+import { GUID, PACKAGE_GUID, samplePackage, withStoreHeader, writeSampleProject } from './fixtures';
 
 const MIGRATIONS = [
   'electron/main/db/migrations/20261108000000_dcc_index.up.sql',
   'electron/main/db/migrations/20261120000000_unity_index.up.sql',
   'electron/main/db/migrations/20261120010000_unity_asset_store.up.sql',
+  'electron/main/db/migrations/20261121000000_unity_known_guids.up.sql',
 ];
 
 const dirs: string[] = [];
@@ -156,6 +157,7 @@ describe('Unity location scan', () => {
     expect(files.map((f) => f.rel_path)).toEqual([
       'Assets/Data/Baked.asset',
       'Assets/Materials/Hull.mat',
+      'Assets/Materials/Water.mat',
       'Assets/Prefabs/Ship Variant.prefab',
       'Assets/Prefabs/Ship.prefab',
       'Assets/Scenes/Main.unity',
@@ -186,6 +188,54 @@ describe('Unity location scan', () => {
     expect(thumb.startsWith(thumbs)).toBe(true);
     expect(existsSync(thumb)).toBe(true);
     expect(existsSync(join(project, 'Library', 'omnidex'))).toBe(false);
+    (db as unknown as { close(): void }).close();
+  });
+
+  it("learns Unity package GUIDs from a project's PackageCache, once per version", async () => {
+    const db = unityDb();
+    const { root, project, thumbs } = library();
+    dirs.push(thumbs);
+    const signal = new AbortController().signal;
+    await scanUnityLocation(db, 7, root, signal, thumbs);
+    const learned = rows(db, 'SELECT * FROM unity_known_guids WHERE version IS NOT NULL');
+    expect(learned).toEqual([
+      {
+        guid: PACKAGE_GUID.urpLit,
+        package: 'com.unity.render-pipelines.universal',
+        version: '17.3.0',
+        rel_path: 'Shaders/Lit.shader',
+      },
+    ]);
+    expect(
+      rows(db, 'SELECT 1 FROM unity_known_guids WHERE guid = ?', PACKAGE_GUID.urpTest),
+    ).toEqual([]);
+    expect(rows(db, 'SELECT package, version FROM unity_package_cache_seen')).toEqual([
+      { package: 'com.unity.render-pipelines.universal', version: '17.3.0' },
+    ]);
+    // The seed shipped with the migration is still there.
+    expect(
+      rows(
+        db,
+        'SELECT package, rel_path FROM unity_known_guids WHERE guid = ?',
+        PACKAGE_GUID.seededNoise,
+      ),
+    ).toEqual([
+      {
+        package: 'com.unity.render-pipelines.universal',
+        rel_path: 'Textures/BlueNoise16/L/LDR_LLL1_9.png',
+      },
+    ]);
+
+    // A version already read is not read again, even when its files change.
+    const cached = join(
+      project,
+      'Library/PackageCache/com.unity.render-pipelines.universal@2c4f1a9e7b3d/Shaders/Unlit.shader.meta',
+    );
+    writeFileSync(cached, 'fileFormatVersion: 2\nguid: 31313131313131313131313131313131\n');
+    await scanUnityLocation(db, 7, root, signal, thumbs);
+    expect(
+      rows(db, 'SELECT COUNT(*) AS n FROM unity_known_guids WHERE version IS NOT NULL'),
+    ).toEqual([{ n: 1 }]);
     (db as unknown as { close(): void }).close();
   });
 
@@ -354,6 +404,19 @@ describe('Unity location scan', () => {
       expect(deps).toContain('Assets/Scripts/ShipController.cs (script)');
       expect(deps).toContain('Used by 2:');
       expect(deps).toContain('Assets/Scenes/Main.unity (scene)');
+
+      // References into Unity's own packages name the package; the rest say not found.
+      const water = await ask('unity_dependencies', { asset: 'Water.mat' });
+      expect(water).toContain(
+        'Unity package com.unity.render-pipelines.universal: Shaders/Lit.shader',
+      );
+      expect(water).toContain(
+        'Unity package com.unity.render-pipelines.universal: Textures/BlueNoise16/L/LDR_LLL1_9.png',
+      );
+      expect(water).toContain(`guid ${PACKAGE_GUID.missing} (not found)`);
+      expect(projects).toContain(
+        'references outside: 2 into Unity packages (render-pipelines.universal 2); 1 not found',
+      );
 
       const twoWords = await ask('unity_find_asset', { query: 'prefabs ship variant' });
       expect(twoWords.trim().split('\n')).toEqual([
