@@ -323,9 +323,7 @@ export function createUnityTools(db) {
               }, ${size(row.file_size)} in Assets\n`
             : `PROJECT ${row.name} — Unity ${row.editor_version ?? 'unknown'}, ` +
               `${row.render_pipeline ?? 'built-in'}, ${size(row.file_size)} in Assets/Packages\n`;
-          return (
-            head + `  ${row.file_path}\n  ${counts || 'no assets'}${outsideLine(row.id)}${depLine}`
-          );
+          return `${head}  ${row.file_path}\n  ${counts || 'no assets'}${outsideLine(row.id)}${depLine}`;
         })
         .join('\n');
     }
