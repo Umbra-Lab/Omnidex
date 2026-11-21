@@ -298,6 +298,80 @@ describe('Unity location scan', () => {
     (db as unknown as { close(): void }).close();
   });
 
+  it('keeps walking past a loose Assets folder, and keeps what sits beside it', async () => {
+    const db = unityDb();
+    const { root, project, pack, thumbs } = library();
+    dirs.push(thumbs);
+    const signal = new AbortController().signal;
+    await scanUnityLocation(db, 7, root, signal, thumbs);
+    // A stray Assets/ appears at the scan root itself, above the project and the package.
+    mkdirSync(join(root, 'Assets'));
+    writeFileSync(join(root, 'Assets', 'Fx.mat'), '%YAML 1.1\nMaterial:\n  m_Name: Fx\n');
+    writeFileSync(
+      join(root, 'Assets', 'Fx.mat.meta'),
+      `fileFormatVersion: 2\nguid: ${'8'.repeat(32)}\n`,
+    );
+    // And a full project ships inside the first one, with its own settings.
+    const inner = join(project, 'Samples', 'Legacy');
+    mkdirSync(join(inner, 'Assets'), { recursive: true });
+    mkdirSync(join(inner, 'ProjectSettings'), { recursive: true });
+    writeFileSync(
+      join(inner, 'ProjectSettings', 'ProjectVersion.txt'),
+      'm_EditorVersion: 2019.4.1f1\n',
+    );
+    writeFileSync(
+      join(inner, 'Assets', 'Old.mat.meta'),
+      `fileFormatVersion: 2\nguid: ${'9'.repeat(32)}\n`,
+    );
+    writeFileSync(join(inner, 'Assets', 'Old.mat'), '%YAML 1.1\nMaterial:\n  m_Name: Old\n');
+
+    const result = await scanUnityLocation(db, 7, root, signal, thumbs);
+    expect(result).toMatchObject({ projects: 3, packages: 1, failures: [] });
+    const containers = rows(
+      db,
+      `SELECT a.file_path, p.assets_only, p.editor_version FROM assets a
+         LEFT JOIN unity_projects p ON p.asset_id = a.id ORDER BY a.file_path`,
+    );
+    expect(containers).toEqual(
+      expect.arrayContaining([
+        { file_path: root, assets_only: 1, editor_version: null },
+        { file_path: project, assets_only: 0, editor_version: '6000.3.0f1' },
+        { file_path: inner, assets_only: 0, editor_version: '2019.4.1f1' },
+        { file_path: pack, assets_only: null, editor_version: null },
+      ]),
+    );
+    expect(containers).toHaveLength(4);
+    // The root container holds only its own Assets/, not the project or package files.
+    const rootFiles = rows(
+      db,
+      'SELECT u.rel_path FROM unity_assets u JOIN assets a ON a.id = u.container_id WHERE a.file_path = ?',
+      root,
+    );
+    expect(rootFiles).toEqual([{ rel_path: 'Assets/Fx.mat' }]);
+    (db as unknown as { close(): void }).close();
+  });
+
+  it('answers on a database from before the Unity follow-up migrations', async () => {
+    const db = createTestDb();
+    db.exec('ALTER TABLE assets ADD COLUMN has_local_thumbnail INTEGER NOT NULL DEFAULT 0');
+    for (const file of MIGRATIONS.slice(0, 3)) db.exec(readFileSync(resolve(file), 'utf8'));
+    db.exec(`INSERT INTO assets (id, name, file_path, asset_type, file_size, file_size_is_partial,
+        created_date, modified_date, scan_location_id, is_favorite)
+      VALUES (1, 'Old', '/old', 'unity_project', 0, 0, '', '', 7, 0);
+      INSERT INTO unity_projects (asset_id, root_path, scanned_at) VALUES (1, '/old', '');
+      INSERT INTO unity_assets (container_id, guid, rel_path, name, kind)
+        VALUES (1, '${'a'.repeat(32)}', 'Assets/A.mat', 'A.mat', 'material');
+      INSERT INTO unity_refs VALUES (1, '${'a'.repeat(32)}', '${'b'.repeat(32)}');`);
+    const { createUnityTools } = await import('../../../../../scripts/oracle-mcp/unity-tools.mjs');
+    const tools = createUnityTools(db);
+    expect(tools.call('unity_projects', {})).toContain('PROJECT Old');
+    expect(tools.call('unity_projects', {})).toContain('references outside: 1 not found');
+    expect(tools.call('unity_dependencies', { asset: 'A.mat' })).toContain(
+      `guid ${'b'.repeat(32)}`,
+    );
+    (db as unknown as { close(): void }).close();
+  });
+
   it('rescans only what changed and forgets what was deleted', async () => {
     const db = unityDb();
     const { root, project, thumbs } = library();
@@ -479,7 +553,7 @@ describe('Unity location scan', () => {
       expect(water).toContain(
         'Unity package com.unity.render-pipelines.universal: Textures/BlueNoise16/L/LDR_LLL1_9.png',
       );
-      expect(water).toContain(`guid ${PACKAGE_GUID.missing} (not found)`);
+      expect(water).toContain(`guid ${PACKAGE_GUID.missing} (not found: missing, or not scanned)`);
       expect(projects).toContain(
         'references outside: 2 into Unity packages (render-pipelines.universal 2); 1 not found',
       );

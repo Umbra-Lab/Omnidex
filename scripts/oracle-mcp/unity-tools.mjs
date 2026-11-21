@@ -285,7 +285,10 @@ export function createUnityTools(db) {
   function nameOf(guid, containerId) {
     const row = guidPathStmt.get(guid, containerId);
     if (row) return row.rel_path;
-    return knownName(guid) ?? `guid ${guid} (not found: missing, or from content not scanned)`;
+    return (
+      knownName(guid) ??
+      `guid ${guid} (not found: missing, or from a package or content not scanned)`
+    );
   }
 
   function call(name, args) {
@@ -358,7 +361,7 @@ export function createUnityTools(db) {
       const line = (r) =>
         r.rel_path
           ? `  ${r.rel_path} (${r.kind})`
-          : `  ${knownName(r.guid) ?? `guid ${r.guid} (not found)`}`;
+          : `  ${knownName(r.guid) ?? `guid ${r.guid} (not found: missing, or not scanned)`}`;
       if (direction !== 'used_by') {
         const uses = usesStmt.all(row.container_id, row.guid, limit);
         out.push(`Uses ${uses.length}${uses.length === limit ? '+' : ''}:`);

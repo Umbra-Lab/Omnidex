@@ -11,6 +11,7 @@ import {
   readPackageCache,
   readProjectFile,
   readProjectInfo,
+  repairZipName,
   type UnityProjectInfo,
 } from './project';
 import { readUnityPackage, type UnityPackageContents } from './unitypackage';
@@ -96,7 +97,9 @@ export async function scanUnityLocation(
       .prepare('SELECT file_path FROM assets WHERE scan_location_id = ?')
       .all(locationId) as Array<{ file_path: string }>;
     for (const { file_path } of indexed) {
-      if (found.unreadable.some((dir) => file_path.startsWith(dir + sep))) keep.push(file_path);
+      // A container at an unreadable folder, or under one, may well still be there.
+      const under = (dir: string) => file_path === dir || file_path.startsWith(dir + sep);
+      if (found.unreadable.some(under)) keep.push(file_path);
     }
     failures.push(...found.unreadable.map((dir) => `${dir}: could not be listed`));
   }
@@ -229,7 +232,11 @@ export async function indexUnityProject(
     const own = await readProjectInfo(projectRoot);
     info = settingsFrom
       ? { ...info, name: own.name, root: projectRoot }
-      : { ...own, renderPipeline: 'unknown' };
+      : // With no manifest of its own, the pipeline cannot be told.
+        {
+          ...own,
+          renderPipeline: Object.keys(own.packages).length ? own.renderPipeline : 'unknown',
+        };
   }
   const files = await listProjectFiles(projectRoot, signal);
   if (!assetsOnly) await learnPackageCache(db, projectRoot, signal);
@@ -296,7 +303,7 @@ export async function indexUnityProject(
       searchText: searchText([
         info.name,
         assetsOnly ? 'unity assets folder' : 'unity project',
-        settingsFrom ? basename(settingsFrom) : null,
+        settingsFrom ? repairZipName(basename(settingsFrom)) : null,
         info.editorVersion,
         info.renderPipeline,
         ...Object.keys(info.packages),
@@ -345,8 +352,8 @@ export async function indexUnityProject(
 /**
  * Record which Unity package owns each GUID in the project's Library/PackageCache, so
  * references into URP, uGUI and the rest name the package instead of looking missing.
- * Each package version is read once, from whichever project has it first. A failed read
- * costs only the names, so it never fails the project's scan.
+ * Each package version is read once, from whichever project has it first. A failure
+ * here costs only the names, so it never fails the project's scan.
  */
 async function learnPackageCache(
   db: Database,
@@ -387,9 +394,9 @@ async function learnPackageCache(
       if (entry.complete) markSeen.run(entry.package, entry.version);
     }
     db.exec('COMMIT');
-  } catch (error) {
+  } catch {
+    // Only the package names are lost; the project itself still indexes.
     db.exec('ROLLBACK');
-    throw error;
   }
 }
 

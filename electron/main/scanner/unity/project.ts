@@ -68,31 +68,47 @@ export async function isUnityProject(dir: string): Promise<boolean> {
   }
 }
 
-/** True when `dir/Assets` exists and holds `.meta` files, the mark of Unity content. */
-async function hasAssetsFolder(dir: string): Promise<boolean> {
+/** A missing path, as opposed to one that exists but could not be read this time. */
+function isMissing(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+/**
+ * Whether `dir/Assets` exists and holds `.meta` files, the mark of Unity content.
+ * `unreadable` when it exists but could not be listed (a locked or flaky drive), so the
+ * caller keeps what was indexed there instead of pruning it.
+ */
+async function hasAssetsFolder(dir: string): Promise<boolean | 'unreadable'> {
   try {
     const names = await readdir(join(dir, 'Assets'));
     return names.some((name) => name.endsWith('.meta'));
-  } catch {
-    return false;
+  } catch (error) {
+    return isMissing(error) ? false : 'unreadable';
   }
 }
 
 /** A project's own top-level folders; anything else holding Assets/ is extra content. */
 const PROJECT_DIRS = new Set(['assets', 'packages', 'projectsettings']);
 
-/** `Assets/` folders inside a project but outside its own Assets/, up to three levels down. */
-async function findNestedAssetFolders(
-  projectRoot: string,
-  signal?: AbortSignal,
-): Promise<string[]> {
-  const found: string[] = [];
+interface NestedFound {
+  /** Full projects (with their own ProjectSettings) nested inside the project. */
+  projects: string[];
+  /** Assets-only folders inside the project but outside its own Assets/. */
+  assetFolders: string[];
+  unreadable: string[];
+}
+
+/** What a project holds beside its own Assets/ and Packages/, up to three levels down. */
+async function findNested(projectRoot: string, signal?: AbortSignal): Promise<NestedFound> {
+  const found: NestedFound = { projects: [], assetFolders: [], unreadable: [] };
   async function visit(dir: string, depth: number): Promise<void> {
     signal?.throwIfAborted();
     let entries: Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      if (!isMissing(error)) found.unreadable.push(dir);
       return;
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
@@ -101,7 +117,13 @@ async function findNestedAssetFolders(
       if (!entry.isDirectory() || ignoredByUnity(entry.name) || SKIPPED_DIRS.has(lower)) continue;
       if (depth === 0 && PROJECT_DIRS.has(lower)) continue;
       const path = join(dir, entry.name);
-      if (await hasAssetsFolder(path)) found.push(path);
+      if (await isUnityProject(path)) {
+        found.projects.push(path);
+        continue;
+      }
+      const assets = await hasAssetsFolder(path);
+      if (assets === 'unreadable') found.unreadable.push(path);
+      else if (assets) found.assetFolders.push(path);
       else if (depth < 2) await visit(path, depth + 1);
     }
   }
@@ -124,19 +146,24 @@ export async function discoverUnity(root: string, signal?: AbortSignal): Promise
   const packages: string[] = [];
   const assetFolders: UnityAssetFolder[] = [];
   const unreadable: string[] = [];
+  async function addProject(dir: string): Promise<void> {
+    projects.push(dir);
+    const nested = await findNested(dir, signal);
+    unreadable.push(...nested.unreadable);
+    for (const root of nested.assetFolders) assetFolders.push({ root, project: dir });
+    for (const inner of nested.projects) await addProject(inner);
+  }
   async function visit(dir: string, depth: number): Promise<void> {
     signal?.throwIfAborted();
     if (await isUnityProject(dir)) {
-      projects.push(dir);
-      for (const root of await findNestedAssetFolders(dir, signal)) {
-        assetFolders.push({ root, project: dir });
-      }
+      await addProject(dir);
       return;
     }
-    if (await hasAssetsFolder(dir)) {
-      assetFolders.push({ root: dir, project: null });
-      return;
-    }
+    // A loose Assets/ is recorded, and the walk goes on: packages and projects can sit
+    // beside it, and missing them here would prune them.
+    const assets = await hasAssetsFolder(dir);
+    if (assets === 'unreadable') unreadable.push(dir);
+    else if (assets) assetFolders.push({ root: dir, project: null });
     let entries: Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
@@ -147,7 +174,10 @@ export async function discoverUnity(root: string, signal?: AbortSignal): Promise
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
-      if (ignoredByUnity(entry.name) || SKIPPED_DIRS.has(entry.name.toLowerCase())) continue;
+      const lower = entry.name.toLowerCase();
+      if (ignoredByUnity(entry.name) || SKIPPED_DIRS.has(lower)) continue;
+      // The loose folder's own Assets/ (and Packages/) belong to its container.
+      if (assets === true && entry.isDirectory() && PROJECT_DIRS.has(lower)) continue;
       const path = join(dir, entry.name);
       if (entry.isFile() && extname(entry.name).toLowerCase() === '.unitypackage') {
         packages.push(path);
@@ -305,16 +335,22 @@ export function readMetaGuid(assetPath: string): Promise<string | null> {
 }
 
 async function readGuidFrom(metaPath: string): Promise<string | null> {
-  let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    handle = await open(metaPath, 'r');
+    return await readGuidStrict(metaPath);
+  } catch {
+    return null;
+  }
+}
+
+/** Like readGuidFrom, but a failed read throws instead of looking like "no GUID". */
+async function readGuidStrict(metaPath: string): Promise<string | null> {
+  const handle = await open(metaPath, 'r');
+  try {
     const buffer = Buffer.alloc(512);
     const { bytesRead } = await handle.read(buffer, 0, 512, 0);
     return /guid:\s*([0-9a-f]{32})/.exec(buffer.toString('utf8', 0, bytesRead))?.[1] ?? null;
-  } catch {
-    return null;
   } finally {
-    await handle?.close();
+    await handle.close();
   }
 }
 
@@ -357,16 +393,22 @@ export async function readPackageCache(
     if (!folder.isDirectory() || at <= 0) continue;
     const dir = join(cache, folder.name);
     const name = folder.name.slice(0, at);
-    // Unity 6 names folders name@<hash>; package.json holds the real version.
     let version = folder.name.slice(at + 1);
-    try {
-      const manifest = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'));
-      if (typeof manifest?.version === 'string' && manifest.version) version = manifest.version;
-    } catch {
-      // No readable package.json: keep the folder's suffix.
+    // Older Unity names folders name@1.2.3, which is the version. Unity 6 uses
+    // name@<hash>, and only then is package.json worth a read on every scan.
+    if (!/^\d+\.\d+/.test(version)) {
+      try {
+        const manifest = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'));
+        if (typeof manifest?.version === 'string' && manifest.version) version = manifest.version;
+      } catch {
+        // No readable package.json: keep the folder's suffix.
+      }
     }
     if (alreadyRead(name, version)) continue;
 
+    // Any read that fails leaves the package incomplete, so a later scan tries again.
+    let failed = false;
+    let truncated = false;
     const metas: string[] = [];
     async function walk(at: string): Promise<void> {
       signal?.throwIfAborted();
@@ -374,20 +416,21 @@ export async function readPackageCache(
       try {
         entries = await readdir(at, { withFileTypes: true });
       } catch {
+        failed = true;
         return;
       }
       for (const entry of entries) {
         if (ignoredByUnity(entry.name)) continue;
         const path = join(at, entry.name);
         if (entry.isDirectory()) {
-          if (entry.name !== 'Tests') await walk(path);
-        } else if (entry.isFile() && entry.name.endsWith('.meta') && metas.length < budget) {
-          metas.push(path);
+          if (entry.name.toLowerCase() !== 'tests') await walk(path);
+        } else if (entry.isFile() && entry.name.endsWith('.meta')) {
+          if (metas.length < budget) metas.push(path);
+          else truncated = true;
         }
       }
     }
     await walk(dir);
-    const complete = metas.length < budget;
     budget -= metas.length;
 
     const guids = new Map<string, string>();
@@ -396,12 +439,17 @@ export async function readPackageCache(
       while (next < metas.length) {
         signal?.throwIfAborted();
         const meta = metas[next++];
-        const guid = await readGuidFrom(meta);
+        let guid: string | null = null;
+        try {
+          guid = await readGuidStrict(meta);
+        } catch {
+          failed = true;
+        }
         if (guid) guids.set(guid, relative(dir, meta.slice(0, -5)).split(sep).join('/'));
       }
     };
     await Promise.all(Array.from({ length: META_READ_CONCURRENCY }, worker));
-    result.push({ package: name, version, guids, complete });
+    result.push({ package: name, version, guids, complete: !truncated && !failed });
     if (budget <= 0) break;
   }
   return result;
