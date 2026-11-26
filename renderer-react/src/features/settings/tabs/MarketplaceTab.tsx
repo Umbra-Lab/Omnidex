@@ -8,6 +8,7 @@ import { toast } from '@/components/ui/toaster';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useActionProgress } from '@/hooks/useActionProgress';
 import { trpc } from '@/ipc/trpc';
+import { formatCount } from '@/lib/format';
 
 export function MarketplaceTab() {
   const utils = trpc.useUtils();
@@ -16,9 +17,15 @@ export function MarketplaceTab() {
   const enrichAll = trpc.orbital.enrichAll.useMutation({
     onSuccess: (summary) => {
       void utils.assets.invalidate();
+      if (summary.interrupted) {
+        toast.error(
+          `Enrichment stopped · Orbital Market is not responding · ${formatCount(summary.matched)} matched`,
+        );
+        return;
+      }
       toast.success(
-        `Enrichment complete · ${summary.matched} matched, ${summary.unmatched} unmatched` +
-          (summary.failed > 0 ? `, ${summary.failed} failed` : ''),
+        `Enrichment complete · ${formatCount(summary.matched)} matched, ${formatCount(summary.unmatched)} unmatched` +
+          (summary.failed > 0 ? `, ${formatCount(summary.failed)} failed` : ''),
       );
     },
   });
@@ -44,8 +51,18 @@ export function MarketplaceTab() {
         });
         return;
       }
+      if (r.fetchError) {
+        console.error('[fab] library fetch failed:', r.fetchError);
+        const status = /HTTP (\d{3})/.exec(r.fetchError)?.[1];
+        toast.error('FAB sync failed', {
+          description: `Epic's library could not be loaded${status ? ` (HTTP ${status})` : ''}. Nothing was changed; try again.`,
+        });
+        return;
+      }
       void utils.assets.invalidate();
-      toast.success(`FAB sync complete · ${r.updated} enriched, ${r.unmatched} unmatched`);
+      toast.success(
+        `FAB sync complete · ${formatCount(r.updated)} enriched, ${formatCount(r.unmatched)} unmatched`,
+      );
     },
     onError: (err) => toast.error(err.message),
   });
