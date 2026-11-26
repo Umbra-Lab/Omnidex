@@ -92,7 +92,7 @@ export function LibraryHealthView() {
       />
 
       {summary.isError ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-danger-500/40 bg-danger-500/5 py-16 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-danger-500/40 bg-danger-500/5 py-16 text-center">
           <Activity size={32} strokeWidth={1.25} className="text-danger-500/70" />
           <p className="font-display cap-14 font-medium text-surface-200">
             Couldn't load diagnostics
@@ -100,7 +100,7 @@ export function LibraryHealthView() {
           <p className="max-w-md cap-12 text-surface-400">{summary.error.message}</p>
         </div>
       ) : total === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-surface-800 bg-surface-900/30 py-16 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-surface-800 bg-surface-900/30 py-16 text-center">
           <Activity size={32} strokeWidth={1.25} className="text-surface-600" />
           <p className="font-display cap-14 font-medium text-surface-200">Nothing skipped</p>
           <p className="max-w-md cap-12 text-surface-400">

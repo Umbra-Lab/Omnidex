@@ -35,7 +35,7 @@ export const DrawerContent = forwardRef<
     <DrawerPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[14px] border border-surface-800/60 bg-surface-900 text-surface-50 shadow-2xl',
+        'fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-lg border border-surface-800/60 bg-surface-900 text-surface-50 shadow-2xl',
         className,
       )}
       {...props}

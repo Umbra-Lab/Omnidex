@@ -34,7 +34,7 @@ export function GridErrorState({
         className,
       )}
     >
-      <div className="flex size-10 items-center justify-center rounded-full bg-danger-500/10 text-danger-400">
+      <div className="flex size-10 items-center justify-center rounded-md bg-danger-500/10 text-danger-400">
         <AlertTriangle size={18} />
       </div>
       <div className="cap-14 font-medium text-surface-200">{title}</div>
