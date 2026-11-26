@@ -278,8 +278,14 @@ export async function buildCourseManifest(
 
       const relPath = rel.split(sep).join('/');
       // Reuse a duration already on record, but only while the bytes match.
+      // A recorded null is a failed read, not an answer: reusing it would pin
+      // the lesson at "unknown length" forever, so it is retried while
+      // duration reading is on.
       const cached = options.knownDurations?.get(relPath);
-      const reuse = cached != null && cached.size === sizeBytes;
+      const reuse =
+        cached != null &&
+        cached.size === sizeBytes &&
+        (cached.duration !== null || !options.readDurations);
 
       out.push({
         relPath,
