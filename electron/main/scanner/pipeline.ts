@@ -7,6 +7,7 @@ import { openDatabase } from '../db';
 import { thumbnailsDir } from '../db/paths';
 import { assetsRepo, coursesRepo, scanDiagnosticsRepo, scanLocationsRepo } from '../db/repos';
 import { ASSET_UPSERT_SQL } from './asset-upsert';
+import { createBackgroundJobs } from './background-jobs';
 import {
   buildCourseManifest,
   deriveCourseTitle,
@@ -44,6 +45,16 @@ export interface ScanProgressPayload {
 }
 
 const activeScans = new Map<number, AbortController>();
+const backgroundThumbnailJobs = createBackgroundJobs();
+
+/**
+ * Resolve once every backgrounded thumbnail extraction has finished. Only the
+ * headless `--refresh-scans` run awaits this, so `app.exit` does not kill the
+ * extraction mid-run; the UI never waits on it.
+ */
+export function waitForBackgroundThumbnails(): Promise<void> {
+  return backgroundThumbnailJobs.drain();
+}
 
 function emit(payload: ScanProgressPayload): void {
   const windows = BrowserWindow.getAllWindows();
@@ -283,7 +294,9 @@ async function scanLocation(
     // surface as an `unhandledRejection`. Swallow-and-log so the background job
     // can fail without crashing the process; the foreground scan already
     // returned and the grid falls back to default icons.
-    void backgroundThumbnails({
+    // Tracked so the headless `--refresh-scans` run can wait for it before
+    // exiting (`waitForBackgroundThumbnails`); the UI path ignores it.
+    const job = backgroundThumbnails({
       db,
       locationId,
       locationName: location.name,
@@ -296,6 +309,7 @@ async function scanLocation(
     }).catch((err) => {
       console.error('[scan] background thumbnail job failed:', (err as Error).message);
     });
+    backgroundThumbnailJobs.track(job);
   }
 
   const tDone = Date.now();

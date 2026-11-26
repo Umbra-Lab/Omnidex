@@ -110,6 +110,13 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Headless jobs (`pnpm refresh-scans`, `enrich-orbital`, `enrich-fab`,
+  `extract-thumbs`, `backfill:course-sources`) now exit `1` when a location or
+  item fails, when the job throws, when the database cannot open, or when
+  Omnidex is already open (they used to exit `0` without running). They no
+  longer hang on a closed stdin or an unhandled error, never show a modal
+  dialog, and `refresh-scans` waits for thumbnail extraction before it exits.
+  The window's error dialog now shows once per burst of errors. (overnight)
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers
