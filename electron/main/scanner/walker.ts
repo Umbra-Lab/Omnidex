@@ -277,6 +277,8 @@ async function findPackFolders(
 }> {
   const packs: string[] = [];
   const diagnostics: ScanDiagnostic[] = [];
+  const unreadableSince = (start: number) =>
+    diagnostics.slice(start).some((d) => d.kind === 'unreadable-folder');
 
   async function descend(dir: string, depth: number): Promise<boolean> {
     let entries: Dirent[];
@@ -322,9 +324,16 @@ async function findPackFolders(
     }
 
     if (depth >= MAX_PACK_SEARCH_DEPTH) {
+      const before = diagnostics.length;
       if (await subtreeHasUasset(dir, 2, diagnostics)) {
         packs.push(dir);
         return true;
+      }
+      // Whether this folder is a pack hinged on a folder below it that failed
+      // to list. Report the folder itself, so the prune keeps its own row too.
+      if (unreadableSince(before)) {
+        diagnostics.push(unreadableBelowDiagnostic(dir));
+        return false;
       }
       // The drop this whole feature exists for. An unextracted archive pile
       // and a pack buried one level too deep both used to vanish here with
@@ -341,6 +350,7 @@ async function findPackFolders(
       return false;
     }
 
+    const beforeChildren = diagnostics.length;
     let anyChildIsPack = false;
     for (const name of subdirs) {
       const childIsPack = await descend(join(dir, name), depth + 1);
@@ -356,7 +366,13 @@ async function findPackFolders(
 
       // Loose-content fallback: if a top-level folder has no pack descendants
       // (e.g. a zipped archive pile or a PDF library), register it anyway.
-      if (depth === 1) packs.push(dir);
+      // Not when a folder below failed to list: its packs may be in there, and
+      // a card invented now is pruned again on the next good scan. Reporting
+      // the folder keeps a loose-content row it already had.
+      if (depth === 1) {
+        if (unreadableSince(beforeChildren)) diagnostics.push(unreadableBelowDiagnostic(dir));
+        else packs.push(dir);
+      }
     }
     return anyChildIsPack;
   }
@@ -377,6 +393,14 @@ function unreadableDiagnostic(dir: string, error: unknown): ScanDiagnostic {
     kind: 'unreadable-folder',
     path: dir,
     detail: `could not be listed (${code}); anything already indexed under it was kept`,
+  };
+}
+
+function unreadableBelowDiagnostic(dir: string): ScanDiagnostic {
+  return {
+    kind: 'unreadable-folder',
+    path: dir,
+    detail: 'a folder below it could not be listed; anything already indexed here was kept',
   };
 }
 
@@ -466,7 +490,12 @@ async function probeUnvisited(stats: DirStats): Promise<void> {
   const stack = [...stats.unvisited];
   while (stack.length > 0 && !(stats.truncated && stats.hasUasset)) {
     const next = stack.pop();
-    if (!next || next.depth >= MAX_DEPTH_PER_PACK) continue;
+    if (!next) continue;
+    if (next.depth >= MAX_DEPTH_PER_PACK) {
+      // As in `walkRecursive`: partial only if there is something to miss.
+      if (await hasAnyEntry(next.dir)) stats.truncated = true;
+      continue;
+    }
     if (budget <= 0) {
       // Out of budget with folders left unread: the size cannot be exact.
       stats.truncated = true;
@@ -476,6 +505,8 @@ async function probeUnvisited(stats: DirStats): Promise<void> {
     try {
       entries = await readdir(next.dir, { withFileTypes: true });
     } catch {
+      // Unread is not empty: whatever is in there was not counted.
+      stats.truncated = true;
       continue;
     }
     budget -= entries.length;

@@ -50,7 +50,7 @@ An aborted scan has a partial `seenPaths` set, so pruning against it would delet
 This is also why a crash mid-scan is worse than a clean cancel: a process that dies never reaches the prune *or* the abort check, and a bad scan's rows survive.
 ```
 
-A folder under the root that fails to list (EACCES, EBUSY, a network share that drops for a moment) is not an empty one. The walker records it as an `unreadable-folder` diagnostic, and `pruneAssetsNotIn` keeps every row at or under it, so a transient error cannot delete a pack's favourite flag or enrichment. An empty walk (`seenPaths` empty) prunes nothing, which also covers an unplugged drive that lists as empty.
+A folder under the root that fails to list (EACCES, EBUSY, a network share that drops for a moment) is not an empty one. The walker records it as an `unreadable-folder` diagnostic, and `pruneAssetsNotIn` keeps every row at or under it, so a transient error cannot delete a pack's favourite flag or enrichment. A folder whose pack status depended on that read (a depth-limit pack, or a depth-1 folder that would otherwise fall back to a loose-content card) is reported too, and is not inserted as loose content this scan. An empty walk (`seenPaths` empty) prunes nothing, which also covers an unplugged drive that lists as empty.
 
 ## Phase 3: course manifests
 

@@ -28,7 +28,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return { ...actual, default: { ...actual, readdir }, readdir };
 });
 
-const { walkRootWithDiagnostics, WALK_DIAGNOSTIC_KINDS } = await import('../walker');
+const { walkRootWithDiagnostics, WALK_DIAGNOSTIC_KINDS, MAX_FILES_PER_PACK } = await import(
+  '../walker'
+);
 
 let tmp: string;
 
@@ -65,4 +67,52 @@ describe('walkRootWithDiagnostics on an unreadable folder', () => {
     // fine next time stops being reported.
     expect(WALK_DIAGNOSTIC_KINDS).toContain('unreadable-folder');
   });
+
+  it('reports a depth-limit pack whose only .uasset folder failed to list', async () => {
+    // D sits at the pack-search depth limit and is a pack only because of
+    // D/a/x.uasset. If D/a fails, the diagnostic must cover D itself, or the
+    // prune deletes D's row: D is an ancestor of D/a, not under it.
+    const root = mkdtempSync(join(tmp, 'lib-'));
+    write(root, 'A/B/C/D/a/x.uasset');
+    const d = join(root, 'A', 'B', 'C', 'D');
+    failing.add(join(d, 'a'));
+
+    const { folders, diagnostics } = await walkRootWithDiagnostics(root);
+
+    const unreadable = diagnostics.filter((x) => x.kind === 'unreadable-folder').map((x) => x.path);
+    expect(unreadable).toContain(d);
+    // And A must not be invented as a loose-content card because its only
+    // pack could not be confirmed this time.
+    expect(folders.map((f) => f.name)).not.toContain('A');
+  });
+
+  it('does not invent a loose-content card for a category whose children failed', async () => {
+    const root = mkdtempSync(join(tmp, 'lib-'));
+    write(root, 'Cat/PackX/Content/A.uasset');
+    write(root, 'Cat/PackY/Content/B.uasset');
+    const cat = join(root, 'Cat');
+    failing.add(join(cat, 'PackX'));
+    failing.add(join(cat, 'PackY'));
+
+    const { folders, diagnostics } = await walkRootWithDiagnostics(root);
+
+    expect(folders).toEqual([]);
+    // Reported itself, so a loose-content row it already had is kept too.
+    const unreadable = diagnostics.filter((x) => x.kind === 'unreadable-folder').map((x) => x.path);
+    expect(unreadable).toContain(cat);
+  });
+
+  it('flags the size partial when a folder skipped by the file cap fails to list', async () => {
+    const root = mkdtempSync(join(tmp, 'lib-'));
+    const content = join(root, 'Exact', 'Content');
+    mkdirSync(join(content, 'Sub'), { recursive: true });
+    for (let i = 0; i < MAX_FILES_PER_PACK; i += 1) writeFileSync(join(content, `t${i}.png`), 'x');
+    writeFileSync(join(content, 'Sub', 'more.png'), 'x');
+    failing.add(join(content, 'Sub'));
+
+    const pack = (await walkRootWithDiagnostics(root)).folders.find((f) => f.name === 'Exact');
+    // Every file it could see was counted, but a folder it could not read may
+    // hold more: the size is a lower bound.
+    expect(pack?.sizeIsPartial).toBe(true);
+  }, 120_000);
 });
