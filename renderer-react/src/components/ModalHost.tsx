@@ -57,16 +57,27 @@ function TaggingHost() {
 
   if (assetId == null) return null;
 
+  // Saving REPLACES the asset's tags, so the modal must not be editable until
+  // the current set is known: seeding it with [] while the query is in flight
+  // (or after it failed) made one new tag overwrite all the existing ones.
+  const loaded = tagsQuery.data !== undefined;
+  const loadingMessage = loaded
+    ? undefined
+    : tagsQuery.isError
+      ? 'Couldn’t load this asset’s tags. Close and try again.'
+      : 'Loading tags…';
+
   return (
     <TaggingModal
-      // Remount per-asset so the modal's internal draft state resets and picks
-      // up freshly-fetched initialTags.
-      key={assetId}
+      // Remount per-asset, and once the tags arrive, so the modal's draft state
+      // is seeded from the fetched tags rather than the empty placeholder.
+      key={`${assetId}:${loaded ? 'loaded' : 'waiting'}`}
       open
       onOpenChange={(next) => {
         if (!next) close();
       }}
       initialTags={tagsQuery.data ?? []}
+      {...(loadingMessage ? { loadingMessage } : {})}
       onSave={(tags) => {
         setTags.mutate({ assetId, tags: [...tags] });
       }}

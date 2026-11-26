@@ -26,6 +26,12 @@ interface TaggingModalProps {
    * nothing to do with zero tags, so it turns this on.
    */
   readonly requireTags?: boolean;
+  /**
+   * Shown in place of the tag list while the current tags are not known
+   * (loading, or failed to load). Editing and saving are off meanwhile: on the
+   * replacing single-asset path, saving an unknown set would wipe real tags.
+   */
+  readonly loadingMessage?: string;
   readonly onSave: (tags: ReadonlyArray<string>) => void;
 }
 
@@ -37,12 +43,16 @@ export function TaggingModal({
   description = 'Press Enter to add. Saving replaces this asset’s tags.',
   saveLabel = 'Save',
   requireTags = false,
+  loadingMessage,
   onSave,
 }: TaggingModalProps) {
   const [tags, setTags] = useState<ReadonlyArray<string>>(initialTags);
   const [draft, setDraft] = useState('');
 
+  const blocked = loadingMessage != null;
+
   const add = () => {
+    if (blocked) return;
     const next = draft.trim();
     if (!next) return;
     if (tags.includes(next)) return;
@@ -70,17 +80,20 @@ export function TaggingModal({
                 add();
               }
             }}
+            disabled={blocked}
             aria-label="Add a tag"
             placeholder="Add a tag…"
           />
-          <Button variant="secondary" onClick={add}>
+          <Button variant="secondary" onClick={add} disabled={blocked}>
             <Tag size={12} />
             Add
           </Button>
         </div>
 
         <div className="flex min-h-[4rem] flex-wrap gap-1.5">
-          {tags.length === 0 ? (
+          {blocked ? (
+            <span className="cap-12 text-surface-400">{loadingMessage}</span>
+          ) : tags.length === 0 ? (
             <span className="cap-12 text-surface-400">No tags yet.</span>
           ) : (
             tags.map((t) => (
@@ -106,7 +119,7 @@ export function TaggingModal({
           </Button>
           <Button
             variant="primary"
-            disabled={requireTags && tags.length === 0}
+            disabled={blocked || (requireTags && tags.length === 0)}
             onClick={() => {
               onSave(tags);
               onOpenChange(false);
