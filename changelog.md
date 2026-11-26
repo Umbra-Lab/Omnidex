@@ -110,6 +110,15 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Courses keep their state across rescans: Resume returns to the lesson you
+  last played instead of an arbitrary one, a course cover found by the scan is
+  no longer replaced by a stray image from the background thumbnail job, and a
+  lesson whose duration could not be read is retried rather than kept unknown
+  forever. (overnight)
+- Subtitles: UTF-16 and Windows-1252 sidecars are decoded correctly instead of
+  giving no cues or replacement characters; a separator line holding only
+  spaces no longer merges two cues; CR-only files parse; and `Lesson.EN.srt`
+  pairs with `Lesson.mp4`. (overnight)
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers
