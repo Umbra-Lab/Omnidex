@@ -60,6 +60,25 @@ export function exitCodeForFailures(failed: number): number {
 }
 
 /**
+ * Exit code for `--enrich-orbital`. A failed row is marked attempted and never
+ * retried, so one transient failure is not something a rerun can fix; failing
+ * the run for it would leave a scheduled job red for good. Only an outage
+ * (rows to do, none answered) exits 1. Partial failures are printed instead.
+ */
+export function orbitalExitCode(r: {
+  total: number;
+  matched: number;
+  unmatched: number;
+  failed: number;
+}): number {
+  return r.total > 0 && r.matched + r.unmatched === 0 ? 1 : 0;
+}
+
+/** Printed when a GUI launch loses the single-instance lock. */
+export const ANOTHER_PROCESS_MESSAGE =
+  'Another Omnidex process is running (the window, or a CLI job such as refresh-scans); not starting a second one.';
+
+/**
  * Read one line from a stream. Rejects if the stream ends or closes before
  * any input arrives (stdin from `/dev/null` or cron), so the caller can exit
  * instead of waiting forever. A last line without a trailing newline counts.

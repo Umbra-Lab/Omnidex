@@ -16,10 +16,12 @@ import { thumbnailsDir } from './db/paths';
 import { enrichFab, FabAuthRequiredError } from './fab/enrich';
 import {
   ALREADY_RUNNING_MESSAGE,
+  ANOTHER_PROCESS_MESSAGE,
   createDialogThrottle,
   exitCodeForFailures,
   type HeadlessIo,
   isHeadlessRun,
+  orbitalExitCode,
   readLineFrom,
   runHeadless,
 } from './headless';
@@ -85,6 +87,9 @@ if (!singleInstanceLock) {
     console.error(`[omnidex] ${ALREADY_RUNNING_MESSAGE}`);
     process.exit(1);
   }
+  // The lock may be held by a headless job rather than a window, in which case
+  // nothing comes forward; say why this launch did nothing.
+  console.error(`[omnidex] ${ANOTHER_PROCESS_MESSAGE}`);
   app.quit();
   process.exit(0);
 }
@@ -576,20 +581,7 @@ app.whenReady().then(() => {
     return;
   }
   if (process.argv.includes('--check-fixture')) {
-    const db2 = openDatabase();
-    const row = db2
-      .prepare(
-        'SELECT id, name, length(orbital_gallery_images) as gl, thumbnail_path FROM assets WHERE id = 19',
-      )
-      .get();
-    console.log('[check-fixture] id=19 →', JSON.stringify(row));
-    const galleryRow = db2
-      .prepare(
-        "SELECT id FROM assets WHERE orbital_gallery_images LIKE '%__omnidex_test_fixture__%' LIMIT 1",
-      )
-      .get();
-    console.log('[check-fixture] fixture row exists:', JSON.stringify(galleryRow));
-    app.exit(0);
+    void runHeadless('check-fixture', runCheckFixture, headlessIo);
     return;
   }
 
@@ -614,6 +606,24 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   closeDatabase();
 });
+
+/** Test fixture probe: report the gallery fixture state for Playwright. */
+async function runCheckFixture(): Promise<number> {
+  const db2 = openDatabase();
+  const row = db2
+    .prepare(
+      'SELECT id, name, length(orbital_gallery_images) as gl, thumbnail_path FROM assets WHERE id = 19',
+    )
+    .get();
+  console.log('[check-fixture] id=19 →', JSON.stringify(row));
+  const galleryRow = db2
+    .prepare(
+      "SELECT id FROM assets WHERE orbital_gallery_images LIKE '%__omnidex_test_fixture__%' LIMIT 1",
+    )
+    .get();
+  console.log('[check-fixture] fixture row exists:', JSON.stringify(galleryRow));
+  return 0;
+}
 
 // Test fixture: injects/clears a known multi-image orbital_gallery_images
 // value on a stable asset id so the inspector gallery-nav Playwright test
@@ -808,7 +818,10 @@ async function runEnrichOrbitalAndQuit(): Promise<number> {
   progressBus.on('progress', logProgressLine);
   try {
     const result = await enrichOrbital();
-    return exitCodeForFailures(result.failed);
+    if (result.failed > 0) {
+      console.error(`[enrich] ${result.failed} of ${result.total} failed`);
+    }
+    return orbitalExitCode(result);
   } finally {
     progressBus.off('progress', logProgressLine);
   }

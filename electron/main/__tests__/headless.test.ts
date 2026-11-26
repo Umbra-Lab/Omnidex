@@ -5,6 +5,7 @@ import {
   createDialogThrottle,
   exitCodeForFailures,
   isHeadlessRun,
+  orbitalExitCode,
   readLineFrom,
   runHeadless,
 } from '../headless';
@@ -84,6 +85,23 @@ describe('exitCodeForFailures', () => {
     expect(exitCodeForFailures(0)).toBe(0);
     expect(exitCodeForFailures(1)).toBe(1);
     expect(exitCodeForFailures(12)).toBe(1);
+  });
+});
+
+describe('orbitalExitCode', () => {
+  // A failed row is marked attempted and never retried, so a rerun cannot fix
+  // a single transient failure; only a total outage is worth a red run.
+  it('is 0 when some rows failed but others were answered', () => {
+    expect(orbitalExitCode({ total: 10, matched: 3, unmatched: 6, failed: 1 })).toBe(0);
+    expect(orbitalExitCode({ total: 2, matched: 0, unmatched: 1, failed: 1 })).toBe(0);
+  });
+
+  it('is 1 when every row failed (an outage)', () => {
+    expect(orbitalExitCode({ total: 5, matched: 0, unmatched: 0, failed: 5 })).toBe(1);
+  });
+
+  it('is 0 when there was nothing to do', () => {
+    expect(orbitalExitCode({ total: 0, matched: 0, unmatched: 0, failed: 0 })).toBe(0);
   });
 });
 
