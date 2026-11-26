@@ -163,7 +163,12 @@ export function MatchView() {
   }, [current, dismiss]);
 
   useHotkey({ key: 'a', handler: onAccept, enabled: Boolean(current && best) });
-  useHotkey({ key: 's', handler: () => setManualOpen(true), enabled: Boolean(current) });
+  // preventDefault: otherwise the "s" lands in the search box this autofocuses.
+  const openManual = useCallback((e: KeyboardEvent) => {
+    e.preventDefault();
+    setManualOpen(true);
+  }, []);
+  useHotkey({ key: 's', handler: openManual, enabled: Boolean(current) });
   useHotkey({ key: 'r', handler: onReject, enabled: Boolean(current && best) });
   useHotkey({ key: 'd', handler: onDismiss, enabled: Boolean(current) });
 
