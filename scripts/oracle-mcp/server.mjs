@@ -61,6 +61,8 @@ function asFinite(value, fallback) {
 
 // Non-numeric limits fall back to the default; the rest truncate and clamp to 1..max.
 function clampLimit(value, fallback, max) {
+  // null, '' and booleans mean "not given" (Number() would make them 0 or 1).
+  if (value == null || value === '' || typeof value === 'boolean') value = fallback;
   return Math.max(1, Math.min(Math.trunc(asFinite(value, fallback)), max));
 }
 
@@ -378,7 +380,13 @@ rl.on('line', (line) => {
     );
     return;
   }
-  if (msg === null || typeof msg !== 'object' || Array.isArray(msg)) return;
+  if (msg === null || typeof msg !== 'object' || Array.isArray(msg)) {
+    // Batches are not supported; any non-object (including arrays) is an Invalid Request.
+    process.stdout.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } })}\n`,
+    );
+    return;
+  }
   try {
     const result = handle(msg);
     if (msg.id !== undefined && result !== undefined) {

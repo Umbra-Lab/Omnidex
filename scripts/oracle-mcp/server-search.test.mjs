@@ -112,12 +112,28 @@ try {
   assert.equal(r.isError, false);
   assert.equal(lines(r.text).length, 4, 'both assets under default limit');
 
+  for (const empty of [null, '', false]) {
+    r = await tool('search_lessons', { query: 'lesson', limit: empty });
+    assert.equal(lines(r.text).length, 30, `limit ${JSON.stringify(empty)} uses the default`);
+  }
+
   // 4. Malformed JSON gets a JSON-RPC parse error, and the server keeps serving.
   const parse = await send('{bad json', null);
   assert.equal(parse.id, null);
   assert.equal(parse.error.code, -32700);
   const pong = await send(JSON.stringify({ jsonrpc: '2.0', id: 'p', method: 'ping' }), 'p');
   assert.deepEqual(pong.result, {});
+
+  // Valid JSON that is not a request object gets -32600 with a null id (no batch support).
+  for (const raw of ['null', '[]', '42', '[1]']) {
+    const bad = await send(raw, null);
+    assert.equal(bad.id, null, raw);
+    assert.equal(bad.error.code, -32600, raw);
+  }
+  assert.deepEqual(
+    (await send(JSON.stringify({ jsonrpc: '2.0', id: 'q', method: 'ping' }), 'q')).result,
+    {},
+  );
 
   console.log('oracle server-search: all checks passed');
 } finally {
