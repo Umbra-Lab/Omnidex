@@ -69,9 +69,9 @@ function TaggingHost() {
 
   return (
     <TaggingModal
-      // Remount per-asset, and once the tags arrive, so the modal's draft state
-      // is seeded from the fetched tags rather than the empty placeholder.
-      key={`${assetId}:${loaded ? 'loaded' : 'waiting'}`}
+      // Remount per-asset so the draft state resets. Within one asset the modal
+      // seeds itself from initialTags when loading finishes (see TaggingModal).
+      key={assetId}
       open
       onOpenChange={(next) => {
         if (!next) close();

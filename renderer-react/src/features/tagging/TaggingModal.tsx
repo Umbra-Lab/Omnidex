@@ -50,6 +50,14 @@ export function TaggingModal({
   const [draft, setDraft] = useState('');
 
   const blocked = loadingMessage != null;
+  // When loading finishes, seed the draft from the tags that just arrived.
+  // Adjusted during render rather than by remounting, so the dialog itself
+  // (its open animation and focus trap) is not torn down and replayed.
+  const [wasBlocked, setWasBlocked] = useState(blocked);
+  if (blocked !== wasBlocked) {
+    setWasBlocked(blocked);
+    if (!blocked) setTags(initialTags);
+  }
 
   const add = () => {
     if (blocked) return;

@@ -87,7 +87,10 @@ describe('single-asset tagging', () => {
   it('seeds the modal with the loaded tags once they arrive', async () => {
     await render();
     await act(async () => useModals.getState().openTagging(7));
+    const dialogWhileLoading = document.body.querySelector('[role="dialog"]');
     await act(async () => setTagsQuery({ status: 'success', data: ['hero', 'forest'] }));
+    // Same dialog node: the tags fill in without remounting (and re-animating) it.
+    expect(document.body.querySelector('[role="dialog"]')).toBe(dialogWhileLoading);
     expect(document.body.textContent).toContain('hero');
     expect(document.body.textContent).toContain('forest');
     const save = saveButton();
