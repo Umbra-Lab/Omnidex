@@ -93,7 +93,7 @@ export function MarketplaceTab() {
         </CardHeader>
         <div className="flex flex-col gap-3 px-4 pb-4">
           <div className="flex items-center justify-between">
-            <div className="flex flex-col">
+            <div className="flex flex-col gap-1.5">
               <Label>Enrich library</Label>
               <span className="cap-11 text-surface-400">
                 Match un-enriched assets against Orbital now.
@@ -133,7 +133,7 @@ export function MarketplaceTab() {
           ) : null}
 
           <div className="flex items-center justify-between border-t border-surface-800/60 pt-3">
-            <div className="flex flex-col">
+            <div className="flex flex-col gap-1.5">
               <Label className="text-surface-400">Auto-match on scan</Label>
               <span className="cap-11 text-surface-500">Coming in a later pass.</span>
             </div>
@@ -161,7 +161,7 @@ export function MarketplaceTab() {
         </CardHeader>
         <div className="flex flex-col gap-3 px-4 pb-4">
           <div className="flex items-center justify-between">
-            <div className="flex flex-col">
+            <div className="flex flex-col gap-1.5">
               <Label>Sync FAB library</Label>
               <span className="cap-11 text-surface-400">
                 Pull your FAB library and enrich matching assets.
@@ -202,7 +202,7 @@ export function MarketplaceTab() {
           ) : null}
 
           <div className="flex items-center justify-between border-t border-surface-800/60 pt-3">
-            <div className="flex flex-col">
+            <div className="flex flex-col gap-1.5">
               <Label>Live watcher</Label>
               <span className="cap-11 text-surface-400">
                 {isWatching ? 'Watching the FAB vault.' : 'Not watching.'}

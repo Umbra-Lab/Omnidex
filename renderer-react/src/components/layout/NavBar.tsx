@@ -75,7 +75,7 @@ export function NavBar() {
               <Icon size={14} strokeWidth={2} />
               {item.label}
               {item.badge === 'unmatched' && (stats.data?.unmatched ?? 0) > 0 ? (
-                <span className="rounded-sm bg-accent-500 px-1.5 font-mono tabular-nums cap-10 font-semibold text-accent-on">
+                <span className="rounded-sm bg-accent-500 px-1.5 py-1 font-mono tabular-nums cap-10 font-semibold text-accent-on">
                   {formatCount(stats.data?.unmatched ?? 0)}
                 </span>
               ) : null}
