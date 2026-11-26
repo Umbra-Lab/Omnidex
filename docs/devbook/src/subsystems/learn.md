@@ -42,14 +42,16 @@ A foreign-language lesson can carry both its native `X.srt` and a translated `X.
 
 ## Serving captions
 
-`.srt` and WebVTT differ only in a header line and `,` versus `.` as the millisecond separator, so `toWebVtt()` converts on the fly. The renderer mounts the result as a real `<track>` element rather than rendering cues itself.
+`.srt` and WebVTT differ only in a header line and `,` versus `.` as the millisecond separator, so `toWebVtt()` converts on the fly.
+
+Sidecar bytes go through `decodeSubtitle()` first, for both the player and the transcript index: a UTF-16 BOM is honoured, then strict UTF-8 is tried, then Windows-1252. The renderer mounts the result as a real `<track>` element rather than rendering cues itself.
 
 ## Playback and progress
 
 `course_progress` stores `position_seconds` and `completed` per file id.
 
 ```admonish note title="Progress survives a re-scan"
-Re-scanning deletes and reinserts `course_files` rows, reassigning their ids. The scanner carries progress across by `rel_path`. This is covered by a test precisely because the id churn makes it easy to break silently.
+Re-scanning deletes and reinserts `course_files` rows, reassigning their ids. The scanner carries progress across by `rel_path`, including `updated_at`, which is what Resume orders by. This is covered by a test precisely because the id churn makes it easy to break silently.
 ```
 
 Seeking requires the `omnidex-asset://` handler to answer range requests with `206 Partial Content`. Without it Chromium reports `seekedTo: 0` and resume does not work.

@@ -36,12 +36,17 @@ export function replaceCourseManifest(
   const carried = db
     .prepare(
       `SELECT f.rel_path AS rel_path, p.position_seconds AS position_seconds,
-              p.completed AS completed
+              p.completed AS completed, p.updated_at AS updated_at
          FROM course_files f
          JOIN course_progress p ON p.file_id = f.id
         WHERE f.asset_id = ?`,
     )
-    .all(assetId) as { rel_path: string; position_seconds: number; completed: number }[];
+    .all(assetId) as {
+    rel_path: string;
+    position_seconds: number;
+    completed: number;
+    updated_at: string;
+  }[];
 
   db.prepare('DELETE FROM course_files WHERE asset_id = ?').run(assetId);
 
@@ -64,12 +69,15 @@ export function replaceCourseManifest(
   }
 
   if (carried.length === 0) return;
+  // `updated_at` travels too: it is what `lastPlayed` orders by, and letting it
+  // default to now() would stamp every lesson with the scan time and make
+  // Resume pick an arbitrary one.
   const restore = db.prepare(
-    `INSERT OR REPLACE INTO course_progress (file_id, position_seconds, completed)
-     SELECT id, ?, ? FROM course_files WHERE asset_id = ? AND rel_path = ?`,
+    `INSERT OR REPLACE INTO course_progress (file_id, position_seconds, completed, updated_at)
+     SELECT id, ?, ?, ? FROM course_files WHERE asset_id = ? AND rel_path = ?`,
   );
   for (const row of carried) {
-    restore.run(row.position_seconds, row.completed, assetId, row.rel_path);
+    restore.run(row.position_seconds, row.completed, row.updated_at, assetId, row.rel_path);
   }
 }
 
