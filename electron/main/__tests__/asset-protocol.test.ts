@@ -54,6 +54,23 @@ describe('omnidex-asset path round-trip', () => {
     expect(decodeAssetPath(encodeAssetUrl(original), 'win32')).toBe(original);
   });
 
+  it('round-trips # and ? in a path (they would otherwise start a fragment/query)', () => {
+    const original = '/home/u/Packs/Vol #2/what? ok/thumb.png';
+    const url = encodeAssetUrl(original);
+    expect(url).not.toMatch(/[#?]/);
+    expect(decodeAssetPath(url, 'linux')).toBe(original);
+  });
+
+  it('round-trips a literal % and %-escapes lookalikes', () => {
+    const original = '/home/u/100% Pack/%23 not hash/a%20b.png';
+    expect(decodeAssetPath(encodeAssetUrl(original), 'linux')).toBe(original);
+  });
+
+  it('round-trips # and ? in a Windows path (win32)', () => {
+    const original = 'C:\\Packs\\Vol #2\\q? é\\thumb.png';
+    expect(decodeAssetPath(encodeAssetUrl(original), 'win32')).toBe(original);
+  });
+
   it('does NOT mangle a darwin path the old `^/+` strip would have broken', () => {
     // The crux of the bug: an absolute darwin path must NOT become relative.
     const decoded = decodeAssetPath(encodeAssetUrl('/Users/brandon/x.png'), 'darwin');

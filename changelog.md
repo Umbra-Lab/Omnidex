@@ -110,6 +110,11 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Library fixes: thumbnails and files under folders containing `#` or `?` now
+  load; name sorting ignores case and pages no longer repeat or skip tied rows;
+  sidebar counts no longer include packs missing from disk; `_` and `%` in
+  search and tag filters match literally; clearing the thumbnail cache no
+  longer wipes course cover paths (overnight).
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers

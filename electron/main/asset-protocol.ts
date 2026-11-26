@@ -40,7 +40,8 @@ export function encodeAssetUrl(absolutePath: string): string {
     return absolutePath;
   }
   const normalized = absolutePath.replace(/\\/g, '/');
-  return `omnidex-asset:///${encodeURI(normalized)}`;
+  // encodeURI leaves # and ? alone; they would start a fragment/query and truncate the path.
+  return `omnidex-asset:///${encodeURI(normalized).replace(/#/g, '%23').replace(/\?/g, '%3F')}`;
 }
 
 /**

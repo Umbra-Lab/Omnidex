@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   categoryCounts,
   clearAssetsForScanLocation,
+  clearThumbnailsUnder,
   clearUserRating,
   countAssets,
   countSearchAssets,
@@ -743,5 +744,160 @@ describe('Learn-tab queries', () => {
     expect(counts.completed).toBe(1);
     expect(counts.in_progress).toBe(1);
     expect(counts.not_started).toBe(1); // the video with no completion_status
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Overnight library-query fixes: sort, counts, LIKE escaping, thumbnail purge.
+// ---------------------------------------------------------------------------
+
+describe('sort order', () => {
+  it('sorts names case-insensitively', () => {
+    seedAssets(db, [{ name: 'zebra' }, { name: 'banana' }, { name: 'Cherry' }, { name: 'Apple' }]);
+    const asc = listAssetCards(db, { sort: 'name_asc' }).map((r) => r.name);
+    expect(asc).toEqual(['Apple', 'banana', 'Cherry', 'zebra']);
+    const desc = listAssetCards(db, { sort: 'name_desc' }).map((r) => r.name);
+    expect(desc).toEqual(['zebra', 'Cherry', 'banana', 'Apple']);
+  });
+
+  it('pages tied rows without overlap or gaps (every sort option)', () => {
+    const ids = seedAssets(
+      db,
+      Array.from({ length: 7 }, () => ({
+        name: 'Same',
+        modified_date: '2026-01-01',
+        created_date: '2026-01-01',
+        file_size: 10,
+      })),
+    );
+    for (const sort of [
+      'name_asc',
+      'name_desc',
+      'date_asc',
+      'date_desc',
+      'date_added_asc',
+      'date_added_desc',
+      'rating_desc',
+      'rating_asc',
+      'reviews_desc',
+      'price_desc',
+      'price_asc',
+      'size_desc',
+      'size_asc',
+      'favorites_first',
+    ] as const) {
+      const seen: number[] = [];
+      for (let offset = 0; offset < 7; offset += 3) {
+        seen.push(...listAssetCards(db, { sort, limit: 3, offset }).map((r) => r.id));
+      }
+      expect(
+        [...seen].sort((a, b) => a - b),
+        sort,
+      ).toEqual(ids);
+      expect(new Set(seen).size, sort).toBe(7);
+    }
+  });
+});
+
+describe('counts agree with the grid on soft-deleted packs', () => {
+  it('excludes missing_since rows from every sidebar count', () => {
+    seedAssets(db, [
+      {
+        name: 'Live',
+        is_favorite: true,
+        ecosystem: 'blender',
+        matched_orbital_product_slug: 'live',
+        orbital_categories: '["Props"]',
+      },
+      {
+        name: 'Gone',
+        is_favorite: true,
+        ecosystem: 'blender',
+        matched_orbital_product_slug: 'gone',
+        orbital_categories: '["Props"]',
+        missing_since: '2026-01-01T00:00:00Z',
+      },
+      { name: 'GoneFab', scan_location_id: -1, missing_since: '2026-01-01T00:00:00Z' },
+    ]);
+    expect(totalCount(db)).toBe(1);
+    expect(countAssets(db)).toBe(1);
+    expect(favoriteCount(db)).toBe(1);
+    expect(categoryCounts(db)).toEqual({ Props: 1 });
+    expect(ecosystemCounts(db)).toEqual({ blender: 1 });
+    expect(marketplaceSourceCounts(db)).toEqual({ orbital: 1 });
+    const stats = getAssetStats(db);
+    expect(stats.total).toBe(1);
+    expect(stats.favorites).toBe(1);
+    expect(stats.with_orbital).toBe(1);
+    expect(stats.unmatched).toBe(0);
+    expect(stats.needs_review).toBe(0);
+  });
+});
+
+describe('LIKE wildcards in user text', () => {
+  it('treats _ and % in name_search literally', () => {
+    seedAssets(db, [
+      { name: 'Rock_Pack' },
+      { name: 'RockXPack' },
+      { name: '100% Gold' },
+      { name: '100 Gold' },
+    ]);
+    expect(
+      listAssetCards(db, { filter: filter({ name_search: 'Rock_Pack' }) }).map((r) => r.name),
+    ).toEqual(['Rock_Pack']);
+    expect(
+      listAssetCards(db, { filter: filter({ name_search: '100%' }) }).map((r) => r.name),
+    ).toEqual(['100% Gold']);
+  });
+
+  it('treats _ and % in a tag filter literally', () => {
+    seedAssets(db, [
+      { name: 'A', tags: '["low_poly"]' },
+      { name: 'B', tags: '["lowXpoly"]' },
+    ]);
+    expect(countAssets(db, filter({ tags: ['low_poly'] }))).toBe(1);
+    expect(countAssets(db, filter({ tags: ['%'] }))).toBe(0);
+  });
+});
+
+describe('clearThumbnailsUnder', () => {
+  beforeEach(() => {
+    db.exec('ALTER TABLE assets ADD COLUMN has_local_thumbnail INTEGER DEFAULT 0');
+  });
+
+  it('clears only paths inside the cache dir, keeping course covers', () => {
+    const [cache, nested, cover, sibling] = seedAssets(db, [
+      { name: 'a', thumbnail_path: '/ud/thumbnails/a.png' },
+      { name: 'b', thumbnail_path: '/ud/thumbnails/sub/b.png' },
+      { name: 'c', thumbnail_path: '/home/u/Courses/X/cover.jpg' },
+      { name: 'd', thumbnail_path: '/ud/thumbnails-old/d.png' },
+    ]);
+    expect(clearThumbnailsUnder(db, '/ud/thumbnails')).toBe(2);
+    const path = (id: number) =>
+      (
+        db.prepare('SELECT thumbnail_path p FROM assets WHERE id = ?').get(id) as {
+          p: string | null;
+        }
+      ).p;
+    expect(path(cache)).toBeNull();
+    expect(path(nested)).toBeNull();
+    expect(path(cover)).toBe('/home/u/Courses/X/cover.jpg');
+    expect(path(sibling)).toBe('/ud/thumbnails-old/d.png');
+  });
+
+  it('matches Windows paths regardless of case and separator', () => {
+    const [a, b] = seedAssets(db, [
+      { name: 'a', thumbnail_path: 'C:\\Users\\Me\\AppData\\omnidex\\Thumbnails\\a.png' },
+      { name: 'b', thumbnail_path: 'D:\\Courses\\cover.jpg' },
+    ]);
+    expect(clearThumbnailsUnder(db, 'c:/users/me/appdata/omnidex/thumbnails/', 'win32')).toBe(1);
+    const path = (id: number) =>
+      (
+        db.prepare('SELECT thumbnail_path p FROM assets WHERE id = ?').get(id) as {
+          p: string | null;
+        }
+      ).p;
+    expect(path(a)).toBeNull();
+    expect(path(b)).toBe('D:\\Courses\\cover.jpg');
   });
 });
