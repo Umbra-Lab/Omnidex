@@ -227,4 +227,43 @@ describe('AssetsView selection and favourites', () => {
       expect.arrayContaining(['assets.favoriteCount', 'assets.get', 'assets.count']),
     );
   });
+
+  it('keeps the selection when the sort changes during a search, which ignores sort', async () => {
+    api.q = 'o';
+    await render();
+    await selectAllFrom(document);
+    await click(byTestId('sort-name'));
+    expect(byTestId('bulk-count').textContent).toBe('3');
+  });
+
+  it('leaves the selection alone when Escape is meant for a dialog', async () => {
+    await render();
+    await selectAllFrom(document);
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    const button = document.createElement('button');
+    dialog.append(button);
+    document.body.append(dialog);
+    await act(async () => {
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(byTestId('bulk-count').textContent).toBe('3');
+
+    const handled = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    handled.preventDefault();
+    await act(async () => {
+      document.dispatchEvent(handled);
+    });
+    expect(byTestId('bulk-count').textContent).toBe('3');
+    dialog.remove();
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(byTestId('bulk-count').textContent).toBe('0');
+  });
 });

@@ -167,4 +167,35 @@ describe('useHotkey', () => {
     press('k', { ctrlKey: true, altKey: true });
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it('still fires from checkboxes, radios and buttons, which take no text', async () => {
+    const handler = vi.fn();
+    await mount({ key: 'a', handler });
+    const targets: HTMLElement[] = [];
+    for (const type of ['checkbox', 'radio', 'button', 'range']) {
+      const input = document.createElement('input');
+      input.type = type;
+      targets.push(input);
+    }
+    targets.push(document.createElement('button'));
+    for (const el of targets) {
+      document.body.append(el);
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+      el.remove();
+    }
+    expect(handler).toHaveBeenCalledTimes(targets.length);
+  });
+
+  it('treats text-like input types as editable', async () => {
+    const handler = vi.fn();
+    await mount({ key: 'a', handler });
+    for (const type of ['text', 'search', 'email', 'url', 'tel', 'password', 'number']) {
+      const input = document.createElement('input');
+      input.type = type;
+      document.body.append(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+      input.remove();
+    }
+    expect(handler).not.toHaveBeenCalled();
+  });
 });

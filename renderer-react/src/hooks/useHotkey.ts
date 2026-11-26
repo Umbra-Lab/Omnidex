@@ -17,11 +17,18 @@ interface Options {
   readonly allowInInputs?: boolean;
 }
 
+/** Input types that take typed text. Checkboxes, radios and buttons do not. */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number']);
+
 /** True when the key event is aimed at something the user types into. */
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
+  if (target instanceof HTMLInputElement) {
+    // `.type` reports 'text' for a missing or unknown type attribute.
+    return TEXT_INPUT_TYPES.has(target.type);
+  }
   const tag = target.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if (target.isContentEditable) return true;
   // jsdom does not implement isContentEditable; the attribute walk covers it.
   return target.closest('[contenteditable]:not([contenteditable="false"])') != null;

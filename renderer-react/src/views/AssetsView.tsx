@@ -131,8 +131,10 @@ export function AssetsView() {
   // Changing what the list shows drops the selection, so a bulk action only
   // ever touches rows the user can see.
   const selectionScope = useMemo(
-    () => JSON.stringify({ filter, query, sort }),
-    [filter, query, sort],
+    // Search ranks by relevance and ignores sort, so a sort change mid-search
+    // changes nothing on screen and must not drop the selection.
+    () => JSON.stringify({ filter, query, sort: isSearching ? null : sort }),
+    [filter, query, sort, isSearching],
   );
   const selection = useAssetSelection(orderedIds, selectionScope);
   const { selected, activeId, count: selectedCount, select, selectAll, clear, forget } = selection;
@@ -154,7 +156,17 @@ export function AssetsView() {
       selectAll();
     },
   });
-  useHotkey({ key: 'Escape', handler: clear, enabled: selectedCount > 0 });
+  // An Escape a dialog or menu already handled (or one pressed inside a
+  // dialog, which closes it) is not also a request to drop the selection.
+  const onEscape = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.target instanceof Element && e.target.closest('[role="dialog"]')) return;
+      clear();
+    },
+    [clear],
+  );
+  useHotkey({ key: 'Escape', handler: onEscape, enabled: selectedCount > 0 });
 
   // Capture-phase scroll listener on the wrapper: scroll events don't bubble,
   // but they DO reach capturing ancestors, so we can react to the grid's own
