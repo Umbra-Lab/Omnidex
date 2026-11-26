@@ -242,7 +242,12 @@ async function scanLocation(
     // safe on a COMPLETE walk — an aborted scan has a partial `seenPaths` set
     // and would wrongly delete live rows, so skip the prune when aborted.
     if (!controller.signal.aborted) {
-      pruned = assetsRepo.pruneAssetsNotIn(db, locationId, seenPaths);
+      // A folder that failed to list is not a deleted one: keep what is under it.
+      const unreadable = diagnostics
+        .filter((d) => d.kind === 'unreadable-folder')
+        .map((d) => d.path);
+      for (const dir of unreadable) console.warn(`[scan] could not list ${dir}; kept its rows`);
+      pruned = assetsRepo.pruneAssetsNotIn(db, locationId, seenPaths, unreadable);
     }
 
     db.exec('COMMIT');

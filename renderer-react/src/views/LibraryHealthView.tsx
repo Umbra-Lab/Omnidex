@@ -1,4 +1,12 @@
-import { Activity, FileArchive, FolderTree, ImageOff, type LucideIcon, Ruler } from 'lucide-react';
+import {
+  Activity,
+  FileArchive,
+  FolderTree,
+  FolderX,
+  ImageOff,
+  type LucideIcon,
+  Ruler,
+} from 'lucide-react';
 import { useState } from 'react';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +18,8 @@ type DiagnosticKind =
   | 'archive-only'
   | 'depth-limit-abandoned'
   | 'thumbnail-failed'
-  | 'path-near-max-length';
+  | 'path-near-max-length'
+  | 'unreadable-folder';
 
 interface KindMeta {
   readonly label: string;
@@ -46,6 +55,13 @@ const KINDS: Record<DiagnosticKind, KindMeta> = {
     cause: 'These packs contain paths close to the Windows 260-character MAX_PATH limit.',
     remedy: 'Move them closer to the drive root, or shorten the folder names.',
   },
+  'unreadable-folder': {
+    label: 'Could not be read',
+    icon: FolderX,
+    cause:
+      'These folders failed to open during the last scan (permissions, a busy file, a dropped network share). Anything already indexed under them was kept as it was.',
+    remedy: 'Check the folder opens in Explorer or Finder, then scan again.',
+  },
 };
 
 const KIND_ORDER: readonly DiagnosticKind[] = [
@@ -53,6 +69,7 @@ const KIND_ORDER: readonly DiagnosticKind[] = [
   'depth-limit-abandoned',
   'thumbnail-failed',
   'path-near-max-length',
+  'unreadable-folder',
 ];
 
 function openLocation(path: string) {

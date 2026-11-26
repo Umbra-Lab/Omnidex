@@ -34,6 +34,8 @@ DCC rows store the full path and ecosystem as scanner-owned search text. They re
 
 Packs above `MAX_FILES_PER_PACK` (5000, `walker.ts`) get `sizeIsPartial` set rather than being fully measured. Walking a 200,000-file pack to sum its bytes is not worth the minutes it costs.
 
+Past the cap, the folders the walk skipped get a names-only probe (no `fs.stat`, at most `MAX_UASSET_PROBE_ENTRIES` entries). It answers two questions: is there anything left, so the size really is partial, and is there a `.uasset`/`.umap`, so the pack is still stored as `unreal_pack` when its only map sits after 5,000 textures.
+
 Every skip is recorded as a `scan_diagnostics` row, which is what the Library Health view reads. A folder that silently does not appear in the library is a bug; a folder that appears in diagnostics with a reason is working as intended.
 
 ## Phase 2: upsert and prune
@@ -47,6 +49,8 @@ An aborted scan has a partial `seenPaths` set, so pruning against it would delet
 
 This is also why a crash mid-scan is worse than a clean cancel: a process that dies never reaches the prune *or* the abort check, and a bad scan's rows survive.
 ```
+
+A folder under the root that fails to list (EACCES, EBUSY, a network share that drops for a moment) is not an empty one. The walker records it as an `unreadable-folder` diagnostic, and `pruneAssetsNotIn` keeps every row at or under it, so a transient error cannot delete a pack's favourite flag or enrichment. An empty walk (`seenPaths` empty) prunes nothing, which also covers an unplugged drive that lists as empty.
 
 ## Phase 3: course manifests
 
@@ -69,6 +73,8 @@ Only `.uasset` sources reach the native extractor, and they reach it **in a chil
 ## Progress and cancellation
 
 A scan publishes to a shared `progressBus`, which the `progress.onProgress` tRPC subscription streams to the renderer. `ScanProgressPanel.tsx` renders it via the `useActionProgress` hook and cancels through `scanner.cancel`.
+
+Aborting `refreshAllScans` through its `signal` cancels the location being scanned at that moment, then stops the sweep.
 
 A legacy `webContents.send('scan-progress')` channel still fires and has no renderer consumer. It is kept only for an Electron IPC smoke test.
 
