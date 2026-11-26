@@ -52,7 +52,13 @@ const TIMING_LINE = /-->/;
 export function toWebVtt(source: string): string | null {
   // Strip a UTF-8 BOM. A leading ﻿ before `WEBVTT` makes the whole file
   // invalid, and sidecars written by Windows tooling carry one often enough.
-  const text = source.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  // Line endings as `parseCues` normalises them, and a separator line holding
+  // only spaces or tabs blanked: WebVTT ends a cue only at a truly empty line,
+  // so the next cue's number and timing would otherwise play as caption text.
+  const text = source
+    .replace(/^﻿/, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/^[ \t]+$/gm, '');
   if (!TIMING_LINE.test(text)) return null;
 
   const lines = text.split('\n');

@@ -113,6 +113,22 @@ describe('subtitleStem / videoStem', () => {
   });
 });
 
+describe('toWebVtt separator lines', () => {
+  it('blanks a separator line that holds only spaces, so cues do not merge in playback', () => {
+    const vtt = toWebVtt(
+      '1\n00:00:01,000 --> 00:00:02,000\nfirst\n \t\n2\n00:00:03,000 --> 00:00:04,000\nsecond\n',
+    );
+    expect(vtt).toBe(
+      'WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nfirst\n\n2\n00:00:03.000 --> 00:00:04.000\nsecond\n',
+    );
+  });
+
+  it('accepts CR-only line endings', () => {
+    const vtt = toWebVtt('1\r00:00:01,000 --> 00:00:02,000\rfirst\r\r');
+    expect(vtt).toBe('WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nfirst\n\n');
+  });
+});
+
 describe('decodeSubtitle', () => {
   const srt = '1\n00:00:01,000 --> 00:00:02,000\nthe café “quote”\n';
 
