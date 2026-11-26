@@ -36,6 +36,15 @@ describe('background thumbnail write', () => {
     });
   });
 
+  it('fills a pack whose thumbnail is an empty string, the same rows the scan queues', () => {
+    seedAsset(db, { name: 'Pack', file_path: '/lib/Pack', thumbnail_path: '' });
+    db.prepare(BACKGROUND_THUMBNAIL_SQL).run('/thumbs/pack.png', '/lib/Pack');
+    expect(thumbOf('/lib/Pack')).toEqual({
+      thumbnail_path: '/thumbs/pack.png',
+      has_local_thumbnail: 1,
+    });
+  });
+
   it('does not overwrite a course cover set after the job was queued', () => {
     seedAsset(db, { name: 'Course', file_path: '/c/Course', content_format: 'course' });
     // What indexCourseManifests writes: the largest image in the course.
