@@ -110,6 +110,7 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Oracle MCP: `search_lessons` now applies every term in SQL (matches past the first 2,000 rows were lost), matches non-ASCII titles case-insensitively, `limit` is validated on every tool, and a malformed JSON line gets a `-32700` reply instead of hanging the client (overnight).
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers
