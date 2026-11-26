@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseCues } from '../course-manifest';
-import { decodeSubtitle, subtitleStem, toWebVtt, videoStem } from '../subtitles';
+import { decodeSubtitle, subtitlePairsWith, subtitleStem, toWebVtt, videoStem } from '../subtitles';
 
 const SRT = [
   '1',
@@ -104,6 +104,17 @@ describe('subtitleStem / videoStem', () => {
 
   it('is case-insensitive, because Windows paths are', () => {
     expect(subtitleStem('01 - INTRO.SRT')).toBe(videoStem('01 - intro.mp4'));
+  });
+
+  it('still pairs a lesson whose own name ends in a two-letter word', () => {
+    // `.UE`, `.UI`, `.FX`, `.VR` look like language tags but are part of the
+    // lesson name, and the video keeps them.
+    for (const name of ['Intro.UE', 'Menus.UI', 'Sparks.FX', 'Setup.VR', 'Intro.ue']) {
+      expect(subtitlePairsWith(`${name}.srt`, `${name}.mp4`)).toBe(true);
+    }
+    expect(subtitlePairsWith('Lesson.EN.srt', 'Lesson.mp4')).toBe(true);
+    expect(subtitlePairsWith('lesson.mp4.srt', 'lesson.mp4')).toBe(true);
+    expect(subtitlePairsWith('01 - Intro.srt', '10 - Intro.mp4')).toBe(false);
   });
 
   it('pairs an upper-case language tag', () => {

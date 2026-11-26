@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  subtitlePairsWith as mainSubtitlePairsWith,
   subtitleStem as mainSubtitleStem,
   videoStem as mainVideoStem,
 } from '../../../../electron/main/scanner/subtitles';
 import { splitAnswer } from '../citations';
-import { subtitleStem, videoStem } from '../subtitleStem';
+import { subtitlePairsWith, subtitleStem, videoStem } from '../subtitleStem';
 
 describe('splitAnswer', () => {
   it('splits text around citation markers', () => {
@@ -43,6 +44,20 @@ describe('subtitleStem parity with the main process', () => {
       expect(subtitleStem(c)).toBe(mainSubtitleStem(c));
       expect(videoStem(c)).toBe(mainVideoStem(c));
     }
+  });
+
+  it('pairs like the main process, including names ending in a two-letter word', () => {
+    const pairs: [string, string][] = [
+      ['A/Intro.UE.srt', 'A/Intro.UE.mp4'],
+      ['A/Menus.ui.srt', 'A/Menus.ui.mp4'],
+      ['A/Lesson.EN.srt', 'A/Lesson.mp4'],
+      ['A/lesson.mp4.srt', 'A/lesson.mp4'],
+      ['A/01 - Intro.srt', 'A/10 - Intro.mp4'],
+    ];
+    for (const [sub, video] of pairs) {
+      expect(subtitlePairsWith(sub, video)).toBe(mainSubtitlePairsWith(sub, video));
+    }
+    expect(subtitlePairsWith('A/Intro.UE.srt', 'A/Intro.UE.mp4')).toBe(true);
   });
 
   it('pairs the Whisper sidecar shape with its video', () => {

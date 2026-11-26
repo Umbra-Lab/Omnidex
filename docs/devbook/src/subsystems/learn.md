@@ -28,7 +28,7 @@ const LANG_TAG = /\.[a-z]{2}([-_][a-z]{2,4})?$/i;
 const VIDEO_EXT = /\.(mp4|mkv|webm|avi|mov|m4v)$/i;
 ```
 
-Strip the subtitle extension, then a language tag, then a video extension. That last step is what makes `lesson.mp4.srt` — the shape ASR tools write — pair with `lesson.mp4`.
+Strip the subtitle extension, then a language tag, then a video extension. That last step is what makes `lesson.mp4.srt` — the shape ASR tools write — pair with `lesson.mp4`. The tag strip cannot tell `Lesson.EN.srt` from `Intro.UE.srt`, so `subtitlePairsWith()` also accepts the stem without it.
 
 ```admonish warning title="Stem matching must not be greedy"
 `Lesson 10.srt` must not claim `Lesson 1.mp4`. Matching is on the full normalised stem, never a prefix. `electron/main/scanner/__tests__/subtitles.test.ts` pins this.

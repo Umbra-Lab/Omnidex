@@ -110,6 +110,18 @@ describe('listCourseFiles ordering', () => {
   });
 });
 
+describe('subtitle pairing for names ending in a two-letter word', () => {
+  it('flags and serves Intro.UE.srt for Intro.UE.mp4', () => {
+    replaceCourseManifest(db, courseId, [
+      file('c/Intro.UE.mp4', 'video', 'c'),
+      file('c/Intro.UE.srt', 'subtitle', 'c'),
+    ]);
+    const video = listCourseFiles(db, courseId).find((f) => f.kind === 'video');
+    expect(video?.has_subtitle).toBe(1);
+    expect(subtitlePathForVideo(db, video?.id as number)).toBe('C:/c/c/Intro.UE.srt');
+  });
+});
+
 describe('subtitlePathForVideo', () => {
   const videoId = () => listCourseFiles(db, courseId).find((f) => f.kind === 'video')?.id as number;
 
