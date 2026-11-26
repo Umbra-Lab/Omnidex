@@ -140,6 +140,11 @@ work that reached `main` through direct merges with no pull request, the commit.
   keys typed into text fields and chords with modifiers they did not ask for,
   and Ctrl/Cmd-A in the search box selects its text instead of every asset. The
   command palette (Ctrl/Cmd-K) still opens from anywhere. (overnight)
+- The asset selection survived a facet, search or sort change, so after
+  selecting all and switching to Favorites the bulk bar still counted the
+  hidden rows and Remove, Add tags and New collection acted on them. Changing
+  what the list shows now clears the selection. Favoriting also refreshes the
+  inspector and the asset count. (overnight)
 
 ### Removed
 
