@@ -490,6 +490,11 @@ function ChapterList({
 
 /** Throttle for position writes — one row per lesson, but not 4x a second. */
 const SAVE_EVERY_MS = 5000;
+/**
+ * Trailing debounce for the pause save. Scrubbing the timeline fires pause
+ * repeatedly; only the last one in a burst is written.
+ */
+const PAUSE_SAVE_DELAY_MS = 1000;
 /** Past this fraction the lesson counts as watched. */
 const COMPLETE_AT = 0.95;
 
@@ -512,6 +517,7 @@ function Player({
   const utils = trpc.useUtils();
   const ref = useRef<HTMLVideoElement | null>(null);
   const lastSave = useRef(0);
+  const pauseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setProgress = trpc.courses.setProgress.useMutation();
 
   // A save the user will look for straight away (pause, closing the lesson):
@@ -594,6 +600,9 @@ function Player({
     // Closing the panel mid-lesson is the common case, and the throttle alone
     // would drop up to five seconds of it.
     return () => {
+      // The unmount save below supersedes a pause save still waiting.
+      if (pauseTimer.current) clearTimeout(pauseTimer.current);
+      pauseTimer.current = null;
       if (el && el.currentTime > 0) saveAndRefresh(el);
     };
   }, [fileId]);
@@ -646,7 +655,14 @@ function Player({
         onLoadedMetadata={onLoadedMetadata}
         onError={() => setFailed(true)}
         onPause={(e) => {
-          if (e.currentTarget.currentTime > 0) saveAndRefresh(e.currentTarget);
+          const el = e.currentTarget;
+          // The pause that precedes `ended` is onEnded's to save.
+          if (el.ended) return;
+          if (pauseTimer.current) clearTimeout(pauseTimer.current);
+          pauseTimer.current = setTimeout(() => {
+            pauseTimer.current = null;
+            if (!el.ended && el.currentTime > 0) saveAndRefresh(el);
+          }, PAUSE_SAVE_DELAY_MS);
         }}
         onTimeUpdate={(e) => {
           const el = e.currentTarget;

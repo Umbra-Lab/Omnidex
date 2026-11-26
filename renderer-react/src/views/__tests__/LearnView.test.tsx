@@ -93,7 +93,7 @@ async function flush() {
 }
 
 /** jsdom has no media pipeline; give the element the state a loaded video has. */
-function stubMedia(v: HTMLVideoElement, currentTime = 0) {
+function stubMedia(v: HTMLVideoElement, currentTime = 0, ended = false) {
   let t = currentTime;
   Object.defineProperty(v, 'currentTime', {
     configurable: true,
@@ -104,6 +104,7 @@ function stubMedia(v: HTMLVideoElement, currentTime = 0) {
   });
   Object.defineProperty(v, 'duration', { configurable: true, get: () => 100 });
   Object.defineProperty(v, 'readyState', { configurable: true, get: () => 1 });
+  Object.defineProperty(v, 'ended', { configurable: true, get: () => ended });
 }
 
 const video = () => container.querySelector('[data-testid="course-player"]') as HTMLVideoElement;
@@ -171,12 +172,64 @@ describe('Learn player', () => {
     await flush();
     expect(api.invalidated).toEqual([]);
 
-    await fire(video(), 'pause');
+    vi.useFakeTimers();
+    try {
+      await fire(video(), 'pause');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     await flush();
     expect(api.invalidated).toEqual(
       expect.arrayContaining(['courses.files', 'courses.list', 'courses.get']),
     );
     expect(saves()).toContainEqual({ fileId: 1, positionSeconds: 30, completed: false });
+  });
+
+  it('saves a burst of pauses (scrubbing) once, at the last position', async () => {
+    await click(lessons()[0] as HTMLButtonElement);
+    stubMedia(video(), 30);
+    vi.useFakeTimers();
+    try {
+      await fire(video(), 'pause');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      video().currentTime = 40;
+      await fire(video(), 'pause');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(api.mutateAsync).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(api.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(api.mutateAsync).toHaveBeenCalledWith({
+      fileId: 1,
+      positionSeconds: 40,
+      completed: false,
+    });
+  });
+
+  it('does not save the pause that comes with the end of a lesson', async () => {
+    await click(lessons()[0] as HTMLButtonElement);
+    stubMedia(video(), 100, true);
+    vi.useFakeTimers();
+    try {
+      await fire(video(), 'pause');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(api.mutateAsync).not.toHaveBeenCalled();
   });
 
   it('refreshes progress after the save made when the lesson is closed', async () => {
