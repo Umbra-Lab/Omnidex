@@ -110,6 +110,8 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Ask now says "Cancelled." when you stop an answer instead of blaming the model server, reports a Claude Code login failure as an error instead of showing it as the answer, keeps the last line of a streamed local answer, and rechecks for the Claude Code CLI after a slow first check (overnight).
+- Removed the unused renderer-callable uasset IPC handlers, so a bad `.uasset` path can no longer abort the main process (overnight).
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers

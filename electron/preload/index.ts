@@ -15,16 +15,6 @@ const scannerBridge = {
   activeCount: (): Promise<number> => ipcRenderer.invoke('omnidex:scanner:active-count'),
 };
 
-const uassetBridge = {
-  extractThumbnail: (uassetPath: string, targetSize?: number): Promise<string | null> =>
-    ipcRenderer.invoke('omnidex:uasset:extract-thumbnail', { uassetPath, targetSize }),
-
-  parseHeader: (
-    uassetPath: string,
-  ): Promise<{ magic: string; packageFileVersion: number; hasThumbnail: boolean }> =>
-    ipcRenderer.invoke('omnidex:uasset:parse-header', uassetPath),
-};
-
 interface OrbitalSearchRequest {
   searchText: string;
   limit?: number;
@@ -162,7 +152,6 @@ const omnidex = {
     node: process.versions.node,
   },
   scanner: scannerBridge,
-  uasset: uassetBridge,
   orbital: orbitalBridge,
   fab: fabBridge,
   shell: shellBridge,

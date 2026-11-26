@@ -21,7 +21,6 @@ import { registerMenuIpc } from './ipc/menu';
 import { registerOrbitalIpc } from './ipc/orbital';
 import { registerScannerIpc } from './ipc/scanner';
 import { registerShellIpc } from './ipc/shell';
-import { registerUassetIpc } from './ipc/uasset';
 import { initLogger } from './logger';
 import { registerGlobalHotkeys } from './native/hotkeys';
 import { registerNotificationIpc } from './native/notifications';
@@ -497,7 +496,6 @@ app.whenReady().then(() => {
   }
 
   registerScannerIpc();
-  registerUassetIpc();
   registerOrbitalIpc();
   registerFabIpc();
   registerShellIpc();

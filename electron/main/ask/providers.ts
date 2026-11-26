@@ -31,6 +31,14 @@ export interface ProviderResult {
 /** Hard ceiling on one answer; both providers are killed past this. */
 const ANSWER_TIMEOUT_MS = 300_000;
 
+/** A user cancel or the answer timeout, as opposed to a real failure. */
+function abortMessage(e: unknown, signal: AbortSignal): string | null {
+  if (signal.aborted) return 'Cancelled.';
+  const name = (e as { name?: string } | null)?.name;
+  if (name === 'TimeoutError') return 'The local model took longer than 5 minutes; stopped.';
+  return null;
+}
+
 export async function streamLocal(
   baseUrl: string,
   model: string,
@@ -55,6 +63,8 @@ export async function streamLocal(
       signal: AbortSignal.any([signal, AbortSignal.timeout(ANSWER_TIMEOUT_MS)]),
     });
   } catch (e) {
+    const stopped = abortMessage(e, signal);
+    if (stopped) throw new Error(stopped);
     throw new Error(
       `Could not reach the local model server at ${url} — is the llama-swap stack running? (${(e as Error).message})`,
     );
@@ -69,6 +79,14 @@ export async function streamLocal(
   let buffer = '';
   let text = '';
   let usage: AskUsage | null = null;
+  const consume = (event: string) => {
+    const parsed = parseOpenAiEvent(event);
+    if (parsed.delta) {
+      text += parsed.delta;
+      onDelta(parsed.delta);
+    }
+    if (parsed.usage) usage = parsed.usage;
+  };
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -76,15 +94,19 @@ export async function streamLocal(
       buffer += decoder.decode(value, { stream: true });
       const { events, rest } = splitSseEvents(buffer);
       buffer = rest;
-      for (const event of events) {
-        const parsed = parseOpenAiEvent(event);
-        if (parsed.delta) {
-          text += parsed.delta;
-          onDelta(parsed.delta);
-        }
-        if (parsed.usage) usage = parsed.usage;
-      }
+      for (const event of events) consume(event);
     }
+    // The stream can end without a trailing blank line; flush the decoder and
+    // parse whatever is left so a final delta or usage event is not lost.
+    buffer += decoder.decode();
+    if (buffer.trim()) consume(buffer);
+  } catch (e) {
+    const stopped = abortMessage(e, signal);
+    if (stopped) throw new Error(stopped);
+    if ((e as { name?: string } | null)?.name === 'AbortError') {
+      throw new Error(`The connection to the local model server dropped (${(e as Error).message})`);
+    }
+    throw e;
   } finally {
     // A throw mid-stream (renderer gone, abort) must release the connection,
     // or llama.cpp keeps generating the rest of the answer on the GPU.
@@ -94,31 +116,43 @@ export async function streamLocal(
 }
 
 let claudeCodeProbe: Promise<boolean> | null = null;
+/** Set when the probe failed without a definitive answer (timeout, spawn error). */
+let claudeCodeRetryAt = 0;
+const PROBE_RETRY_MS = 30_000;
 
 /**
  * Is the Claude Code CLI on PATH? Async — the CLI is a node app whose cold
  * `--version` takes seconds on Windows, and a synchronous probe would freeze
- * every IPC call in the main process while it runs. Cached; PATH does not
- * change mid-run.
+ * every IPC call in the main process while it runs. A definitive answer (the
+ * CLI exited) is cached, since PATH does not change mid-run. A timeout or spawn
+ * error is not: it is retried, at most once per 30 seconds.
  */
 export function claudeCodeAvailable(): Promise<boolean> {
+  if (claudeCodeProbe && claudeCodeRetryAt && Date.now() >= claudeCodeRetryAt) {
+    claudeCodeProbe = null;
+    claudeCodeRetryAt = 0;
+  }
   claudeCodeProbe ??= new Promise<boolean>((resolve) => {
+    const inconclusive = () => {
+      claudeCodeRetryAt = Date.now() + PROBE_RETRY_MS;
+      resolve(false);
+    };
     try {
       const probe = spawn('claude', ['--version'], { shell: true, windowsHide: true });
       const timer = setTimeout(() => {
         probe.kill();
-        resolve(false);
+        inconclusive();
       }, 10_000);
       probe.on('error', () => {
         clearTimeout(timer);
-        resolve(false);
+        inconclusive();
       });
       probe.on('close', (code) => {
         clearTimeout(timer);
         resolve(code === 0);
       });
     } catch {
-      resolve(false);
+      inconclusive();
     }
   });
   return claudeCodeProbe;
