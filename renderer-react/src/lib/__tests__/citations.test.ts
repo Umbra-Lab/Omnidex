@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { splitAnswer } from '../citations';
-import { subtitleStem, videoStem } from '../subtitleStem';
 import {
   subtitleStem as mainSubtitleStem,
   videoStem as mainVideoStem,
 } from '../../../../electron/main/scanner/subtitles';
+import { splitAnswer } from '../citations';
+import { subtitleStem, videoStem } from '../subtitleStem';
 
 describe('splitAnswer', () => {
   it('splits text around citation markers', () => {
@@ -34,6 +34,8 @@ describe('subtitleStem parity with the main process', () => {
     'A/lesson.srt',
     'A/lesson.en_US.vtt',
     'A/lesson.English.srt',
+    'A/Lesson.EN.srt',
+    'A/Lesson.mp4.PT-BR.vtt',
     '10 - Later/04 UE5 Set-Up.mp4',
   ];
   it('renderer copies match electron/main/scanner/subtitles.ts', () => {

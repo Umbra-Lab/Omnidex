@@ -14,6 +14,7 @@ import {
   parseCues,
 } from './course-manifest';
 import { scanDccLocation } from './dcc-index';
+import { decodeSubtitle } from './subtitles';
 import { findThumbnailSource } from './thumbnail-finder';
 import { extractThumbnailsIsolated } from './thumbnail-pool';
 import { BACKGROUND_THUMBNAIL_SQL } from './thumbnail-sql';
@@ -614,7 +615,7 @@ async function indexCourseManifests(
       const fileRow = fileIdOf.get(row.id, sub.relPath) as { id: number } | undefined;
       if (!fileRow) continue;
       try {
-        const text = await readFile(sub.absPath, 'utf8');
+        const text = decodeSubtitle(await readFile(sub.absPath));
         const parsed = parseCues(text);
         if (parsed.length === 0) continue;
         db.exec('BEGIN');
@@ -626,7 +627,7 @@ async function indexCourseManifests(
           db.exec('ROLLBACK');
         }
       } catch {
-        // Unreadable or non-UTF8 subtitle: skip this one, keep the course.
+        // Unreadable subtitle: skip this one, keep the course.
       }
     }
   }

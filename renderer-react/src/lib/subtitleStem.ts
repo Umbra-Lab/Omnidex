@@ -12,7 +12,7 @@
  */
 
 const SUB_EXT = /\.(srt|vtt)$/i;
-const LANG_TAG = /\.[a-z]{2}([-_][A-Za-z]{2,4})?$/;
+const LANG_TAG = /\.[a-z]{2}([-_][a-z]{2,4})?$/i;
 const VIDEO_EXT = /\.(mp4|mkv|webm|avi|mov|m4v)$/i;
 
 export function subtitleStem(relPath: string): string {

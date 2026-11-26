@@ -433,7 +433,11 @@ export interface CueRow {
  */
 export function parseCues(source: string): CueRow[] {
   const cues: CueRow[] = [];
-  const blocks = source.replace(/\r\n/g, '\n').split(/\n{2,}/);
+  // Normalise CRLF and old-Mac CR-only endings, then split on any line that is
+  // blank or holds only whitespace. A `\n{2,}` split merged two cues whenever
+  // the separator carried a stray space, and the second timing line landed in
+  // the first cue's searchable text.
+  const blocks = source.replace(/\r\n?/g, '\n').split(/\n[ \t]*\n(?:[ \t]*\n)*/);
   for (const block of blocks) {
     const lines = block.split('\n').filter((l) => l.trim().length > 0);
     if (lines.length === 0) continue;

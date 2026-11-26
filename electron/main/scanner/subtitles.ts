@@ -19,6 +19,26 @@
  * the file byte-for-byte alone.
  */
 
+/**
+ * Decode a subtitle sidecar's bytes to text.
+ *
+ * Sidecars are not reliably UTF-8. Windows tooling saves "Unicode" as UTF-16
+ * with a BOM, which read as UTF-8 is NUL-interleaved and yields no cues at all;
+ * older Western-European files are Windows-1252, where every accented letter
+ * and curly quote became U+FFFD in the transcript index. So: honour a UTF-16
+ * BOM, try strict UTF-8 (a UTF-8 BOM is dropped), and fall back to
+ * Windows-1252, which maps every byte and is by far the commonest legacy case.
+ */
+export function decodeSubtitle(bytes: Uint8Array): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
 /** A timing line: `00:00:01,000 --> 00:00:04,000` with optional cue settings. */
 const TIMING_LINE = /-->/;
 
@@ -53,8 +73,11 @@ export function toWebVtt(source: string): string | null {
 
 /** Subtitle extensions the scanner records as `kind = 'subtitle'`. */
 const SUB_EXT = /\.(srt|vtt)$/i;
-/** Optional BCP-47-ish tag: `.en`, `.en_US`, `.pt-BR`. */
-const LANG_TAG = /\.[a-z]{2}([-_][A-Za-z]{2,4})?$/;
+/**
+ * Optional BCP-47-ish tag: `.en`, `.en_US`, `.pt-BR`, `.EN`. Case-insensitive
+ * because it runs before the lowercasing, so `Lesson.EN.srt` must still pair.
+ */
+const LANG_TAG = /\.[a-z]{2}([-_][a-z]{2,4})?$/i;
 /** Video containers the manifest records as `kind = 'video'`. */
 const VIDEO_EXT = /\.(mp4|mkv|webm|avi|mov|m4v)$/i;
 

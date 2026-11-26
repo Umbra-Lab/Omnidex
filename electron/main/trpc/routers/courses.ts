@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { openDatabase } from '../../db';
 import { coursesRepo } from '../../db/repos';
-import { toWebVtt } from '../../scanner/subtitles';
+import { decodeSubtitle, toWebVtt } from '../../scanner/subtitles';
 import { publicProcedure, router } from '../init';
 import { idSchema } from '../schemas';
 
@@ -59,7 +59,7 @@ export const coursesRouter = router({
     const path = coursesRepo.subtitlePathForVideo(openDatabase(), input);
     if (!path) return null;
     try {
-      const raw = await readFile(path, 'utf8');
+      const raw = decodeSubtitle(await readFile(path));
       return toWebVtt(raw);
     } catch {
       return null;

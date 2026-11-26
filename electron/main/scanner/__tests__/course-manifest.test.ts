@@ -193,6 +193,45 @@ describe('parseCues', () => {
     expect(cues).toHaveLength(1);
     expect(cues[0].startMs).toBe(90_000);
   });
+
+  it('splits cues on a separator line that holds only spaces or tabs', () => {
+    const cues = parseCues(
+      [
+        '1',
+        '00:00:01,000 --> 00:00:02,000',
+        'first',
+        ' \t',
+        '2',
+        '00:00:03,000 --> 00:00:04,000',
+        'second',
+        '',
+      ].join('\n'),
+    );
+    // Merged, the second timing line ended up as searchable text of cue one.
+    expect(cues).toEqual([
+      { startMs: 1000, text: 'first' },
+      { startMs: 3000, text: 'second' },
+    ]);
+  });
+
+  it('parses a file with old-Mac CR-only line endings', () => {
+    const cues = parseCues(
+      [
+        '1',
+        '00:00:01,000 --> 00:00:02,000',
+        'first',
+        '',
+        '2',
+        '00:00:03,000 --> 00:00:04,000',
+        'second',
+        '',
+      ].join('\r'),
+    );
+    expect(cues).toEqual([
+      { startMs: 1000, text: 'first' },
+      { startMs: 3000, text: 'second' },
+    ]);
+  });
 });
 
 describe('detectTutorialSource', () => {

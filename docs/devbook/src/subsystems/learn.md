@@ -24,7 +24,7 @@ A subtitle belongs to a video when their **stems** match. `electron/main/scanner
 
 ```ts
 const SUB_EXT = /\.(srt|vtt)$/i;
-const LANG_TAG = /\.[a-z]{2}([-_][A-Za-z]{2,4})?$/;
+const LANG_TAG = /\.[a-z]{2}([-_][a-z]{2,4})?$/i;
 const VIDEO_EXT = /\.(mp4|mkv|webm|avi|mov|m4v)$/i;
 ```
 
