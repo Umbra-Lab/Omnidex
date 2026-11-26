@@ -135,6 +135,11 @@ work that reached `main` through direct merges with no pull request, the commit.
   electron-trpc closed every subscription on each hash navigation while the
   renderer still believed it was subscribed; a patch now leaves same-document
   navigations alone. (#64)
+- Single-letter shortcuts fired while typing: searching for "arcade" in Match's
+  manual search accepted, dismissed and rejected the pack. Shortcuts now ignore
+  keys typed into text fields and chords with modifiers they did not ask for,
+  and Ctrl/Cmd-A in the search box selects its text instead of every asset. The
+  command palette (Ctrl/Cmd-K) still opens from anywhere. (overnight)
 
 ### Removed
 
