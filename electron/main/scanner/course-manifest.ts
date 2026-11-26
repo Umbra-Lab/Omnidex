@@ -50,6 +50,13 @@ const AMBIGUOUS_VIDEO_EXT = new Set(['.ts']);
  */
 const UNPLAYABLE_VIDEO_EXT = new Set(['.ts', '.m2ts', '.mts']);
 
+/**
+ * ISO base media containers, the only ones `readMp4Duration` can parse (it
+ * walks `moov` > `mvhd`). Every other video reads as null, so a null cached for
+ * one of those is the final answer and is never worth another file open.
+ */
+const DURATION_READABLE_EXT = new Set(['.mp4', '.m4v', '.mov']);
+
 const extLower = (p: string): string => {
   const dot = p.lastIndexOf('.');
   return dot === -1 ? '' : p.slice(dot).toLowerCase();
@@ -278,14 +285,14 @@ export async function buildCourseManifest(
 
       const relPath = rel.split(sep).join('/');
       // Reuse a duration already on record, but only while the bytes match.
-      // A recorded null is a failed read, not an answer: reusing it would pin
-      // the lesson at "unknown length" forever, so it is retried while
-      // duration reading is on.
+      // A recorded null for a container the reader understands is a failed
+      // read, not an answer: reusing it would pin the lesson at "unknown
+      // length" forever, so it is retried while duration reading is on.
       const cached = options.knownDurations?.get(relPath);
       const reuse =
         cached != null &&
         cached.size === sizeBytes &&
-        (cached.duration !== null || !options.readDurations);
+        (cached.duration !== null || !options.readDurations || !DURATION_READABLE_EXT.has(ext));
 
       out.push({
         relPath,

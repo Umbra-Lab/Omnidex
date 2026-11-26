@@ -293,6 +293,27 @@ describe('duration caching across re-scans', () => {
     expect(files.find((f) => f.relPath === 'README.pdf')?.durationSeconds).toBeNull();
   });
 
+  it('does not re-open a lesson the MP4 reader cannot parse just because its cached duration is null', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omnidex-course-mkv-'));
+    try {
+      // MP4 bytes under an .mkv name: if the reader were called it would find
+      // 30s, so a null result proves the cached null was kept without a read.
+      const mvhdPayload = Buffer.alloc(100);
+      mvhdPayload.writeUInt32BE(1000, 12);
+      mvhdPayload.writeUInt32BE(30_000, 16);
+      const bytes = Buffer.concat([
+        box('ftyp', Buffer.from('isom')),
+        box('moov', box('mvhd', mvhdPayload)),
+      ]);
+      writeFileSync(join(dir, 'lesson.mkv'), bytes);
+      const known = new Map([['lesson.mkv', { size: bytes.length, duration: null }]]);
+      const files = await buildCourseManifest(dir, { readDurations: true, knownDurations: known });
+      expect(files.find((f) => f.relPath === 'lesson.mkv')?.durationSeconds).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('re-reads a video whose cached duration is null, instead of keeping null forever', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'omnidex-course-null-'));
     try {
