@@ -885,6 +885,38 @@ describe('clearThumbnailsUnder', () => {
     expect(path(sibling)).toBe('/ud/thumbnails-old/d.png');
   });
 
+  it.each([
+    [
+      'Cyrillic',
+      'C:\\Users\\Иван\\AppData\\omnidex\\Thumbnails',
+      'c:/users/иван/appdata/omnidex/thumbnails',
+    ],
+    [
+      'accented',
+      'C:\\Users\\Émile\\AppData\\omnidex\\Thumbnails',
+      'c:/users/émile/appdata/omnidex/thumbnails',
+    ],
+    [
+      'astral',
+      'C:\\Users\\\u{1F600}me\\omnidex\\Thumbnails',
+      'c:/users/\u{1F600}me/omnidex/thumbnails',
+    ],
+  ])('clears a win32 cache dir with %s characters', (_label, stored, dir) => {
+    const [a, b] = seedAssets(db, [
+      { name: 'a', thumbnail_path: `${stored}\\a.png` },
+      { name: 'b', thumbnail_path: 'D:\\Courses\\cover.jpg' },
+    ]);
+    expect(clearThumbnailsUnder(db, dir, 'win32')).toBe(1);
+    const path = (id: number) =>
+      (
+        db.prepare('SELECT thumbnail_path p FROM assets WHERE id = ?').get(id) as {
+          p: string | null;
+        }
+      ).p;
+    expect(path(a)).toBeNull();
+    expect(path(b)).toBe('D:\\Courses\\cover.jpg');
+  });
+
   it('matches Windows paths regardless of case and separator', () => {
     const [a, b] = seedAssets(db, [
       { name: 'a', thumbnail_path: 'C:\\Users\\Me\\AppData\\omnidex\\Thumbnails\\a.png' },

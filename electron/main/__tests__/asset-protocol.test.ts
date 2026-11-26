@@ -1,4 +1,11 @@
-import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -291,5 +298,17 @@ describe('parseRangeHeader', () => {
 
   it('handles a range covering exactly the last byte', () => {
     expect(parseRangeHeader('bytes=999-999', SIZE)).toEqual({ start: 999, end: 999 });
+  });
+});
+
+describe('preload fileUrl parity', () => {
+  it('uses the same encoding expression as encodeAssetUrl', () => {
+    const expr = /return `omnidex-asset:\/\/\/\$\{[^`]*\}`;/;
+    const main = readFileSync(join(__dirname, '..', 'asset-protocol.ts'), 'utf8').match(expr)?.[0];
+    const preload = readFileSync(join(__dirname, '..', '..', 'preload', 'index.ts'), 'utf8').match(
+      expr,
+    )?.[0];
+    expect(main).toBeTruthy();
+    expect(preload).toBe(main);
   });
 });

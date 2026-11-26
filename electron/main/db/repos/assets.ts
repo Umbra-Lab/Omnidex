@@ -193,8 +193,8 @@ export function duplicatesOf(db: Database, id: number): DuplicateInfo {
 /**
  * Null `thumbnail_path` for rows whose thumbnail lives under `dir` (the app's
  * thumbnail cache). Course covers point at the user's own folders and must
- * survive a cache purge. Compares with `\` folded to `/` and a literal prefix
- * (no LIKE), case-insensitively on Windows where paths are case-insensitive.
+ * survive a cache purge. Compares with `\` folded to `/` and a literal prefix,
+ * case-insensitively on Windows where paths are case-insensitive.
  * Returns the number of rows cleared.
  */
 export function clearThumbnailsUnder(
@@ -202,19 +202,29 @@ export function clearThumbnailsUnder(
   dir: string,
   platform: NodeJS.Platform = process.platform,
 ): number {
-  let prefix = `${dir.replace(/\\/g, '/').replace(/\/+$/, '')}/`;
-  let column = "replace(thumbnail_path, '\\', '/')";
-  if (platform === 'win32') {
-    prefix = prefix.toLowerCase();
-    column = `lower(${column})`;
+  // Compared in JS, not SQL: SQLite lower() is ASCII-only and substr counts code
+  // points, so non-ASCII profile names (Иван, Émile) would never match.
+  const norm = (p: string): string => {
+    const folded = p.replace(/\\/g, '/');
+    return platform === 'win32' ? folded.toLowerCase() : folded;
+  };
+  const prefix = `${norm(dir).replace(/\/+$/, '')}/`;
+  const rows = db
+    .prepare('SELECT id, thumbnail_path FROM assets WHERE thumbnail_path IS NOT NULL')
+    .all() as { id: number; thumbnail_path: string }[];
+  const ids = rows.filter((r) => norm(r.thumbnail_path).startsWith(prefix)).map((r) => r.id);
+  const clear = db.prepare(
+    'UPDATE assets SET thumbnail_path = NULL, has_local_thumbnail = 0 WHERE id = ?',
+  );
+  db.exec('BEGIN');
+  try {
+    for (const id of ids) clear.run(id);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
   }
-  const info = db
-    .prepare(
-      `UPDATE assets SET thumbnail_path = NULL, has_local_thumbnail = 0
-       WHERE thumbnail_path IS NOT NULL AND substr(${column}, 1, ?) = ?`,
-    )
-    .run(prefix.length, prefix);
-  return Number(info.changes);
+  return ids.length;
 }
 
 export function favoriteCount(db: Database): number {
