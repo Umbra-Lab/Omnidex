@@ -117,11 +117,13 @@ export function parseCitation(raw) {
   return { path: m[1], anchor: m[2] || null, version: m[3] || null };
 }
 
+// Every word quoted (literal, never FTS5 syntax) and prefix-matched, like the app's
+// search box, so "instanc" finds "instance" and "instanced".
 function ftsQuote(query) {
   return query
     .split(/\s+/)
     .filter(Boolean)
-    .map((t) => `"${t.replaceAll('"', '""')}"`)
+    .map((t) => `"${t.replaceAll('"', '""')}"*`)
     .join(' ');
 }
 

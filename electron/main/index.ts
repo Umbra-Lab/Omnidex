@@ -28,6 +28,7 @@ import { registerNotificationIpc } from './native/notifications';
 import { enrichOrbital } from './orbital/enrich';
 import { type ActionProgress, progressBus } from './progress/bus';
 import { refreshAllScans } from './scanner/refresh-all';
+import { backfillPackSearchText } from './scanner/search-text';
 import { findThumbnailSource } from './scanner/thumbnail-finder';
 import { appRouter } from './trpc/router';
 import { initAutoUpdater } from './updater';
@@ -475,6 +476,14 @@ app.whenReady().then(() => {
       n: number;
     };
     console.log(`[omnidex] db ready at ${db.name} — ${n} migrations applied`);
+    try {
+      // Split camelCase pack names scanned before the pack scanner wrote them. Runs once
+      // per row; a failure only costs search quality, so it must not block boot.
+      const filled = backfillPackSearchText(db);
+      if (filled > 0) console.log(`[omnidex] search text filled for ${filled} assets`);
+    } catch (err) {
+      console.error('[omnidex] search text backfill failed:', err);
+    }
   } catch (err) {
     const e = err as Error & { migrationName?: string; backupPath?: string };
     console.error('[omnidex] failed to open database on boot:', e);

@@ -3,6 +3,7 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, join, sep } from 'node:path';
 import type { Database } from 'better-sqlite3';
 import { pruneAssetsNotIn } from '../../db/repos/assets';
+import { buildSearchText } from '../search-text';
 import { type AssetStoreInfo, readAssetStoreInfo } from './asset-store';
 import {
   discoverUnity,
@@ -204,14 +205,6 @@ function writeStoreInfo(db: Database, containerId: number, store: AssetStoreInfo
   }
 }
 
-function searchText(parts: Array<string | null | undefined>): string {
-  return parts
-    .filter(Boolean)
-    .join(' ')
-    .replaceAll(/[_./@-]/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2');
-}
-
 interface StoredRow {
   id: number;
   guid: string | null;
@@ -354,7 +347,7 @@ export async function indexUnityProject(
       path: projectRoot,
       type: 'unity_project',
       size: totalSize,
-      searchText: searchText([
+      searchText: buildSearchText([
         info.name,
         assetsOnly ? 'unity assets folder' : 'unity project',
         settingsFrom ? repairZipName(basename(settingsFrom)) : null,
@@ -555,7 +548,7 @@ export async function indexUnityPackage(
       path: packagePath,
       type: 'unity_package',
       size: info.size,
-      searchText: searchText([
+      searchText: buildSearchText([
         name,
         'unity package',
         store?.title,

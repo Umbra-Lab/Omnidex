@@ -18,6 +18,8 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Added
 
+- `scripts/oracle-mcp/golden.mjs` scores Oracle searches against a list of
+  real queries with known answers (hit@5), old behaviour against new.
 - Multi-select in the asset grid, table and collection views: click,
   Ctrl/Cmd-click, Shift-click ranges, Ctrl/Cmd-A for the filtered set, Esc to
   clear. A floating bar applies Favorite, New collection, Add tags and Remove to
@@ -87,6 +89,11 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Changed
 
+- Oracle searches relax step by step when a query finds fewer than five
+  results: asset and docs words prefix-match like the search box, a word with
+  no hits is corrected to the nearest word in the index, and transcript and
+  asset searches fall back to any of the words, ranked by BM25. Each
+  relaxation is named in a note above the results.
 - Navigation is three tabs: Library, Match and Learn. Collections and Library
   health moved into the sidebar. (#36)
 - Settings is a routed page (`/settings/<tab>`) instead of a dialog, so each tab
@@ -110,6 +117,10 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Unreal packs with joined-up names (`ModularSciFiCorridor`) are found by the
+  words inside them ("corridor", "scifi") in the search box and the Oracle. The
+  pack scanner now writes a split copy of the name for search, and existing
+  rows are filled once at startup instead of waiting for a rescan.
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers

@@ -35,6 +35,18 @@ Web fetch tools cut long pages off, or summarize them, without saying so. An age
 
 The mirror lives in its own database, `docs.db`, built by `scripts/docs-mirror/docs_mirror.py` ([Mirror vendor docs for agents](../guides/mirror-vendor-docs.md)). The server opens it per call and closes it again, so the mirror can be rebuilt while the server runs. Until it is built, every docs tool answers with the command that builds it. The index tokenizes with `unicode61 tokenchars '_'` and no stemming, so API names such as `primitive_cube_add` match whole.
 
+## How a query is matched
+
+Transcript and asset searches are built in `scripts/oracle-mcp/search.mjs`. Each step runs only when the one before found fewer than five results, and each relaxation is named in a `Note:` line above the results so the agent knows what it is reading.
+
+1. **Every word, required.** Words are quoted, so input is never FTS5 syntax. Asset and docs words also prefix-match (`"water"*`), like the app's search box. Transcript words do not: spoken words are whole words, porter stemming already covers word forms, and a prefix over 4.6 million cues is expensive.
+2. **Typo correction.** A word with no hits at all (four letters or more) is swapped for the nearest word in that index's own vocabulary, read through a TEMP `fts5vocab` table, which SQLite allows on a read-only connection. One edit is allowed under eight letters, two from eight up, and the candidate must share the first letter, so only one slice of the vocabulary is read.
+3. **Any of the words.** Transcripts and assets rerun with `OR` between the words, common English words dropped, ranked by BM25, which already puts rows holding more of the words first. A cue is one subtitle line, so a question like "how to add a ribbon renderer in niagara" never has every word in one cue.
+
+Unreal pack names written in camelCase are one token to `unicode61`. The pack scanner writes a split copy (`Modular Sci Fi Corridor SciFi …`) into `scan_search_text`, the same column the DCC and Unity scanners fill, so the app's search box and the Oracle both find the pack by "corridor". Rows scanned before that are filled once at startup.
+
+`ORACLE_SEARCH_LEGACY=1` turns all of this off (exact words, all required). It exists so the scoring script below can compare.
+
 ## Why both transcript and title search
 
 They fail in opposite directions, which is the whole reason both exist.
@@ -86,6 +98,14 @@ The self-check drives the real protocol against the live database: initialize, `
 ```admonish note title="Assert names, not counts"
 The tools test asserts the sorted **list of tool names**, not `tools.length`. A bare length check fails on every addition while saying nothing about what is missing, and passes if one tool is swapped for another.
 ```
+
+### Score search quality
+
+```bash
+node scripts/oracle-mcp/golden.mjs [golden.json] [path-to-omnidex.db]
+```
+
+Runs a list of real queries with known answers through the server twice, legacy and current, and prints hit@5 per tool. The list names your own packs and courses, so it lives next to the library as `oracle-golden.json`, not in the repo; start from `scripts/oracle-mcp/golden.example.json`. Each entry is a tool, a query, and a case-insensitive substring one of the top five results must contain. Run it before and after any change to matching or ranking.
 
 ## Performance
 

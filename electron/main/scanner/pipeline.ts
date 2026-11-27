@@ -14,6 +14,7 @@ import {
   parseCues,
 } from './course-manifest';
 import { scanDccLocation } from './dcc-index';
+import { buildSearchText } from './search-text';
 import { findThumbnailSource } from './thumbnail-finder';
 import { extractThumbnailsIsolated } from './thumbnail-pool';
 import { scanUnityLocation } from './unity';
@@ -211,6 +212,8 @@ async function scanLocation(
         folder.ecosystem,
         folder.ecosystem,
         contentFormat,
+        // Split camelCase names so "corridor" finds ModularSciFiCorridor (search-text.ts).
+        buildSearchText([folder.name]),
       );
       if (written.changes === 0) {
         // Another DCC or Unity location already owns this path. Leave its row alone and
