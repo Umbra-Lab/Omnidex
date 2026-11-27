@@ -19,9 +19,9 @@ describe('Oracle query helpers', () => {
     expect(queryTerms(' "fire"  vfx" ')).toEqual(['fire', 'vfx']);
   });
 
-  it('keeps every word when all of them are stopwords', () => {
+  it('drops stopwords for the OR step, leaving nothing if that is all there is', () => {
     expect(contentTerms(['how', 'to', 'add', 'niagara'])).toEqual(['add', 'niagara']);
-    expect(contentTerms(['to', 'be'])).toEqual(['to', 'be']);
+    expect(contentTerms(['to', 'be'])).toEqual([]);
   });
 
   it('counts a transposition as one edit', () => {
@@ -41,6 +41,8 @@ describe('Oracle query helpers', () => {
     expect(nearestTerm('fir', [{ term: 'fire', doc: 9 }])).toBeNull();
     // A stem sits a suffix away from the typed word ("materials" is stored as "materi").
     expect(nearestTerm('matrials', [{ term: 'materi', doc: 5 }])).toBe('materi');
+    // Porter drops a silent e: "database" is stored as "databas".
+    expect(nearestTerm('databse', [{ term: 'databas', doc: 5 }])).toBe('databas');
   });
 });
 
@@ -71,6 +73,7 @@ describe('Oracle staged search', () => {
     cue.run('So now we open the Niagara editor.', 1000);
     cue.run('Add a ribbon renderer to the emitter.', 5000);
     cue.run('How do I make the trail fade out?', 9000);
+    cue.run('Every database needs an index.', 13000);
     seedAsset(db, { name: 'Stylized Water Shader', file_path: '/p/water' });
     seedAsset(db, { name: 'Niagara Fire Effects', file_path: '/p/fire' });
   });
@@ -95,7 +98,11 @@ describe('Oracle staged search', () => {
   it('corrects a misspelt word from the index vocabulary', () => {
     const t = createSearch(db).transcripts('niagra editor', 20);
     expect(texts(t.rows)).toEqual(['So now we open the Niagara editor.']);
-    expect(t.notes[0]).toMatch(/"niagra" → "niagara"/);
+    expect(t.notes[0]).toMatch(/"niagra" → words starting "niagara"/);
+    // The correction is a stem ("databas"); searched exactly, porter would stem it again.
+    const d = createSearch(db).transcripts('databbase', 20);
+    expect(texts(d.rows)).toEqual(['Every database needs an index.']);
+    expect(createSearch(db).transcripts('databse index', 20).rows).toHaveLength(1);
     const a = createSearch(db).assets('niagra', 20);
     expect(names(a.rows)).toEqual(['Niagara Fire Effects']);
   });
@@ -109,6 +116,17 @@ describe('Oracle staged search', () => {
     expect(legacy.assets('shad', 20).rows).toEqual([]);
     expect(legacy.transcripts('niagra editor', 20).rows).toEqual([]);
     expect(legacy.transcripts('how to add a ribbon renderer', 20).rows).toEqual([]);
+  });
+
+  it('does not correct numbers or run an OR of only stopwords', () => {
+    seedAsset(db, { name: 'RTX 4080 Benchmark Scene', file_path: '/p/rtx' });
+    expect(createSearch(db).assets('4090', 20).rows).toEqual([]);
+    expect(createSearch(db).transcripts('to be or not', 20).rows).toEqual([]);
+  });
+
+  it('never prefix-matches a word that is not plain letters or digits', () => {
+    // "c++"* would tokenize to c* and match "Niagara Course" and everything else with a c.
+    expect(createSearch(db).assets('c++', 20).rows).toEqual([]);
   });
 
   it('reports an empty query', () => {

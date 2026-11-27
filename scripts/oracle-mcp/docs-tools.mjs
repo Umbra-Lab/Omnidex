@@ -118,12 +118,17 @@ export function parseCitation(raw) {
 }
 
 // Every word quoted (literal, never FTS5 syntax) and prefix-matched, like the app's
-// search box, so "instanc" finds "instance" and "instanced".
+// search box, so "instanc" finds "instance" and "instanced". Only plain words take the
+// prefix (`"c++"*` would be `c*`). ORACLE_SEARCH_LEGACY=1 drops it, for golden.mjs.
 function ftsQuote(query) {
+  const legacy = process.env.ORACLE_SEARCH_LEGACY === '1';
   return query
     .split(/\s+/)
     .filter(Boolean)
-    .map((t) => `"${t.replaceAll('"', '""')}"*`)
+    .map((t) => {
+      const prefix = !legacy && /^[\p{L}\p{N}_]+$/u.test(t) ? '*' : '';
+      return `"${t.replaceAll('"', '""')}"${prefix}`;
+    })
     .join(' ');
 }
 

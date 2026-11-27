@@ -44,10 +44,20 @@ try {
 function startServer(legacy) {
   const server = spawn(process.execPath, [join(here, 'server.mjs')], {
     env: { ...process.env, ORACLE_DB: dbPath, ORACLE_SEARCH_LEGACY: legacy ? '1' : '0' },
-    stdio: ['pipe', 'pipe', 'ignore'],
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stderr = '';
+  server.stderr.on('data', (d) => {
+    stderr += d;
   });
   const pending = new Map();
   let nextId = 1;
+  // A server that dies (bad DB path, missing table) fails every pending call with its
+  // stderr instead of leaving the script hanging on an answer that never comes.
+  server.on('exit', (code) => {
+    for (const fail of pending.values()) fail(null, code);
+    pending.clear();
+  });
   createInterface({ input: server.stdout }).on('line', (line) => {
     const msg = JSON.parse(line);
     pending.get(msg.id)?.(msg);
@@ -56,8 +66,14 @@ function startServer(legacy) {
   return {
     call(name, args) {
       const id = nextId++;
-      return new Promise((resolve) => {
-        pending.set(id, (m) => resolve(m.result?.content?.[0]?.text ?? m.error?.message ?? ''));
+      return new Promise((resolve, reject) => {
+        pending.set(id, (m, code) => {
+          if (!m) {
+            reject(new Error(`Oracle server exited (${code}): ${stderr.trim()}`));
+            return;
+          }
+          resolve(m.result?.content?.[0]?.text ?? `Error: ${m.error?.message ?? ''}`);
+        });
         server.stdin.write(
           `${JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } })}\n`,
         );
@@ -67,16 +83,27 @@ function startServer(legacy) {
   };
 }
 
+// Lines tools print around their results: relaxation notes, docs_search's own note and
+// closing hint, unity_find_asset's header. None of them is a result.
+const NOT_RESULT = [
+  /^Note: /,
+  /^No section has every word/,
+  /^Read a section in full with docs_read/,
+  /^"[^"]*" matches \d+ assets;/,
+];
+// Whole replies that mean "nothing found" (or failure), so they score as no results.
+const NO_RESULTS = /^(Error: |Empty query\.|No .*(matched|indexed)[^\n]*$|No Unity asset matches)/;
+
 /** Split tool output into results: a result starts at a line with no indent. */
 function results(text) {
+  if (NO_RESULTS.test(text.trim())) return [];
   const out = [];
   for (const line of text.split('\n')) {
-    if (line.startsWith('Note: ') || line.trim() === '') continue;
+    if (line.trim() === '' || NOT_RESULT.some((re) => re.test(line))) continue;
     if (/^\s/.test(line) && out.length > 0) out[out.length - 1] += `\n${line}`;
     else out.push(line);
   }
-  // "No owned assets matched." and friends are one line with no result in it.
-  return out.length === 1 && /^(No |Empty query)/.test(out[0]) ? [] : out;
+  return out;
 }
 
 async function score(legacy) {
@@ -97,8 +124,15 @@ async function score(legacy) {
   return hits;
 }
 
-const before = await score(true);
-const after = await score(false);
+let before;
+let after;
+try {
+  before = await score(true);
+  after = await score(false);
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
 
 const show = (rank) => (rank < 0 ? '  -' : `  ${rank + 1}`);
 console.log('before after  tool                query → expect');
