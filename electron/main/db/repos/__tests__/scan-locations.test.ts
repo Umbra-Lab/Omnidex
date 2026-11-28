@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Database } from 'better-sqlite3';
@@ -131,6 +132,25 @@ describe('folderKey', () => {
     expect(folderKey('/Volumes/Lib/', 'darwin')).toBe(folderKey('/volumes/lib', 'darwin'));
     expect(folderKey('/srv/Lib', 'linux')).not.toBe(folderKey('/srv/lib', 'linux'));
     expect(folderKey('/srv/lib/', 'linux')).toBe(folderKey('/srv/lib', 'linux'));
+  });
+});
+
+describe('folderKey on this machine', () => {
+  it('follows a symlink to the folder it points at', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omnidex-loc-'));
+    const real = join(dir, 'packs');
+    const link = join(dir, 'alias');
+    mkdirSync(real);
+    symlinkSync(real, link, 'junction');
+    try {
+      expect(folderKey(link)).toBe(folderKey(real));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('matches composed and decomposed spellings of one name', () => {
+    expect(folderKey('/lib/Caf\u00e9', 'darwin')).toBe(folderKey('/lib/Cafe\u0301', 'darwin'));
   });
 });
 
