@@ -110,6 +110,14 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Marketplace enrichment no longer gives up on packs after a bad network
+  moment: rate-limit, server and connection errors leave a pack to be retried
+  on the next run instead of marking it tried, and an unresponsive Orbital
+  Market now stops the run. Other 4xx errors are no longer retried. (overnight)
+- FAB sync reports a failed or interrupted library fetch instead of finishing
+  as if the library were empty, and no longer enriches from a partial library.
+  Packs with both an asset id and a listing id now rematch, and listings
+  without a type are stored as "Asset". (overnight)
 - Ask now says "Cancelled." when you stop an answer instead of blaming the model server, reports a Claude Code login failure as an error instead of showing it as the answer, keeps the last line of a streamed local answer, and rechecks for the Claude Code CLI after a slow first check (overnight).
 - Removed the unused renderer-callable uasset IPC handlers, so a bad `.uasset` path can no longer abort the main process (overnight).
 - A folder that briefly fails to open during a scan (permissions, a busy file,

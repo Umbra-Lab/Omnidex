@@ -758,12 +758,13 @@ async function runExtractMissingThumbsAndQuit(): Promise<void> {
 
 async function runEnrichOrbitalAndQuit(): Promise<void> {
   progressBus.on('progress', logProgressLine);
+  let interrupted = false;
   try {
-    await enrichOrbital();
+    interrupted = (await enrichOrbital()).interrupted === true;
   } finally {
     progressBus.off('progress', logProgressLine);
   }
-  app.exit(0);
+  app.exit(interrupted ? 1 : 0);
 }
 
 /** Read a single line (the Epic `authorizationCode`) from stdin. CLI-only. */
@@ -810,12 +811,17 @@ async function runEnrichFabAndQuit(): Promise<void> {
   const fabAccount = flagValue(argv, '--fab-account');
   progressBus.on('progress', logProgressLine);
   try {
-    await enrichFab({
+    const result = await enrichFab({
       fabToken,
       fabAccount,
       // Preserve today's CLI behavior: interactive stdin re-auth on stale creds.
       promptAuthCode: readAuthCodeFromStdin,
     });
+    if (result.fetchError) {
+      progressBus.off('progress', logProgressLine);
+      app.exit(1);
+      return;
+    }
   } catch (e) {
     progressBus.off('progress', logProgressLine);
     if (e instanceof FabAuthRequiredError) {

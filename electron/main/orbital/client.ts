@@ -77,6 +77,20 @@ export class OrbitalNotFoundError extends Error {
 }
 
 /**
+ * Any other 4xx (400/401/403...) or an unparseable 200 body. A problem with
+ * the request or the response shape, not with the network, so it is never
+ * retried and never counts toward the circuit breaker.
+ */
+export class OrbitalRequestError extends Error {
+  readonly status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'OrbitalRequestError';
+    this.status = status;
+  }
+}
+
+/**
  * 429/5xx, an open circuit breaker, or a transport failure. Carries a hint for
  * *how long* to wait before the next attempt (`retryAfterMs`), sourced from a
  * `Retry-After` header when present or the breaker cooldown otherwise.
@@ -176,23 +190,33 @@ async function runRequest<T>(
       // Other 4xx — a request-shape problem, not rate limiting. Don't retry,
       // don't trip the breaker.
       noteSuccess();
-      throw new Error(`Orbital ${response.status}: ${path}`);
+      throw new OrbitalRequestError(`Orbital ${response.status}: ${path}`, response.status);
     }
     const body = await response.text();
     noteSuccess();
-    return parse(body);
+    try {
+      return parse(body);
+    } catch (e) {
+      // The server answered; a bad body is not a transport failure.
+      throw new OrbitalRequestError(
+        `Orbital response could not be parsed: ${path}: ${(e as Error).message}`,
+      );
+    }
   } catch (err) {
     // Transport failures (DNS, connection reset, per-attempt timeout/abort)
-    // count toward the breaker too. OrbitalNotFoundError and the generic 4xx
-    // Error above already reset/preserved breaker state, so leave those alone.
+    // count toward the breaker and surface as RateLimitError so callers can
+    // tell "network trouble, try again later" from a definitive answer.
+    // OrbitalNotFoundError, RateLimitError and OrbitalRequestError already
+    // reset or preserved breaker state, so leave those alone.
     if (
-      !(err instanceof OrbitalNotFoundError) &&
-      !(err instanceof RateLimitError) &&
-      !(err instanceof Error && /^Orbital \d/.test(err.message))
+      err instanceof OrbitalNotFoundError ||
+      err instanceof RateLimitError ||
+      err instanceof OrbitalRequestError
     ) {
-      noteFailure();
+      throw err;
     }
-    throw err;
+    noteFailure();
+    throw new RateLimitError(`Orbital request failed: ${path}: ${(err as Error).message}`, 0);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -215,7 +239,9 @@ async function withRetry<T>(
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
         // Out of time — fail fast and free the queue slot.
-        throw new AbortError(`Orbital request deadline exceeded: ${path}`);
+        // Typed as RateLimitError (p-retry rethrows the wrapped error) so callers
+        // treat a missed deadline as network trouble, not a definitive answer.
+        throw new AbortError(new RateLimitError(`Orbital request deadline exceeded: ${path}`, 0));
       }
       return runRequest(path, init, parse, Math.min(ATTEMPT_TIMEOUT_MS, remaining));
     },
@@ -223,11 +249,13 @@ async function withRetry<T>(
       retries: 2,
       minTimeout: 500,
       factor: 2,
-      // Never retry definitive answers (404). Fail fast when the breaker is
+      // Never retry definitive answers (404) or request/response-shape
+      // problems (other 4xx, unparseable body). Fail fast when the breaker is
       // already open — retrying would only spin until the cooldown, pinning the
       // queue slot. Stop once the overall deadline has passed.
       shouldRetry: ({ error }) =>
         !(error instanceof OrbitalNotFoundError) &&
+        !(error instanceof OrbitalRequestError) &&
         !(error instanceof RateLimitError && error.breakerOpen) &&
         Date.now() < deadline,
       // Honor Retry-After as a floor on the wait before the next attempt.

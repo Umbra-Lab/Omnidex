@@ -152,6 +152,12 @@ export interface EnrichFabResult {
    * fallback drops custom error `data` — so the URL can't ride the error channel.
    */
   redirectUrl?: string;
+  /**
+   * Set when the library could not be fetched in full (HTTP or network error,
+   * or re-auth failed). Nothing was enriched in that case. Carried in the
+   * result because electron-trpc drops custom error data.
+   */
+  fetchError?: string;
 }
 
 export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabResult> {
@@ -313,6 +319,20 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
   let cursor: string | null = null;
   let page = 0;
   let refreshTried = false;
+  let authCodeTried = false;
+
+  // A partial library must never be enriched from: report the failure and stop.
+  const failFetch = (message: string): EnrichFabResult => {
+    emit({
+      action: 'enrich-fab',
+      phase: 'error',
+      processed: items.length,
+      total: 0,
+      currentName: null,
+      message,
+    });
+    return { libraryItems: items.length, updated: 0, unmatched: 0, fetchError: message };
+  };
 
   emit({
     action: 'enrich-fab',
@@ -329,51 +349,33 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
     try {
       resp = await fetch(url, { headers: { Authorization: `Bearer ${creds.access_token}` } });
     } catch (e) {
-      emit({
-        action: 'enrich-fab',
-        phase: 'error',
-        processed: items.length,
-        total: 0,
-        currentName: null,
-        message: `network error on page ${page + 1}: ${(e as Error).message}`,
-      });
-      break;
+      return failFetch(`network error on page ${page + 1}: ${(e as Error).message}`);
     }
-    if (resp.status === 401 && !refreshTried) {
-      refreshTried = true;
-      if (await refreshAccessToken()) {
-        continue; // retry same page with new token
+    if (resp.status === 401) {
+      // Token expired (possibly mid-pagination): refresh once per expiry, then
+      // fall back to the authorization-code re-auth. In the tRPC path (no
+      // promptAuthCode) the latter throws FabAuthRequiredError.
+      if (!refreshTried) {
+        refreshTried = true;
+        if (await refreshAccessToken()) continue; // retry same page with new token
       }
-      // refresh failed — fall back to the authorization-code re-auth. In the
-      // tRPC path (no promptAuthCode) this throws FabAuthRequiredError.
-      const ok = await runEpicAuthCodeFlow();
-      if (ok) continue;
-      emit({
-        action: 'enrich-fab',
-        phase: 'error',
-        processed: items.length,
-        total: 0,
-        currentName: null,
-        message: 're-auth failed; aborting',
-      });
-      break;
+      if (!authCodeTried) {
+        authCodeTried = true;
+        if (await runEpicAuthCodeFlow()) continue;
+      }
+      return failFetch('re-auth failed; aborting');
     }
     if (!resp.ok) {
       const body = await resp.text();
-      emit({
-        action: 'enrich-fab',
-        phase: 'error',
-        processed: items.length,
-        total: 0,
-        currentName: null,
-        message: `HTTP ${resp.status} on page ${page + 1}: ${body.slice(0, 200)}`,
-      });
-      break;
+      return failFetch(`HTTP ${resp.status} on page ${page + 1}: ${body.slice(0, 200)}`);
     }
     const data = (await resp.json()) as FabLibraryPage;
     const results = data.results ?? [];
     items.push(...results);
     page += 1;
+    // A good page means the token works; allow one more refresh if it expires later.
+    refreshTried = false;
+    authCodeTried = false;
     emit({
       action: 'enrich-fab',
       phase: 'progress',
@@ -407,8 +409,11 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
   for (const item of items) {
     const t = (item.title ?? '').trim();
     if (t && !byTitle.has(t)) byTitle.set(t, item);
-    const aid = item.assetId ?? extractFabListingId(item) ?? '';
-    if (aid && !byAssetId.has(aid)) byAssetId.set(aid, item);
+    // Stored fab_item_id prefers ListingIdentifier (extractFabListingId), so
+    // index under both ids or an item carrying both is never rematched.
+    for (const aid of [item.assetId, extractFabListingId(item)]) {
+      if (aid && !byAssetId.has(aid)) byAssetId.set(aid, item);
+    }
   }
 
   const db = openDatabase();
@@ -513,7 +518,7 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
       }
     }
     const listingType = item.listingType ?? '';
-    const assetType = FAB_LISTING_TYPE_MAP[listingType] ?? listingType ?? 'Asset';
+    const assetType = FAB_LISTING_TYPE_MAP[listingType] ?? (listingType || 'Asset');
     const fabId = extractFabListingId(item);
 
     updateStmt.run(
