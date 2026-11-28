@@ -104,6 +104,16 @@ describe('CollectionDetail rename', () => {
     expect(api.rename).toHaveBeenCalledWith({ id: 3, name: 'Cliffs' });
   });
 
+  it('keeps editing when the window loses focus', () => {
+    const input = startRename();
+    type(input, 'Cli');
+    const spy = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    act(() => input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    spy.mockRestore();
+    expect(api.rename).not.toHaveBeenCalled();
+    expect(host.querySelector<HTMLInputElement>('input')?.value).toBe('Cli');
+  });
+
   it('throws the edit away on Escape', () => {
     const input = startRename();
     type(input, 'Cliffs');

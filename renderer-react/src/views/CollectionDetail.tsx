@@ -49,13 +49,24 @@ export function CollectionDetail() {
     },
   });
 
+  // The header shows the new name at once; a failed save puts the old one back.
   const rename = trpc.collections.rename.useMutation({
+    onMutate: ({ name: next }) => {
+      const before = utils.collections.get.getData(id);
+      if (before) utils.collections.get.setData(id, { ...before, name: next });
+      return { before };
+    },
     onSuccess: (found) => {
       if (!found) toast.error('That collection no longer exists');
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.before) utils.collections.get.setData(id, ctx.before);
+      toast.error(`Couldn't rename collection: ${err.message}`);
+    },
+    onSettled: () => {
       void utils.collections.get.invalidate(id);
       void utils.collections.list.invalidate();
     },
-    onError: (err) => toast.error(`Couldn't rename collection: ${err.message}`),
   });
 
   const favorite = trpc.assets.setFavorite.useMutation({
@@ -246,12 +257,16 @@ function DetailHeader({ title, subtitle, onDelete, name, onRename }: DetailHeade
               e.preventDefault();
               finish(true);
             } else if (e.key === 'Escape') {
-              // Keep the page's own Escape (clear selection) out of it.
+              // Escape here only cancels the edit; keep it from any page handler.
               e.stopPropagation();
               finish(false);
             }
           }}
-          onBlur={() => finish(true)}
+          // Switching to another window blurs the input too. That is not
+          // "done", so a half-typed name stays in the editor instead of saving.
+          onBlur={() => {
+            if (document.hasFocus()) finish(true);
+          }}
           className="h-7 w-64 min-w-0 font-display font-semibold"
         />
       ) : (
