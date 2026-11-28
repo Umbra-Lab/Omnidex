@@ -141,6 +141,12 @@ describe('thumbnailLanes', () => {
     expect(thumbnailLanes(16 * GB, 16)).toBe(4);
     expect(thumbnailLanes(64 * GB, 16)).toBe(4);
   });
+  it('counts RAM as installed, not as the slightly smaller amount the OS reports', () => {
+    expect(thumbnailLanes(7.7 * GB, 16)).toBe(2);
+    expect(thumbnailLanes(15.7 * GB, 16)).toBe(4);
+    expect(thumbnailLanes(6 * GB, 16)).toBe(1);
+    expect(thumbnailLanes(3.8 * GB, 16)).toBe(1);
+  });
   it('leaves a core for the app and never drops to zero', () => {
     expect(thumbnailLanes(64 * GB, 2)).toBe(1);
     expect(thumbnailLanes(64 * GB, 3)).toBe(2);
