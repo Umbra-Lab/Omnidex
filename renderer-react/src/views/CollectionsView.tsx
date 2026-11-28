@@ -262,6 +262,13 @@ function CoverMosaic({ covers }: { readonly covers: string | null }) {
   // moved). A broken-image glyph on the cover reads as a fault, so a failed
   // tile drops out and the rest re-tile.
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
+  // A new cover list (a member added, thumbnails re-extracted) gets a fresh
+  // try. Reset during render, as LearnView's Player does for its error flag.
+  const [lastCovers, setLastCovers] = useState(covers);
+  if (covers !== lastCovers) {
+    setLastCovers(covers);
+    setFailed(new Set());
+  }
   const shown = urls.filter((u) => !failed.has(u));
 
   if (shown.length === 0) {
