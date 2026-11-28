@@ -2,6 +2,7 @@ import type { Asset, AssetCardData, AssetFilter, SortOption } from '@omnidex/typ
 import { DEFAULT_SORT, SORT_OPTION_SQL } from '@omnidex/types/db';
 import type { Database } from 'better-sqlite3';
 import { escapeLike, normalizeRow, normalizeRows, toSqliteBool } from './row-helpers';
+import type { ScanLocationRemovalImpact } from './scan-locations';
 
 /**
  * Query layer for the `assets` table. Mirrors behavior of
@@ -436,12 +437,64 @@ export function setFavorite(db: Database, ids: number[], favorite: boolean): voi
   stmt.run(toSqliteBool(favorite), ...ids);
 }
 
+/**
+ * What removing assets takes with it: the curation `getScanLocationRemovalImpact`
+ * counts for a folder, plus `notRescanned`, the selected rows no scan writes
+ * again. Those are the legacy FAB vault rows (`scan_location_id = -1`, and
+ * anything else not under a real scan location): removing one is permanent.
+ */
+export interface AssetRemovalImpact extends ScanLocationRemovalImpact {
+  readonly notRescanned: number;
+}
+
+/**
+ * Count what `deleteAssets` takes with it for these ids. The ids travel as one
+ * JSON array (`json_each`), so a large selection never meets SQLite's
+ * host-parameter limit.
+ */
+export function getAssetRemovalImpact(db: Database, ids: number[]): AssetRemovalImpact {
+  const sel = 'SELECT value FROM json_each(?)';
+  const json = JSON.stringify(ids);
+  const row = db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM assets WHERE id IN (${sel})) AS assets,
+         (SELECT COUNT(*) FROM assets WHERE id IN (${sel}) AND is_favorite = 1) AS favorites,
+         (SELECT COUNT(*) FROM asset_notes n
+           WHERE n.asset_id IN (${sel})
+             AND (TRIM(COALESCE(n.note_text, '')) <> '' OR n.rating IS NOT NULL)) AS notes,
+         (SELECT COUNT(DISTINCT t.asset_id) FROM asset_tags t
+           WHERE t.asset_id IN (${sel}) AND t.source <> 'official') AS taggedAssets,
+         (SELECT COUNT(*) FROM collection_items c WHERE c.asset_id IN (${sel}))
+           AS collectionEntries,
+         (SELECT COUNT(*) FROM course_progress p
+            JOIN course_files f ON f.id = p.file_id
+           WHERE f.asset_id IN (${sel})
+             AND (p.position_seconds > 0 OR p.completed = 1)) AS lessonsWithProgress,
+         (SELECT COUNT(*) FROM orbital_match_rejections r WHERE r.asset_id IN (${sel}))
+           AS matchDecisions,
+         (SELECT COUNT(*) FROM assets WHERE id IN (${sel}) AND scan_location_id <= 0)
+           AS notRescanned`,
+    )
+    .get(json, json, json, json, json, json, json, json) as AssetRemovalImpact;
+  return {
+    assets: Number(row.assets),
+    favorites: Number(row.favorites),
+    notes: Number(row.notes),
+    taggedAssets: Number(row.taggedAssets),
+    collectionEntries: Number(row.collectionEntries),
+    lessonsWithProgress: Number(row.lessonsWithProgress),
+    matchDecisions: Number(row.matchDecisions),
+    notRescanned: Number(row.notRescanned),
+  };
+}
+
+/** One JSON array parameter, like `getAssetRemovalImpact`, so any selection size works. */
 export function deleteAssets(db: Database, ids: number[]): number {
   if (ids.length === 0) return 0;
-  const placeholders = ids.map(() => '?').join(',');
-  const stmt = db.prepare(`DELETE FROM assets WHERE id IN (${placeholders})`);
-  const result = stmt.run(...ids);
-  return result.changes;
+  return db
+    .prepare('DELETE FROM assets WHERE id IN (SELECT value FROM json_each(?))')
+    .run(JSON.stringify(ids)).changes;
 }
 
 /** Clear every asset row from the database (keeps schema). */

@@ -14,8 +14,10 @@ import { BulkActionBar } from '@/features/assets/BulkActionBar';
 import { FilterChips } from '@/features/assets/FilterChips';
 import { activeFacets, buildAssetFilter, toggleFacet } from '@/features/assets/facets';
 import { InspectorPanel } from '@/features/assets/InspectorPanel';
+import { RemoveAssetsBody } from '@/features/assets/RemoveAssetsBody';
 import { SourceList } from '@/features/assets/SourceList';
 import { useAssetSelection } from '@/features/assets/useAssetSelection';
+import { summarizeRemoval } from '@/features/settings/tabs/removalSummary';
 import { useHotkey } from '@/hooks/useHotkey';
 import { buildAssetMenuItems, useNativeContextMenu } from '@/hooks/useNativeContextMenu';
 import { trpc } from '@/ipc/trpc';
@@ -234,6 +236,41 @@ export function AssetsView() {
     },
   });
 
+  // Removing assets cascades to everything the user made on them, and the
+  // next scan re-adds the folders as new assets, so the confirm counts what
+  // is lost for good. If the count can't be read, say so in general terms
+  // rather than show a reassuring zero.
+  // One count fetch at a time: a second click while the first is loading
+  // would otherwise open the dialog twice.
+  const removeLoading = useRef(false);
+  const confirmRemove = async (ids: number[], name?: string) => {
+    if (ids.length === 0 || removeLoading.current) return;
+    removeLoading.current = true;
+    let summary: ReturnType<typeof summarizeRemoval> | null = null;
+    let notRescanned = 0;
+    try {
+      const impact = await utils.assets.removalImpact.fetch(ids, { staleTime: 0 });
+      summary = summarizeRemoval(impact);
+      notRescanned = impact.notRescanned;
+    } catch {
+      summary = null;
+    } finally {
+      removeLoading.current = false;
+    }
+    const one = ids.length === 1;
+    openConfirm({
+      title: one && name ? `Remove “${name}”?` : `Remove ${formatCount(ids.length)} assets?`,
+      body: <RemoveAssetsBody count={ids.length} summary={summary} notRescanned={notRescanned} />,
+      confirmLabel: 'Remove',
+      destructive: true,
+      onConfirm: async () => {
+        await remove.mutateAsync(ids);
+        forget(ids);
+        toast.success(one ? 'Asset removed' : `${formatCount(ids.length)} assets removed`);
+      },
+    });
+  };
+
   const onToggleFavorite = (id: number, next: boolean) => {
     // Guard against double-clicks desyncing the optimistic cache.
     if (favorite.isPending) return;
@@ -249,18 +286,7 @@ export function AssetsView() {
         onToggleFavorite: () => onToggleFavorite(asset.id, !asset.is_favorite),
         onAddToCollection: () => openAddToCollection([asset.id]),
         onManageTags: () => openTagging(asset.id),
-        onDelete: () =>
-          openConfirm({
-            title: 'Delete asset?',
-            body: `"${asset.orbital_title ?? asset.name}" will be removed from your library. This does not delete the file on disk.`,
-            confirmLabel: 'Delete',
-            destructive: true,
-            onConfirm: async () => {
-              await remove.mutateAsync([asset.id]);
-              forget([asset.id]);
-              toast.success('Asset deleted');
-            },
-          }),
+        onDelete: () => void confirmRemove([asset.id], asset.orbital_title ?? asset.name),
       }),
     );
 
@@ -279,18 +305,7 @@ export function AssetsView() {
     favorite.mutate({ ids: selectedRows.map((a) => a.id), favorite: !allFavorited });
   };
 
-  const onBulkRemove = () =>
-    openConfirm({
-      title: `Delete ${formatCount(selectedIdList.length)} assets?`,
-      body: 'They will be removed from your library. This does not delete the files on disk.',
-      confirmLabel: 'Delete',
-      destructive: true,
-      onConfirm: async () => {
-        await remove.mutateAsync(selectedIdList);
-        forget(selectedIdList);
-        toast.success(`${formatCount(selectedIdList.length)} assets deleted`);
-      },
-    });
+  const onBulkRemove = () => void confirmRemove(selectedIdList);
 
   return (
     <div className="flex h-full w-full min-w-0 flex-row">

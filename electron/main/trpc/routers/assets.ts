@@ -80,6 +80,11 @@ export const assetsRouter = router({
       return true;
     }),
 
+  /** What deleting these assets takes with it, for the confirm dialog. */
+  removalImpact: publicProcedure
+    .input(idsSchema)
+    .query(({ input }) => assetsRepo.getAssetRemovalImpact(openDatabase(), input)),
+
   delete: publicProcedure
     .input(idsSchema)
     .mutation(({ input }) => assetsRepo.deleteAssets(openDatabase(), input)),

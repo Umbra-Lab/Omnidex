@@ -17,8 +17,9 @@ import { type ActionProgressState, useActionProgress } from '@/hooks/useActionPr
 import { trpc } from '@/ipc/trpc';
 import { formatBytes, formatCount } from '@/lib/format';
 import { useModals } from '@/stores/modals';
+import { Counted } from './Counted';
 import { LibrarySummary } from './LibrarySummary';
-import { type CountPhrase, separatorBefore, summarizeRemoval } from './removalSummary';
+import { separatorBefore, summarizeRemoval } from './removalSummary';
 
 export function AssetSourcesTab() {
   const [addOpen, setAddOpen] = useState(false);
@@ -341,14 +342,4 @@ function formatScannedAt(iso: string | null): string {
   if (elapsed < DAY) return `Scanned ${ago('hour', HOUR)}`;
   if (elapsed < 7 * DAY) return `Scanned ${ago('day', DAY)}`;
   return `Scanned ${new Date(then).toLocaleDateString()}`;
-}
-
-/** A counted phrase from the remove-folder summary, with only the number in mono. */
-function Counted({ phrase }: { phrase: CountPhrase }) {
-  return (
-    <span className="text-surface-100">
-      {phrase.before}
-      <span className="font-mono tabular-nums">{phrase.count}</span> {phrase.label}
-    </span>
-  );
 }
