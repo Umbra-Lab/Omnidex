@@ -293,9 +293,9 @@ describe('officialTagsWriter — FAB category tags', () => {
   });
 });
 
-describe('migration 20261128000000_unify_asset_tags', () => {
+describe('migration 20261128010000_unify_asset_tags', () => {
   const sql = readFileSync(
-    'electron/main/db/migrations/20261128000000_unify_asset_tags.up.sql',
+    'electron/main/db/migrations/20261128010000_unify_asset_tags.up.sql',
     'utf8',
   );
   const mirror = (id: number) =>
