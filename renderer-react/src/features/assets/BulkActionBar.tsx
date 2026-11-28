@@ -59,8 +59,9 @@ export function BulkActionBar({
       className="-translate-x-1/2 absolute bottom-4 left-1/2 z-40 flex w-max max-w-[calc(100%-2rem)] items-center gap-1 rounded-lg border border-surface-700 bg-surface-800 px-3 py-2 shadow-xl shadow-black/60"
     >
       {/* Under 24rem the word "selected" goes, so a four-digit count still
-          fits beside the icons; the toolbar's label keeps the full phrase. */}
-      <span className="min-w-0 truncate whitespace-nowrap pr-2 font-mono tabular-nums cap-14 font-semibold text-surface-50">
+          fits beside the icons; the toolbar's label keeps the full phrase.
+          The number itself never shrinks or truncates (exact counts). */}
+      <span className="shrink-0 whitespace-nowrap pr-2 font-mono tabular-nums cap-14 font-semibold text-surface-50">
         {formatCount(count)}
         <span className="hidden @[24rem]:inline"> selected</span>
       </span>
