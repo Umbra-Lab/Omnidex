@@ -360,7 +360,9 @@ function InspectorContent({
                   Favorite
                 </Badge>
               ) : null}
-              {asset.asset_type ? <Badge variant="outline">{asset.asset_type}</Badge> : null}
+              {asset.asset_type ? (
+                <Badge variant="outline">{formatTaxonomyLabel(asset.asset_type)}</Badge>
+              ) : null}
             </div>
           </div>
 

@@ -170,3 +170,8 @@ table,
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-surface-700);
 }
+/* Where a horizontal and a vertical scrollbar meet (the asset table at narrow
+   widths). Unstyled, Chromium paints it white. */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
