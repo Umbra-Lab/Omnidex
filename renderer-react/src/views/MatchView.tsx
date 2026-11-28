@@ -534,11 +534,7 @@ function Field({
   readonly wrap?: boolean;
 }) {
   return (
-    // items-start, not items-baseline: `truncate` sets overflow:hidden, and a
-    // grid item with clipped overflow takes its baseline from its bottom edge,
-    // which pushed every label below its value. Capsize already trims both to
-    // their cap height, so their tops line up.
-    <div className="grid grid-cols-[130px_minmax(0,1fr)] items-start gap-3 border-b border-surface-800/40 py-2 font-mono">
+    <div className="grid grid-cols-[130px_minmax(0,1fr)] items-baseline gap-3 border-b border-surface-800/40 py-2 font-mono">
       <span className="cap-11 uppercase tracking-[0.1em] text-surface-500">{label}</span>
       <span
         className={cn('min-w-0 cap-12 text-surface-100', wrap ? 'break-all' : 'truncate')}
