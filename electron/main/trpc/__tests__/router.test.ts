@@ -603,6 +603,36 @@ describe('orbital router delegation', () => {
     expect(orbitalSvc.enrichOneOrbital).toHaveBeenLastCalledWith(12, 'pick-me');
   });
 
+  it('keeps the rejections when the match did not land', async () => {
+    db.prepare(
+      "INSERT INTO orbital_match_rejections (asset_id, product_slug) VALUES (12, 'no')",
+    ).run();
+    const left = () =>
+      (db.prepare('SELECT COUNT(*) AS n FROM orbital_match_rejections').get() as { n: number }).n;
+
+    orbitalSvc.enrichOneOrbital.mockResolvedValueOnce({
+      total: 1,
+      matched: 0,
+      unmatched: 1,
+      failed: 0,
+    } as never);
+    await caller.orbital.match({ assetId: 12, slug: 'gone' });
+    expect(left()).toBe(1);
+
+    orbitalSvc.enrichOneOrbital.mockRejectedValueOnce(new Error('Orbital unreachable'));
+    await expect(caller.orbital.match({ assetId: 12, slug: 'yes' })).rejects.toThrow();
+    expect(left()).toBe(1);
+
+    orbitalSvc.enrichOneOrbital.mockResolvedValueOnce({
+      total: 1,
+      matched: 1,
+      unmatched: 0,
+      failed: 0,
+    } as never);
+    await caller.orbital.match({ assetId: 12, slug: 'yes' });
+    expect(left()).toBe(0);
+  });
+
   it('candidates is a read query that forwards folderName + limit to the matcher', async () => {
     await expect(
       // @ts-expect-error — intentionally bad: folderName required
