@@ -48,6 +48,12 @@ export const scanLocationsRouter = router({
     return true;
   }),
 
+  // Counts for the remove-folder confirm: deleting a location cascades to its
+  // assets and every note, tag, favourite and collection entry on them.
+  removalImpact: publicProcedure
+    .input(idSchema)
+    .query(({ input }) => scanLocationsRepo.getScanLocationRemovalImpact(openDatabase(), input)),
+
   delete: publicProcedure.input(idSchema).mutation(({ input }) => {
     scanLocationsRepo.deleteScanLocation(openDatabase(), input);
     return true;

@@ -83,6 +83,47 @@ export function updateScanLocationActive(db: Database, id: number, isActive: boo
   );
 }
 
+/** What removing a scan location takes with it (see `getScanLocationRemovalImpact`). */
+export interface ScanLocationRemovalImpact {
+  assets: number;
+  favorites: number;
+  /** Note rows that hold text or a rating; emptied rows don't count. */
+  notes: number;
+  taggedAssets: number;
+  collectionEntries: number;
+}
+
+/**
+ * Count what `deleteScanLocation` will delete. `assets.scan_location_id` is
+ * `ON DELETE CASCADE`, and notes, tags and collection entries cascade from
+ * `assets`, so the user's curation goes with the folder. The confirm dialog
+ * shows these numbers so the user can see that before agreeing.
+ */
+export function getScanLocationRemovalImpact(db: Database, id: number): ScanLocationRemovalImpact {
+  const row = db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM assets WHERE scan_location_id = ?) AS assets,
+         (SELECT COUNT(*) FROM assets WHERE scan_location_id = ? AND is_favorite = 1)
+           AS favorites,
+         (SELECT COUNT(*) FROM asset_notes n JOIN assets a ON a.id = n.asset_id
+           WHERE a.scan_location_id = ?
+             AND (TRIM(COALESCE(n.note_text, '')) <> '' OR n.rating IS NOT NULL)) AS notes,
+         (SELECT COUNT(DISTINCT t.asset_id) FROM asset_tags t JOIN assets a ON a.id = t.asset_id
+           WHERE a.scan_location_id = ?) AS taggedAssets,
+         (SELECT COUNT(*) FROM collection_items c JOIN assets a ON a.id = c.asset_id
+           WHERE a.scan_location_id = ?) AS collectionEntries`,
+    )
+    .get(id, id, id, id, id) as ScanLocationRemovalImpact;
+  return {
+    assets: Number(row.assets),
+    favorites: Number(row.favorites),
+    notes: Number(row.notes),
+    taggedAssets: Number(row.taggedAssets),
+    collectionEntries: Number(row.collectionEntries),
+  };
+}
+
 export function deleteScanLocation(db: Database, id: number): void {
   db.prepare('DELETE FROM scan_locations WHERE id = ?').run(id);
 }

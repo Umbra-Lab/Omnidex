@@ -66,6 +66,7 @@ CREATE TABLE asset_marketplace_matches (
 CREATE TABLE asset_notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   asset_id INTEGER NOT NULL,
+  note_text TEXT,
   rating INTEGER,
   created_at TEXT,
   updated_at TEXT
