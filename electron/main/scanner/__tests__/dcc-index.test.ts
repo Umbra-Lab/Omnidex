@@ -33,7 +33,7 @@ describe('DCC catalogue indexing', () => {
     (db as unknown as { close(): void }).close();
   });
 
-  it('rolls back when a path belongs to another location', () => {
+  it('rolls back when a path belongs to another non-Unity location', () => {
     const db = createTestDb();
     db.exec(
       readFileSync(resolve('electron/main/db/migrations/20261108000000_dcc_index.up.sql'), 'utf8'),
