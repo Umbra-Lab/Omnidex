@@ -71,7 +71,9 @@ const events = {
 const shellBridge = {
   openPath: (path: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('omnidex:shell:open-path', path),
-  openFileLocation: (path: string): Promise<{ ok: boolean; error?: string }> =>
+  openFileLocation: (
+    path: string,
+  ): Promise<{ ok: boolean; error?: string; openedParent?: boolean }> =>
     ipcRenderer.invoke('omnidex:shell:open-file-location', path),
   openExternal: (url: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('omnidex:shell:open-external', url),

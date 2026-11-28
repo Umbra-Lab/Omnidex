@@ -81,10 +81,12 @@ export function registerShellIpc(): void {
       shell.showItemInFolder(safePath);
       return { ok: true };
     }
+    // The folder is gone (a pack that moved): open where it was, and say so,
+    // so the renderer can tell the user rather than show a bare parent.
     const parent = dirname(safePath);
     if (existsSync(parent)) {
       const err = await shell.openPath(parent);
-      return err ? { ok: false, error: err } : { ok: true };
+      return err ? { ok: false, error: err } : { ok: true, openedParent: true };
     }
     return { ok: false, error: 'not found' };
   });
