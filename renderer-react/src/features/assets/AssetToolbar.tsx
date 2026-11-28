@@ -137,7 +137,10 @@ export function AssetToolbar({
           </div>
         ) : (
           <Select value={sort} onValueChange={(v) => onSortChange(v as SortOption)}>
-            <SelectTrigger className="h-8 w-[120px] cap-12 @xl:w-[140px] @2xl:w-[180px]">
+            <SelectTrigger
+              className="h-8 w-[120px] cap-12 @xl:w-[140px] @2xl:w-[180px]"
+              title={SORT_LABELS[sort]}
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
