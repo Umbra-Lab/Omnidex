@@ -80,10 +80,14 @@ A main-process change is invisible to `pnpm refresh-scans` until `pnpm build`. T
 ## The asset protocol
 
 ```
-omnidex-asset://<url-encoded absolute path>
+omnidex-asset://local/<url-encoded absolute path>
 ```
 
-A privileged scheme registered in `electron/main/index.ts`. It is how the renderer reads any local file — thumbnails, video, audio, documents.
+A privileged scheme registered in `electron/main/index.ts`. It is how the renderer reads any local file — thumbnails, video, audio, documents. A Windows path keeps its drive (`omnidex-asset://local/C:/Users/...`) and a UNC path its two slashes (`omnidex-asset://local//nas/share/...`).
+
+```admonish warning title="The fixed host is load-bearing"
+The scheme is `standard`, so Chromium reads the first segment after `://` as a hostname and case-folds it. Without the fixed `local` host, `/home/u/x.png` arrives as host `home` and the path's first segment is lost. Node's URL parser does not do this, so a round-trip test through `new URL` cannot catch it; `electron/main/__tests__/asset-protocol.test.ts` hand-writes the forms Chromium delivers.
+```
 
 The handler supports range requests: `206 Partial Content` with `Content-Range` for a valid range, `416` with `bytes */size` for an unsatisfiable one, and `Accept-Ranges: bytes` on every response.
 

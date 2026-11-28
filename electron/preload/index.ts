@@ -121,9 +121,10 @@ function fileUrl(absolutePath: string): string {
     return absolutePath;
   }
   const normalized = absolutePath.replace(/\\/g, '/');
+  const rooted = normalized.startsWith('/') ? normalized : `/${normalized}`;
   // Keep in sync with the copy in electron/main/asset-protocol.ts encodeAssetUrl; a source-parity test in asset-protocol.test.ts enforces this.
   // encodeURI leaves # and ? alone; they would start a fragment/query and truncate the path.
-  return `omnidex-asset:///${encodeURI(normalized).replace(/#/g, '%23').replace(/\?/g, '%3F')}`;
+  return `omnidex-asset://local${encodeURI(rooted).replace(/#/g, '%23').replace(/\?/g, '%3F')}`;
 }
 
 interface SerializedMenuItem {
