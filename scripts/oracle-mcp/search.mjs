@@ -151,6 +151,33 @@ export function nearestTerm(word, vocab) {
 }
 
 /**
+ * The longest vocabulary word the typed word starts with. Porter can cut a word far below
+ * what a person types ("narrative" is stored as "narr"), so a partial word longer than the
+ * stem ("narrat") or a typo past it ("narraitve") is too many edits from anything, yet
+ * starts with the stem. Used only when nearestTerm finds nothing. The stem must be at
+ * least 4 letters and at most 5 short of the typed word, so "materail" cannot fall back
+ * to "ma". Ties go to the word in the most rows.
+ *
+ * @param {string} word lower-cased query word
+ * @param {{term: string, doc: number}[]} vocab entries starting with the same letter
+ */
+export function stemPrefix(word, vocab) {
+  let best = null;
+  for (const { term, doc } of vocab) {
+    if (term.length < 4 || term.length >= word.length || word.length - term.length > 5) continue;
+    if (!word.startsWith(term)) continue;
+    if (
+      !best ||
+      term.length > best.term.length ||
+      (term.length === best.term.length && doc > best.doc)
+    ) {
+      best = { term, doc };
+    }
+  }
+  return best?.term ?? null;
+}
+
+/**
  * Bind the searches to an open database (read-only is fine: the vocabulary tables are
  * TEMP, which SQLite allows on a read-only connection).
  */
@@ -211,10 +238,8 @@ export function createSearch(db, { legacy = false } = {}) {
       if (maxEdits(lower.length) === 0 || /\d/.test(lower) || hasHit(ftsTable, lower, prefix)) {
         return t;
       }
-      const fix = nearestTerm(
-        lower,
-        vocabSlice(ftsTable, String.fromCodePoint(lower.codePointAt(0))),
-      );
+      const slice = vocabSlice(ftsTable, String.fromCodePoint(lower.codePointAt(0)));
+      const fix = nearestTerm(lower, slice) ?? stemPrefix(lower, slice);
       if (!fix) return t;
       fixes.push(`"${t}" → words starting "${fix}"`);
       stems.add(fix);

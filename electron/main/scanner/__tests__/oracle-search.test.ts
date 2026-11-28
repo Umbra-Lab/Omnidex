@@ -11,6 +11,7 @@ import {
   editDistance,
   nearestTerm,
   queryTerms,
+  stemPrefix,
 } from '../../../../scripts/oracle-mcp/search.mjs';
 import { createTestDb, seedAsset } from '../../db/repos/__tests__/fixtures/test-db';
 
@@ -43,6 +44,24 @@ describe('Oracle query helpers', () => {
     expect(nearestTerm('matrials', [{ term: 'materi', doc: 5 }])).toBe('materi');
     // Porter drops a silent e: "database" is stored as "databas".
     expect(nearestTerm('databse', [{ term: 'databas', doc: 5 }])).toBe('databas');
+  });
+});
+
+describe('stemPrefix', () => {
+  const vocab = [
+    { term: 'narr', doc: 3 },
+    { term: 'narrow', doc: 9 },
+    { term: 'ma', doc: 50 },
+    { term: 'mate', doc: 2 },
+  ];
+  it('falls back to the porter stem a typed word starts with', () => {
+    expect(stemPrefix('narrat', vocab)).toBe('narr');
+    expect(stemPrefix('narraitve', vocab)).toBe('narr');
+  });
+  it('needs at least 4 letters and at most 5 cut off', () => {
+    expect(stemPrefix('mat', vocab)).toBeNull();
+    expect(stemPrefix('materail', vocab)).toBe('mate');
+    expect(stemPrefix('narrativeness', vocab)).toBeNull();
   });
 });
 
@@ -105,6 +124,14 @@ describe('Oracle staged search', () => {
     expect(createSearch(db).transcripts('databse index', 20).rows).toHaveLength(1);
     const a = createSearch(db).assets('niagra', 20);
     expect(names(a.rows)).toEqual(['Niagara Fire Effects']);
+  });
+
+  it('finds a partial word longer than its stored stem', () => {
+    seedAsset(db, { name: 'Narrative Quests', file_path: '/p/narr' });
+    // "narrative" is stored as "narr", so "narrat"* matches nothing until the stem fallback.
+    const a = createSearch(db).assets('narrat', 20);
+    expect(names(a.rows)).toEqual(['Narrative Quests']);
+    expect(names(createSearch(db).assets('narraitve', 20).rows)).toEqual(['Narrative Quests']);
   });
 
   it('prefix-matches asset words like the app search box', () => {

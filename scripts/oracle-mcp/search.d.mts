@@ -6,6 +6,7 @@ export function orQuery(terms: string[], prefix: boolean): string;
 export function contentTerms(terms: string[]): string[];
 export function editDistance(a: string, b: string): number;
 export function nearestTerm(word: string, vocab: { term: string; doc: number }[]): string | null;
+export function stemPrefix(word: string, vocab: { term: string; doc: number }[]): string | null;
 
 export interface StagedResult<Row> {
   rows: Row[];
