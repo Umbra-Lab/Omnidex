@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { cn } from '@/lib/cn';
 import { formatCount } from '@/lib/format';
 
 interface AssetToolbarProps {
@@ -92,20 +93,30 @@ export function AssetToolbar({
     return () => clearTimeout(t);
   }, [query, search.q, navigate]);
 
-  // Show the result-count inside the placeholder so the toolbar reads as one
-  // primary action. When the user types, the placeholder disappears and the
-  // count moves to the right edge as a small badge instead.
-  const placeholder = `Search ${formatCount(total)} assets…`;
+  // The count lives in the badge at the box's right edge, not the placeholder:
+  // in a narrow column the placeholder clipped to "Sea", and in a wide one it
+  // repeated the badge. "Search…" fits in the narrowest box.
+  const placeholder = 'Search…';
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-3 border-b border-surface-800/60 bg-surface-950/60 px-3">
-      <div className="relative max-w-2xl flex-1">
+    // A container, so the controls size to the content column rather than the
+    // window: with the Inspector open at 1024px the column is ~360px, and the
+    // fixed 180px sort plus the labelled view toggle squeezed the search box to
+    // a sliver and pushed the toggle under the Inspector. Under 36rem the sort
+    // narrows, the toggle drops to icons and the in-box count goes.
+    <div className="@container/toolbar flex h-12 shrink-0 items-center gap-2 border-b border-surface-800/60 bg-surface-950/60 px-3 @[36rem]/toolbar:gap-3">
+      <div className="relative min-w-24 max-w-2xl flex-1">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-surface-400" />
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={placeholder}
-          className="h-8 border-surface-700/80 bg-surface-900/80 pl-9 pr-20 cap-14 text-surface-100 placeholder:text-surface-400 focus-visible:border-accent-500/60 focus-visible:ring-1 focus-visible:ring-accent-500/40"
+          className={cn(
+            'h-8 border-surface-700/80 bg-surface-900/80 pl-9 cap-14 text-surface-100 placeholder:text-surface-400 focus-visible:border-accent-500/60 focus-visible:ring-1 focus-visible:ring-accent-500/40',
+            // Room on the right for the clear button, or for the count badge
+            // where the column is wide enough to show it.
+            query ? 'pr-8' : 'pr-2 @[36rem]/toolbar:pr-20',
+          )}
           aria-label="Search assets"
         />
         {query ? (
@@ -118,18 +129,18 @@ export function AssetToolbar({
             <X size={12} />
           </button>
         ) : (
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono cap-10 uppercase tracking-[0.18em] text-surface-400">
+          <span className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 font-mono @[36rem]/toolbar:inline cap-10 uppercase tracking-[0.18em] text-surface-400">
             {formatCount(total)}
           </span>
         )}
       </div>
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex shrink-0 items-center gap-2">
         {searchActive ? (
           // FTS search ranks by BM25 relevance, which overrides the sort options.
           // Surface a static indicator so the ordering isn't a silent surprise;
           // the sort dropdown returns (with its prior value) once search clears.
           <div
-            className="flex h-8 w-[180px] items-center gap-1.5 rounded-md border border-surface-800 px-3 cap-12 text-surface-400"
+            className="flex h-8 w-[136px] items-center gap-1.5 rounded-md @[36rem]/toolbar:w-[180px] border border-surface-800 px-3 cap-12 text-surface-400"
             title="Search results are ranked by relevance"
           >
             <Sparkles size={12} />
@@ -137,7 +148,7 @@ export function AssetToolbar({
           </div>
         ) : (
           <Select value={sort} onValueChange={(v) => onSortChange(v as SortOption)}>
-            <SelectTrigger className="h-8 w-[180px] cap-12">
+            <SelectTrigger className="h-8 w-[136px] cap-12 @[36rem]/toolbar:w-[180px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -167,19 +178,21 @@ export function AssetToolbar({
             type="button"
             onClick={() => onViewChange('grid')}
             aria-pressed={view === 'grid'}
+            title="Grid view"
             className={viewButtonClass(view === 'grid')}
           >
-            <LayoutGrid size={13} />
-            Grid
+            <LayoutGrid size={13} aria-hidden />
+            <span className="sr-only @[36rem]/toolbar:not-sr-only">Grid</span>
           </button>
           <button
             type="button"
             onClick={() => onViewChange('table')}
             aria-pressed={view === 'table'}
+            title="Table view"
             className={viewButtonClass(view === 'table')}
           >
-            <Table2 size={13} />
-            Table
+            <Table2 size={13} aria-hidden />
+            <span className="sr-only @[36rem]/toolbar:not-sr-only">Table</span>
           </button>
         </div>
       </div>
@@ -189,7 +202,7 @@ export function AssetToolbar({
 
 function viewButtonClass(active: boolean): string {
   return [
-    'flex h-[30px] items-center gap-1.5 px-3 cap-12 font-medium transition-colors',
+    'flex h-[30px] items-center gap-1.5 px-2.5 @[36rem]/toolbar:px-3 cap-12 font-medium transition-colors',
     active ? 'bg-surface-800 text-surface-50' : 'text-surface-300 hover:text-surface-100',
   ].join(' ');
 }
