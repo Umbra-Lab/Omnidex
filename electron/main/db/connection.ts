@@ -57,7 +57,11 @@ function backupBeforeMigrate(db: BetterSqliteDatabase, path: string): string {
   } catch (err) {
     // A disk-full VACUUM leaves a truncated file behind; it is no backup and
     // only takes the space the next attempt needs.
-    rmSync(backupPath, { force: true });
+    try {
+      rmSync(backupPath, { force: true });
+    } catch {
+      // A locked partial file must not replace the SQLite error.
+    }
     throw err;
   }
   return backupPath;
@@ -93,17 +97,16 @@ export function openDatabase(): BetterSqliteDatabase {
   try {
     assertIntegrity(db, path);
     // Propagates MigrationError (with the backup path) if a migration throws.
-    let backedUp = false;
+    let newBackup: string | undefined;
     runMigrations(db, {
       onBeforeApply: () => {
-        const backupPath = backupBeforeMigrate(db, path);
-        backedUp = true;
-        return backupPath;
+        newBackup = backupBeforeMigrate(db, path);
+        return newBackup;
       },
     });
     // Only after a clean upgrade: when one fails, every older backup may be
     // what the user needs.
-    if (backedUp) pruneMigrationBackups(path);
+    if (newBackup) pruneMigrationBackups(path, undefined, newBackup);
   } catch (err) {
     // Don't leak the half-open handle if boot fails; the caller decides what
     // to do (e.g. show a recovery dialog) from the typed error.
