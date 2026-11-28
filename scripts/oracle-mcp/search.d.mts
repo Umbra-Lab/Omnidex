@@ -4,6 +4,7 @@ export function queryTerms(query: unknown): string[];
 export function andQuery(terms: string[], prefix: boolean): string;
 export function orQuery(terms: string[], prefix: boolean): string;
 export function isStopword(term: string): boolean;
+export function mergeTiers<T>(tiers: T[][], key: (row: T) => unknown, limit: number): T[];
 export function contentTerms(terms: string[], noise?: Set<string>): string[];
 export function editDistance(a: string, b: string): number;
 export function nearestTerm(word: string, vocab: { term: string; doc: number }[]): string | null;

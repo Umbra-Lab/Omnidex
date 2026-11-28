@@ -216,6 +216,13 @@ describe('parseCues', () => {
     expect(cues[1].startMs).toBe(4370);
   });
 
+  it('keeps dialogue that contains an arrow or is just a number', () => {
+    const arrow = parseCues('1\n00:00:01,000 --> 00:00:02,000\nuse x --> y here\nsecond line\n');
+    expect(arrow.map((c) => c.text)).toEqual(['use x --> y here second line']);
+    const num = parseCues('WEBVTT\n\n00:01.000 --> 00:02.000\n42\n00:03.000 --> 00:04.000\nnext');
+    expect(num.map((c) => c.text)).toEqual(['42', 'next']);
+  });
+
   it('splits cues with no separator line at all, dropping the index', () => {
     const cues = parseCues(
       '1\n00:00:01,000 --> 00:00:02,000\nfirst cue\n2\n00:00:04,370 --> 00:00:06,000\nsecond cue\n',

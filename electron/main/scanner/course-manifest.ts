@@ -430,7 +430,7 @@ export interface CueRow {
  * with nothing at all, and splitting on `\n\n` turned each of those files into
  * one cue holding the whole transcript. So a cue's text runs from its timing
  * line to the next line that trims to empty or to the next timing line, and a
- * bare number just before a timing line is that cue's index, not text.
+ * last line equal to the next cue's number is that cue's index, not text.
  */
 export function parseCues(source: string): CueRow[] {
   const cues: CueRow[] = [];
@@ -447,11 +447,16 @@ export function parseCues(source: string): CueRow[] {
     text = [];
   };
 
+  let timings = 0;
   for (const raw of source.split(/\r*\n|\r/)) {
     const line = raw.trim();
-    if (line.includes('-->')) {
-      // With no blank line before it, the previous line was this cue's index.
-      if (text.length > 0 && /^\d+$/.test(text[text.length - 1])) text.pop();
+    // A timing line starts with a timestamp-like run. Dialogue can hold "-->" too
+    // ("drag A --> B") and stays text.
+    if (/^[\d:.,]+\s*-->/.test(line)) {
+      timings += 1;
+      // With no blank line before it, a last line equal to the next cue number is that
+      // cue's index; any other number ("42") is dialogue.
+      if (text.length > 0 && text[text.length - 1] === String(timings)) text.pop();
       flush();
       startMs = parseTimestamp(line.split('-->')[0]);
     } else if (line === '') {

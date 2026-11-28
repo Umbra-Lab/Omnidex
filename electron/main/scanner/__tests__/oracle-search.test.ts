@@ -186,6 +186,33 @@ describe('Oracle staged search', () => {
     expect(names(createSearch(db).assets('pack', 20).rows)).toContain('Door Kit 0');
   });
 
+  it('still searches a query of only common words, and ranks typed titles first', () => {
+    seedAsset(db, { name: 'Prop Pack', file_path: '/p/pp' });
+    expect(names(createSearch(db).assets('the pack', 20).rows)).toContain('Prop Pack');
+    expect(names(createSearch(db).assets('my assets', 20).rows)).toEqual([]);
+    seedAsset(db, { name: 'Like A Dragon Anim', file_path: '/p/lad' });
+    seedAsset(db, { name: 'Dragon Knight', file_path: '/p/dk' });
+    expect(names(createSearch(db).assets('like a dragon', 20).rows)[0]).toBe('Like A Dragon Anim');
+  });
+
+  it('ranks whole-word matches above partial ones', () => {
+    // "explosions"* also matches "explosion1"; the short prefab name won on BM25 alone.
+    seedAsset(db, { name: 'Niagara Explosions', file_path: '/p/nx', description: 'big fx' });
+    for (let i = 1; i <= 5; i++) {
+      seedAsset(db, { name: `Niagara_Water_Explosion${i}`, file_path: `/p/w${i}` });
+    }
+    const { rows } = createSearch(db).assets('do I have a niagara explosions pack', 20);
+    expect(names(rows)[0]).toBe('Niagara Explosions');
+    expect(names(rows)).toContain('Niagara_Water_Explosion1');
+  });
+
+  it('tries neighbouring words joined when nothing has them all', () => {
+    seedAsset(db, { name: 'WorldScape', file_path: '/p/ws' });
+    seedAsset(db, { name: 'World', file_path: '/p/wd' });
+    const { rows } = createSearch(db).assets('do I have a world scape pack', 20);
+    expect(names(rows)[0]).toBe('WorldScape');
+  });
+
   it('reports an empty query', () => {
     expect(createSearch(db).assets('  "" ', 5).empty).toBe(true);
   });

@@ -41,6 +41,19 @@ const STOPWORDS = new Set(
 
 const ASSET_NOISE = new Set(['pack', 'packs', 'asset', 'assets']);
 
+/** Concatenate result lists best first, keeping each row once (by `key`), up to `limit`. */
+export function mergeTiers(tiers, key, limit) {
+  const seen = new Set();
+  const out = [];
+  for (const row of tiers.flat()) {
+    const k = key(row);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(row);
+  }
+  return out.slice(0, limit);
+}
+
 /** Split a query into words, dropping FTS syntax characters that cannot be quoted away. */
 export function queryTerms(query) {
   return String(query ?? '')
@@ -55,9 +68,9 @@ export function isStopword(term) {
 }
 
 // Prefix only plain words: `"c++"*` would tokenize to `c*` and match everything with a c.
-// Never a stopword or a single letter, which as a prefix match most of the index.
+// Never a stopword, which as a prefix matches most of the index.
 function quote(term, prefix) {
-  const plain = /^[\p{L}\p{N}]{2,}$/u.test(term) && !isStopword(term);
+  const plain = /^[\p{L}\p{N}]+$/u.test(term) && !isStopword(term);
   return `"${term}"${prefix && plain ? '*' : ''}`;
 }
 
@@ -299,6 +312,7 @@ export function createSearch(db, { legacy = false } = {}) {
     let terms = queryTerms(query);
     if (terms.length === 0) return { rows: [], notes: [], empty: true };
     if (legacy) return { rows: run(andQuery(terms, false), limit), notes: [] };
+    const typed = terms;
     if (prefix) {
       // Common words only add prefix noise once there is something else to search for.
       const kept = contentTerms(terms, noise);
@@ -307,6 +321,17 @@ export function createSearch(db, { legacy = false } = {}) {
 
     let stems = new Map();
     let rows = run(andQuery(terms, prefix), limit);
+    if (prefix && rows.length > 0) {
+      // Best matches first: every typed word as a whole word ("Like A Dragon" for "like a
+      // dragon"), then the real words whole, then partial words. BM25 alone cannot tell
+      // "explosions" from "explosion1" once both match "explos"*, so a prefab folder named
+      // Niagara_Water_Explosion1 outranked the Niagara Explosions pack on its short name.
+      // Each tier is a subset of the prefix result, so none adds rows it lacks.
+      const tiers = [];
+      if (typed.length !== terms.length) tiers.push(run(andQuery(typed, false), limit));
+      tiers.push(run(andQuery(terms, false), limit), rows);
+      rows = mergeTiers(tiers, key, limit);
+    }
     const notes = [];
     const enough = Math.min(FEW, limit);
     if (rows.length >= enough) return { rows, notes };
@@ -322,9 +347,21 @@ export function createSearch(db, { legacy = false } = {}) {
     }
 
     if (orFallback) {
-      const loose = contentTerms(terms, noise);
+      // "the pack" still searches "pack": drop noise words only when others remain.
+      const content = contentTerms(terms, noise);
+      const loose = content.length > 0 ? content : contentTerms(terms);
+      // Asset names are often two words joined ("world scape" for WorldScape), so the
+      // loose step also tries each neighbouring pair as one word.
+      const pairs = [];
+      if (prefix) {
+        for (let i = 0; i < loose.length - 1; i++) {
+          if (/^\p{L}+$/u.test(loose[i]) && /^\p{L}+$/u.test(loose[i + 1])) {
+            pairs.push(`${loose[i]}${loose[i + 1]}`.toLowerCase());
+          }
+        }
+      }
       const strictQuery = build(terms, prefix, stems, ' AND ');
-      const looseQuery = build(loose, prefix, stems, ' OR ');
+      const looseQuery = build(loose.concat(pairs), prefix, stems, ' OR ');
       if (loose.length > 0 && looseQuery !== strictQuery) {
         const seen = new Set(rows.map(key));
         const extra = run(looseQuery, limit).filter((r) => !seen.has(key(r)));

@@ -13,7 +13,7 @@
  */
 import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { contentTerms, isStopword } from './search.mjs';
+import { contentTerms, isStopword, mergeTiers } from './search.mjs';
 
 const READ_CHUNK = 20_000;
 const MIN_CHUNK = 2_000;
@@ -128,7 +128,7 @@ function ftsQuote(query) {
     .split(/\s+/)
     .filter(Boolean)
     .map((t) => {
-      const plain = /^[\p{L}\p{N}_]{2,}$/u.test(t) && !isStopword(t);
+      const plain = /^[\p{L}\p{N}_]+$/u.test(t) && !isStopword(t);
       const prefix = !legacy && plain ? '*' : '';
       return `"${t.replaceAll('"', '""')}"${prefix}`;
     })
@@ -252,6 +252,12 @@ function search(db, args) {
   const content = legacyMode ? terms : contentTerms(terms);
   const words = content.length > 0 ? content : terms;
   let rows = run(ftsQuote(words.join(' ')));
+  if (rows.length > 0 && words.length !== terms.length) {
+    // Blueprint nodes are named with common words (Do Once, For Loop, Is Valid): sections
+    // holding every typed word go first, then those with only the real words.
+    const all = run(terms.map((t) => `"${t.replaceAll('"', '""')}"`).join(' '));
+    rows = mergeTiers([all, rows], (r) => `${r.path}#${r.anchor}#${r.ord}`, limit);
+  }
   let note = '';
   if (rows.length === 0 && words.length > 1) {
     // Every word must match first; a natural-language question rarely does, so retry with

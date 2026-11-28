@@ -129,7 +129,8 @@ work that reached `main` through direct merges with no pull request, the commit.
   read line by line. Rescan the library to re-index affected courses.
 - Oracle asset and docs searches no longer prefix-match common words: in
   "do I have a corridor pack", `"a"*` and `"do"*` matched almost every pack, and
-  requiring "pack" hid packs whose names do not say it.
+  requiring "pack" hid packs whose names do not say it. Whole-word matches now
+  rank above partial ones, and "world scape" also tries "worldscape".
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers
