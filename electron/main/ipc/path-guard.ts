@@ -136,3 +136,61 @@ function realpathExistingAncestor(abs: string): string {
     }
   }
 }
+
+/**
+ * File types `shell.openPath` may hand to the OS default handler: the course
+ * media and documents the app offers to open. Everything else is refused.
+ *
+ * Containment alone is not enough here. Scan roots hold downloaded packs and
+ * courses, and opening a file with its default handler RUNS it when it is a
+ * program or shortcut (`.exe`, `.bat`, `.lnk`, `.url`, `.scr`, `.command`,
+ * `.sh`, ...). The only caller today is the Learn player's "Open in default
+ * player" for a video it cannot decode.
+ */
+const OPENABLE_EXT = new Set([
+  // Video (scanner/course-manifest VIDEO_EXT, plus the transport-stream forms
+  // it probes).
+  '.mp4',
+  '.m4v',
+  '.mov',
+  '.mkv',
+  '.webm',
+  '.avi',
+  '.wmv',
+  '.flv',
+  '.ts',
+  '.mts',
+  '.m2ts',
+  // Documents (course-manifest DOC_EXT).
+  '.pdf',
+  '.md',
+  '.txt',
+  '.doc',
+  '.docx',
+  '.rtf',
+  '.epub',
+  // Images.
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.bmp',
+]);
+
+/** True when `path` is a file type that opening with its default app cannot run. */
+export function isOpenableFile(path: string): boolean {
+  const dot = path.lastIndexOf('.');
+  const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  if (dot <= slash + 1) return false;
+  return OPENABLE_EXT.has(path.slice(dot).toLowerCase());
+}
+
+/**
+ * True for a directory that `shell.openPath` would launch rather than show: a
+ * macOS bundle (`Foo.app`, and the other launchable bundle types). Reveal it
+ * in its parent instead.
+ */
+export function isLaunchableBundle(path: string): boolean {
+  return /\.(app|prefPane|saver|workflow|action)[\\/]?$/i.test(path);
+}

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { isPathWithin, resolveWithin } from '../path-guard';
+import { isLaunchableBundle, isOpenableFile, isPathWithin, resolveWithin } from '../path-guard';
 
 /**
  * Coverage for the path-containment guard that backs the hardened raw IPC
@@ -140,5 +140,53 @@ describe('resolveWithin', () => {
 
   it('uses the platform separator in containment (sanity)', () => {
     expect(sep.length).toBeGreaterThan(0);
+  });
+});
+
+describe('isOpenableFile — what shell.openPath may hand to a default app', () => {
+  it('allows course media and documents, any case', () => {
+    for (const p of [
+      'C:\\Courses\\01 - Intro.MP4',
+      '/c/lesson.mkv',
+      '/c/notes.pdf',
+      '/c/readme.md',
+      '/c/cover.JPG',
+      '/c/part.ts',
+    ]) {
+      expect(isOpenableFile(p), p).toBe(true);
+    }
+  });
+
+  it('refuses anything that could run, and names with no extension', () => {
+    for (const p of [
+      'C:\\Packs\\Setup.exe',
+      'C:\\Packs\\install.bat',
+      'C:\\Packs\\Docs.lnk',
+      'C:\\Packs\\site.url',
+      'C:\\Packs\\x.scr',
+      'C:\\Packs\\run.ps1',
+      '/Users/me/Packs/start.command',
+      '/home/me/packs/build.sh',
+      '/home/me/packs/video.mp4.exe',
+      '/home/me/packs/Makefile',
+      '/home/me/packs/.mp4',
+      '/home/me/v.1/README',
+    ]) {
+      expect(isOpenableFile(p), p).toBe(false);
+    }
+  });
+});
+
+describe('isLaunchableBundle — folders openPath would launch', () => {
+  it('spots macOS bundles, with or without a trailing slash', () => {
+    expect(isLaunchableBundle('/Users/me/Packs/Tool.app')).toBe(true);
+    expect(isLaunchableBundle('/Users/me/Packs/Tool.APP/')).toBe(true);
+    expect(isLaunchableBundle('/Users/me/Packs/Thing.workflow')).toBe(true);
+  });
+
+  it('leaves ordinary pack folders alone', () => {
+    expect(isLaunchableBundle('/Users/me/Packs/Medieval Village')).toBe(false);
+    expect(isLaunchableBundle('/Users/me/Packs/my.application.pack')).toBe(false);
+    expect(isLaunchableBundle('C:\\Packs\\Apps')).toBe(false);
   });
 });

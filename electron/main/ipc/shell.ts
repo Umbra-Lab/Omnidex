@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import { app, ipcMain, shell } from 'electron';
 import { openDatabase } from '../db/connection';
 import { scanLocationsRepo } from '../db/repos';
-import { resolveWithin } from './path-guard';
+import { isLaunchableBundle, isOpenableFile, resolveWithin } from './path-guard';
 
 /**
  * Shell operations. Replaces `@tauri-apps/plugin-shell` open() + Tauri's
@@ -59,6 +59,13 @@ export function registerShellIpc(): void {
       return { ok: false, error: 'path not allowed' };
     }
     if (!existsSync(safePath)) return { ok: false, error: 'not found' };
+    // Only media and documents: opening anything else with its default app
+    // can run it (see isOpenableFile). Folders open in the file manager.
+    const isDir = statSync(safePath).isDirectory();
+    if (isDir ? isLaunchableBundle(safePath) : !isOpenableFile(safePath)) {
+      console.warn(`[omnidex] shell:open-path refused a file type that could run: ${safePath}`);
+      return { ok: false, error: 'file type not allowed' };
+    }
     const err = await shell.openPath(safePath);
     return err ? { ok: false, error: err } : { ok: true };
   });
@@ -74,7 +81,8 @@ export function registerShellIpc(): void {
     }
     if (existsSync(safePath)) {
       const isDir = statSync(safePath).isDirectory();
-      if (isDir) {
+      // A macOS bundle is a directory that openPath would launch; reveal it.
+      if (isDir && !isLaunchableBundle(safePath)) {
         const err = await shell.openPath(safePath);
         return err ? { ok: false, error: err } : { ok: true };
       }
