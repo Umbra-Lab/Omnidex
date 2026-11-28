@@ -110,6 +110,9 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- A failed action shows its error once, not twice: removing assets, deleting
+  a collection, removing from a collection, removing a scan folder, purging
+  thumbnails and saving the Ask settings. (#56)
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would

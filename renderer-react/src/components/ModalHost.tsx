@@ -16,6 +16,7 @@ import { TaggingModal } from '@/features/tagging/TaggingModal';
 import { trpc } from '@/ipc/trpc';
 import { cn } from '@/lib/cn';
 import { formatCount } from '@/lib/format';
+import { wasToasted } from '@/lib/toastedErrors';
 import { useModals } from '@/stores/modals';
 
 /**
@@ -106,7 +107,8 @@ function ConfirmHost() {
       await confirm.onConfirm();
       close();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Action failed');
+      // A failed mutation has usually been toasted already (TrpcProvider).
+      if (!wasToasted(err)) toast.error(err instanceof Error ? err.message : 'Action failed');
     } finally {
       setBusy(false);
     }

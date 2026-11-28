@@ -24,7 +24,8 @@ const KEYS = {
 export function AiTab() {
   const utils = trpc.useUtils();
   const status = trpc.ask.status.useQuery();
-  const setSetting = trpc.settings.set.useMutation();
+  // save() reports failures itself; this keeps the app-wide toast from doubling it.
+  const setSetting = trpc.settings.set.useMutation({ onError: () => {} });
 
   const [provider, setProvider] = useState<'local' | 'claude-code'>('local');
   const [baseUrl, setBaseUrl] = useState('');
@@ -150,7 +151,12 @@ export function AiTab() {
           </div>
 
           <div className="flex justify-end border-t border-surface-800/60 pt-3">
-            <Button variant="primary" size="sm" onClick={() => void save()} disabled={setSetting.isPending}>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void save()}
+              disabled={setSetting.isPending}
+            >
               {setSetting.isPending ? 'Saving…' : 'Save'}
             </Button>
           </div>
