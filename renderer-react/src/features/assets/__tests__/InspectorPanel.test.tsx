@@ -25,6 +25,13 @@ vi.mock('@/ipc/trpc', () => ({
 vi.mock('../MatchPickerModal', () => ({ MatchPickerModal: () => null }));
 vi.mock('@/components/ui/toaster', () => ({ toast: { error: api.error } }));
 
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useModals } from '@/stores/modals';
 import { InspectorPanel } from '../InspectorPanel';
 
@@ -183,6 +190,35 @@ describe('asset inspection with incomplete information', () => {
       },
     );
 
+    it('closes a real confirm dialog above the panel, and leaves the panel open', async () => {
+      const onClose = vi.fn();
+      const onOpenChange = vi.fn();
+      api.asset = { ...api.asset };
+      await act(async () =>
+        root.render(
+          <>
+            <InspectorPanel assetId={Number(api.asset.id)} onClose={onClose} />
+            <AlertDialog open onOpenChange={onOpenChange}>
+              <AlertDialogContent>
+                <AlertDialogTitle>Remove from library?</AlertDialogTitle>
+                <AlertDialogDescription>Gone on the next scan.</AlertDialogDescription>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>,
+        ),
+      );
+      const cancel = [...document.querySelectorAll('button')].find(
+        (b) => b.textContent === 'Cancel',
+      );
+      expect(cancel).toBeDefined();
+      await act(async () => {
+        pressEscape(cancel);
+      });
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
     it('closes the panel again once the layer has closed', async () => {
       const onClose = vi.fn();
       await renderAsset({}, onClose);
@@ -195,6 +231,36 @@ describe('asset inspection with incomplete information', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
       } finally {
         layer.remove();
+      }
+    });
+  });
+
+  describe('gallery arrow keys', () => {
+    const gallery = JSON.stringify(['one.png', 'two.png']);
+    const shown = () => container.querySelector('img')?.getAttribute('src');
+    const press = (key: string) =>
+      act(async () => {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      });
+
+    it('step through the images', async () => {
+      await renderAsset({ orbital_gallery_images: gallery });
+      expect(shown()).toBe('one.png');
+      await press('ArrowRight');
+      expect(shown()).toBe('two.png');
+    });
+
+    it('leave an open menu above the panel alone', async () => {
+      await renderAsset({ orbital_gallery_images: gallery });
+      const menu = document.createElement('div');
+      menu.setAttribute('role', 'menu');
+      menu.setAttribute('data-state', 'open');
+      document.body.append(menu);
+      try {
+        await press('ArrowRight');
+        expect(shown()).toBe('one.png');
+      } finally {
+        menu.remove();
       }
     });
   });
