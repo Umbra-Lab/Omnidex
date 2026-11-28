@@ -110,6 +110,11 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Small-type overrides now take effect. `cn()` did not know the Capsize
+  `cap-N` classes, so a component given `cap-12` over a `cap-14` base kept
+  both and rendered at 14px. Small buttons, the sort control and select menus
+  now render at the size their call sites ask for.
+
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
