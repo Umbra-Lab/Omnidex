@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Database } from 'better-sqlite3';
@@ -214,6 +214,8 @@ describe('parseAuthorizationCode', () => {
     expect(parseAuthorizationCode('{"redirectUrl":"x","authorizationCode":null}')).toBeNull();
     expect(parseAuthorizationCode('')).toBeNull();
     expect(parseAuthorizationCode('hello world')).toBeNull();
+    // A malformed %-escape must not throw out of the CLI's re-auth.
+    expect(parseAuthorizationCode('https://x/?code=%E0%A4%A')).toBeNull();
   });
 });
 
@@ -236,6 +238,9 @@ describe('Epic sign-in', () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/oauth/token');
     expect(init.body).toBe('grant_type=authorization_code&code=the-code');
+    if (process.platform !== 'win32') {
+      expect(statSync(credsPath).mode & 0o777).toBe(0o600);
+    }
     expect(JSON.parse(readFileSync(credsPath, 'utf8'))).toMatchObject({
       access_token: 'tok',
       refresh_token: 'ref',
@@ -249,6 +254,31 @@ describe('Epic sign-in', () => {
     expect(r.ok).toBe(false);
     expect(r.ok ? '' : r.message).toMatch(/work once and expire/);
     expect(existsSync(credsPath)).toBe(false);
+  });
+
+  it('treats a non-JSON 200 as a failure, not an exception', async () => {
+    fetchMock.mockResolvedValueOnce({
+      status: 200,
+      ok: true,
+      json: async () => {
+        throw new SyntaxError('Unexpected token <');
+      },
+      text: async () => '<html>',
+    } as unknown as Response);
+    const r = await exchangeEpicAuthCode('x', credsPath);
+    expect(r.ok).toBe(false);
+    expect(existsSync(credsPath)).toBe(false);
+  });
+
+  it('closes the progress run before asking the app to sign in again', async () => {
+    writeFileSync(credsPath, JSON.stringify({ access_token: 'old', account_id: 'acct-12345678' }));
+    fetchMock.mockResolvedValue(json(401, {}));
+    const phases: string[] = [];
+    await expect(enrichFab({ onProgress: (p) => phases.push(p.phase) })).rejects.toBeInstanceOf(
+      FabAuthRequiredError,
+    );
+    expect(phases[0]).toBe('start');
+    expect(phases.at(-1)).toBe('error');
   });
 
   it('reports a network failure instead of throwing', async () => {

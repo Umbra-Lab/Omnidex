@@ -35,6 +35,8 @@ export function EpicSignInDialog({ redirectUrl, onClose, onConnected }: EpicSign
 
   const connect = trpc.fab.connect.useMutation({
     onSuccess: (r) => {
+      // Cancelled while Epic was answering: the person no longer wants a sync.
+      if (redirectUrl == null) return;
       if (r.ok) {
         setPasted('');
         setError(null);
@@ -47,6 +49,7 @@ export function EpicSignInDialog({ redirectUrl, onClose, onConnected }: EpicSign
   });
 
   const close = () => {
+    connect.reset();
     setPasted('');
     setError(null);
     onClose();

@@ -80,7 +80,7 @@ Auth uses Epic's authorization-code flow. Epic's launcher client has no redirect
 The superjson patch bypasses tRPC's `errorFormatter`, so custom `data` on a thrown `TRPCError` never reaches the renderer. The URL must be returned in the procedure's result. See [IPC and the tRPC layer](ipc.md).
 ```
 
-Tokens are stored in `<userData>/epic_credentials.json`, never in the database. It is a plain JSON file, not the OS keychain; PRIVACY.md says so.
+Tokens are stored in `<userData>/epic_credentials.json`, never in the database. It is a plain JSON file, not the OS keychain (PRIVACY.md says so), written with mode 0600 through a temp file and rename.
 
 For headless runs without stored credentials:
 

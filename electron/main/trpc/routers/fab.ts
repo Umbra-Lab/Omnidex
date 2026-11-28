@@ -53,6 +53,13 @@ export const fabRouter = router({
     .input(z.object({ pasted: z.string().max(10_000) }))
     .mutation(async ({ input }) => {
       const code = parseAuthorizationCode(input.pasted);
+      if (!code && /"authorizationCode"\s*:\s*null/.test(input.pasted)) {
+        return {
+          ok: false as const,
+          message:
+            'Epic showed no code, which usually means that browser is not signed in. Sign in at epicgames.com in the same browser, then open the sign-in link again.',
+        };
+      }
       if (!code) {
         return {
           ok: false as const,

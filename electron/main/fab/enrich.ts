@@ -1,3 +1,4 @@
+import { renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 import { openDatabase } from '../db';
@@ -119,7 +120,7 @@ function extractFabListingId(item: FabLibraryItem): string | null {
 export class FabAuthRequiredError extends Error {
   readonly redirectUrl: string;
   constructor(redirectUrl: string) {
-    super('Epic re-authorization required: stored credentials are stale.');
+    super('Epic sign-in required: no saved login, or one that can no longer be refreshed.');
     this.name = 'FabAuthRequiredError';
     this.redirectUrl = redirectUrl;
   }
@@ -149,9 +150,27 @@ export function parseAuthorizationCode(pasted: string): string | null {
   if (fromJson) return fromJson[1];
   if (/"authorizationCode"\s*:\s*null/.test(text)) return null;
   const fromUrl = /[?&]code=([^&\s]+)/.exec(text);
-  if (fromUrl) return decodeURIComponent(fromUrl[1]);
+  if (fromUrl) {
+    try {
+      return decodeURIComponent(fromUrl[1]);
+    } catch {
+      return null; // A malformed %-escape is not a code.
+    }
+  }
   const bare = text.replace(/^["']+|["']+$/g, '');
   return /^[A-Za-z0-9_-]{8,}$/.test(bare) ? bare : null;
+}
+
+/**
+ * Save the Epic login readable by this user only (0600; Windows ignores the
+ * mode and relies on the profile folder's ACL). Written to a temp file and
+ * renamed, so a crash never leaves half a file, and an existing file written
+ * by an older build with default permissions is replaced, not reused.
+ */
+function writeCredentials(credsPath: string, creds: EpicCredentials): void {
+  const tmp = `${credsPath}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(creds, null, 2), { mode: 0o600 });
+  renameSync(tmp, credsPath);
 }
 
 export type EpicConnectResult = { ok: true; displayName?: string } | { ok: false; message: string };
@@ -181,20 +200,29 @@ export async function exchangeEpicAuthCode(
     return { ok: false, message: `Could not reach Epic: ${(e as Error).message}` };
   }
   if (!resp.ok) {
-    const body = (await resp.text()).slice(0, 250);
     // Codes are single-use and expire within minutes; that is the usual 400.
-    const hint =
-      resp.status === 400
-        ? 'Epic did not accept that code. Codes work once and expire after a few minutes; sign in again for a fresh one.'
-        : `Epic answered HTTP ${resp.status}.`;
-    return { ok: false, message: `${hint} (${body})` };
+    // Epic's body is for a log, not for the person reading the dialog.
+    const body = (await resp.text().catch(() => '')).slice(0, 250);
+    console.warn(`[fab] Epic token exchange failed: HTTP ${resp.status} ${body}`);
+    return {
+      ok: false,
+      message:
+        resp.status === 400
+          ? 'Epic did not accept that code. Codes work once and expire after a few minutes; sign in again for a fresh one.'
+          : `Epic answered HTTP ${resp.status}. Try again in a moment.`,
+    };
   }
-  const fresh = (await resp.json()) as {
+  let fresh: {
     access_token?: string;
     refresh_token?: string;
     account_id?: string;
     displayName?: string;
   };
+  try {
+    fresh = (await resp.json()) as typeof fresh;
+  } catch {
+    return { ok: false, message: 'Epic answered with something that is not a login.' };
+  }
   if (!fresh.access_token || !fresh.account_id) {
     return { ok: false, message: 'Epic answered without an access token or account id.' };
   }
@@ -205,8 +233,7 @@ export async function exchangeEpicAuthCode(
     ...(fresh.displayName ? { displayName: fresh.displayName } : {}),
   };
   try {
-    const fs = await import('node:fs');
-    fs.writeFileSync(credsPath, JSON.stringify(creds, null, 2));
+    writeCredentials(credsPath, creds);
   } catch (e) {
     return {
       ok: false,
@@ -327,7 +354,7 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
       creds.access_token = fresh.access_token;
       if (fresh.refresh_token) creds.refresh_token = fresh.refresh_token;
       if (fresh.account_id) creds.account_id = fresh.account_id;
-      fsMod.writeFileSync(credsPath, JSON.stringify(creds, null, 2));
+      writeCredentials(credsPath, creds);
       return true;
     } catch (e) {
       emit({
@@ -351,6 +378,15 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
    */
   const runEpicAuthCodeFlow = async (): Promise<boolean> => {
     if (!opts.promptAuthCode) {
+      // Close the run that 'start' opened, or the UI keeps the sync busy.
+      emit({
+        action: 'enrich-fab',
+        phase: 'error',
+        processed: items.length,
+        total: 0,
+        currentName: null,
+        message: 'Epic sign-in required',
+      });
       throw new FabAuthRequiredError(FAB_AUTH_REDIRECT_URL);
     }
     const code = parseAuthorizationCode(await opts.promptAuthCode(FAB_AUTH_REDIRECT_URL));
