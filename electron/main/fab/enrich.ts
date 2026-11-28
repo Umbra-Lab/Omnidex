@@ -187,8 +187,16 @@ function writeCredentials(credsPath: string, creds: EpicCredentials): void {
  */
 function readCredentials(credsPath: string): EpicCredentials | null {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(credsPath, 'utf8'));
-    return parsed && typeof parsed === 'object' ? (parsed as EpicCredentials) : null;
+    const parsed = JSON.parse(readFileSync(credsPath, 'utf8')) as Partial<EpicCredentials> | null;
+    // `{}` or `[]` would otherwise reach Epic as `Bearer undefined`.
+    if (
+      !parsed ||
+      typeof parsed.access_token !== 'string' ||
+      typeof parsed.account_id !== 'string'
+    ) {
+      return null;
+    }
+    return parsed as EpicCredentials;
   } catch {
     return null;
   }
