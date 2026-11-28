@@ -464,7 +464,7 @@ export function getAssetRemovalImpact(db: Database, ids: number[]): AssetRemoval
            WHERE n.asset_id IN (${sel})
              AND (TRIM(COALESCE(n.note_text, '')) <> '' OR n.rating IS NOT NULL)) AS notes,
          (SELECT COUNT(DISTINCT t.asset_id) FROM asset_tags t
-           WHERE t.asset_id IN (${sel})) AS taggedAssets,
+           WHERE t.asset_id IN (${sel}) AND t.source <> 'official') AS taggedAssets,
          (SELECT COUNT(*) FROM collection_items c WHERE c.asset_id IN (${sel}))
            AS collectionEntries,
          (SELECT COUNT(*) FROM course_progress p

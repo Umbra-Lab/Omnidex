@@ -58,6 +58,10 @@ describe('getAssetRemovalImpact', () => {
     db.prepare("INSERT INTO asset_notes (asset_id, note_text) VALUES (?, 'keep')").run(kept);
     db.prepare("INSERT INTO asset_tags (asset_id, tag) VALUES (?, 'rock'), (?, 'moss')").run(a, a);
     db.prepare("INSERT INTO asset_tags (asset_id, tag) VALUES (?, 'rock')").run(kept);
+    // FAB category tags come back with the next sync, so B is not a tagged asset.
+    db.prepare(
+      "INSERT INTO asset_tags (asset_id, tag, source) VALUES (?, 'props', 'official')",
+    ).run(b);
     db.prepare('INSERT INTO collection_items (collection_id, asset_id) VALUES (1, ?), (2, ?)').run(
       a,
       a,
