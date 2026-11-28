@@ -113,7 +113,7 @@ work that reached `main` through direct merges with no pull request, the commit.
 - The asset toolbar fits a narrow content column. At 1024px with the Inspector
   open the view toggle sat under the Inspector and the search box was a sliver;
   under 36rem the sort narrows, Grid and Table drop to icons, and the search
-  placeholder is a plain "Search…" with the count kept in its badge.
+  placeholder is a plain "Search…" with the count kept in its badge. (#46)
 
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
