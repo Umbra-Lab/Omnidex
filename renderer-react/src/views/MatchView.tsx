@@ -5,6 +5,7 @@ import {
   HardDrive,
   Image as ImageIcon,
   Loader2,
+  RotateCw,
   Search,
   X,
 } from 'lucide-react';
@@ -104,8 +105,13 @@ export function MatchView() {
 
   const candidates = trpc.orbital.candidates.useQuery(
     { folderName: manualOpen && manualQuery ? manualQuery : (current?.name ?? ''), limit: 8 },
-    { enabled: Boolean(current) },
+    // The pane says so itself when Orbital can't be reached; see `unreachable`.
+    { enabled: Boolean(current), meta: { errorToast: false } },
   );
+  // A failed search is not "no candidate". Saying it was invited "Not on
+  // Orbital", which drops the pack from the queue for good on the strength of
+  // a network error.
+  const unreachable = candidates.isError && !candidates.isFetching;
 
   const match = trpc.orbital.match.useMutation({
     onSuccess: () => {
@@ -170,7 +176,7 @@ export function MatchView() {
   }, []);
   useHotkey({ key: 's', handler: openManual, enabled: Boolean(current) });
   useHotkey({ key: 'r', handler: onReject, enabled: Boolean(current && best) });
-  useHotkey({ key: 'd', handler: onDismiss, enabled: Boolean(current) });
+  useHotkey({ key: 'd', handler: onDismiss, enabled: Boolean(current) && !unreachable });
 
   if (queue.isPending) {
     return <Centered>Loading the queue…</Centered>;
@@ -245,6 +251,8 @@ export function MatchView() {
             >
               {Math.round(best.score * 100)}% · {best.strength}
             </span>
+          ) : unreachable ? (
+            <span className="shrink-0 font-mono cap-11 text-warning-300">orbital unreachable</span>
           ) : (
             <span className="shrink-0 font-mono cap-11 text-surface-400">no candidate</span>
           )}
@@ -304,6 +312,17 @@ export function MatchView() {
                   </p>
                 ) : null}
               </>
+            ) : unreachable ? (
+              <div className="flex flex-col items-start gap-3 py-8">
+                <p className="cap-12 text-surface-300">
+                  Couldn't reach Orbital Market, so this pack hasn't been searched. Check your
+                  connection and try again.
+                </p>
+                <Button variant="secondary" size="sm" onClick={() => void candidates.refetch()}>
+                  <RotateCw size={12} />
+                  Try again
+                </Button>
+              </div>
             ) : (
               <p className="py-8 cap-12 text-surface-400">
                 No candidate found. Search manually, or skip.
@@ -347,7 +366,13 @@ export function MatchView() {
             Not this one
           </Button>
           <Key>R</Key>
-          <Button variant="ghost" size="md" onClick={onDismiss}>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={onDismiss}
+            disabled={unreachable}
+            title={unreachable ? 'Orbital was not searched for this pack' : undefined}
+          >
             <CircleSlash size={14} />
             Not on Orbital
           </Button>
@@ -385,7 +410,7 @@ function ManualSearch({
 
   const results = trpc.orbital.search.useQuery(
     { query: query || initial, limit: 8 },
-    { enabled: (query || initial).length > 0 },
+    { enabled: (query || initial).length > 0, meta: { errorToast: false } },
   );
 
   return (
@@ -405,6 +430,10 @@ function ManualSearch({
       </div>
       {results.isFetching ? (
         <p className="cap-12 text-surface-400">Searching…</p>
+      ) : results.isError ? (
+        <p className="cap-12 text-surface-300">
+          Couldn't reach Orbital Market. Check your connection and search again.
+        </p>
       ) : (
         <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto">
           {(results.data ?? []).map((item) => (
@@ -484,7 +513,11 @@ function Field({
   readonly wrap?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-[130px_minmax(0,1fr)] items-baseline gap-3 border-b border-surface-800/40 py-2 font-mono">
+    // items-start, not items-baseline: `truncate` sets overflow:hidden, and a
+    // grid item with clipped overflow takes its baseline from its bottom edge,
+    // which pushed every label below its value. Capsize already trims both to
+    // their cap height, so their tops line up.
+    <div className="grid grid-cols-[130px_minmax(0,1fr)] items-start gap-3 border-b border-surface-800/40 py-2 font-mono">
       <span className="cap-11 uppercase tracking-[0.1em] text-surface-500">{label}</span>
       <span
         className={cn('min-w-0 cap-12 text-surface-100', wrap ? 'break-all' : 'truncate')}

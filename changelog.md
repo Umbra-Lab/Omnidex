@@ -110,6 +110,14 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Match says when Orbital Market can't be reached instead of "No candidate
+  found", offers Try again, and disables "Not on Orbital" (and its D key) for
+  that pack, since dismissing it would drop it from the queue on the strength
+  of a network error. The raw "Orbital request failed: /api/products/search"
+  toast no longer follows you to other screens.
+- Labels and values line up in the Match comparison and the Storage
+  "Library on disk" rows (a truncated value's baseline sat at its bottom edge).
+
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would

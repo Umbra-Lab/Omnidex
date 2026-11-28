@@ -63,7 +63,8 @@ export function MatchPickerModal({
 
   const candidates = trpc.orbital.candidates.useQuery(
     { folderName: queryText, limit: 12 },
-    { enabled: open && queryText.length > 0 },
+    // The list states the failure itself; no toast on top of the dialog.
+    { enabled: open && queryText.length > 0, meta: { errorToast: false } },
   );
 
   const match = trpc.orbital.match.useMutation({

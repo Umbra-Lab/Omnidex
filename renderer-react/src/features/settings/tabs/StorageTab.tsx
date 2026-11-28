@@ -207,7 +207,10 @@ export function StorageTab() {
               {byLocation.map((row) => (
                 <div
                   key={row.key}
-                  className="grid grid-cols-[1fr_auto] items-baseline gap-4 border-b border-surface-800/60 py-1 last:border-0"
+                  // items-center: the truncated name's clipped overflow moves its
+                  // baseline to its bottom edge, so baseline alignment dropped
+                  // the numbers below the name.
+                  className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-surface-800/60 py-1 last:border-0"
                 >
                   <span className="truncate cap-12 text-surface-200">{row.name}</span>
                   <span className="shrink-0 font-mono cap-11 tabular-nums text-surface-400">
