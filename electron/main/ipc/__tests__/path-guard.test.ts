@@ -2,7 +2,14 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { isPathWithin, resolveWithin } from '../path-guard';
+import {
+  isLaunchableBundle,
+  isOpenableFile,
+  isPathWithin,
+  planOpenLocation,
+  planOpenPath,
+  resolveWithin,
+} from '../path-guard';
 
 /**
  * Coverage for the path-containment guard that backs the hardened raw IPC
@@ -140,5 +147,135 @@ describe('resolveWithin', () => {
 
   it('uses the platform separator in containment (sanity)', () => {
     expect(sep.length).toBeGreaterThan(0);
+  });
+});
+
+describe('isOpenableFile — what shell.openPath may hand to a default app', () => {
+  it('allows course media and documents, any case', () => {
+    for (const p of [
+      'C:\\Courses\\01 - Intro.MP4',
+      '/c/lesson.mkv',
+      '/c/notes.pdf',
+      '/c/readme.md',
+      '/c/cover.JPG',
+      '/c/part.ts',
+    ]) {
+      expect(isOpenableFile(p), p).toBe(true);
+    }
+  });
+
+  it('refuses anything that could run, and names with no extension', () => {
+    for (const p of [
+      'C:\\Packs\\Setup.exe',
+      'C:\\Packs\\install.bat',
+      'C:\\Packs\\Docs.lnk',
+      'C:\\Packs\\site.url',
+      'C:\\Packs\\x.scr',
+      'C:\\Packs\\run.ps1',
+      'C:\\Packs\\macro.doc',
+      'C:\\Packs\\macro.docx',
+      'C:\\Packs\\ole.rtf',
+      '/Users/me/Packs/start.command',
+      '/home/me/packs/build.sh',
+      '/home/me/packs/video.mp4.exe',
+      '/home/me/packs/Makefile',
+      '/home/me/packs/.mp4',
+      '/home/me/v.1/README',
+    ]) {
+      expect(isOpenableFile(p), p).toBe(false);
+    }
+  });
+});
+
+describe('isLaunchableBundle — folders openPath would launch', () => {
+  it('spots macOS bundles, with or without a trailing slash', () => {
+    expect(isLaunchableBundle('/Users/me/Packs/Tool.app')).toBe(true);
+    expect(isLaunchableBundle('/Users/me/Packs/Tool.APP/')).toBe(true);
+    expect(isLaunchableBundle('/Users/me/Packs/Thing.workflow')).toBe(true);
+  });
+
+  it('leaves ordinary pack folders alone', () => {
+    expect(isLaunchableBundle('/Users/me/Packs/Medieval Village')).toBe(false);
+    expect(isLaunchableBundle('/Users/me/Packs/my.application.pack')).toBe(false);
+    expect(isLaunchableBundle('C:\\Packs\\Apps')).toBe(false);
+  });
+});
+
+describe('shell plans — decided on the real target, opened on the real target', () => {
+  let root: string;
+  beforeAll(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'omnidex-shell-')));
+    mkdirSync(join(root, 'Pack'));
+    mkdirSync(join(root, 'Evil.app'));
+    mkdirSync(join(root, 'sub'));
+    writeFileSync(join(root, 'lesson.mp4'), '');
+    writeFileSync(join(root, 'run.command'), '');
+    writeFileSync(join(root, 'Setup.exe'), '');
+    symlinkSync(join(root, 'Evil.app'), join(root, 'sub', 'clip'), 'dir');
+    symlinkSync(join(root, 'run.command'), join(root, 'sub', 'video.mp4'));
+  });
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  it('open-path opens media and folders, and refuses what could run', () => {
+    expect(planOpenPath(join(root, 'lesson.mp4'), [root])).toEqual({
+      kind: 'open',
+      path: join(root, 'lesson.mp4'),
+    });
+    expect(planOpenPath(join(root, 'Pack'), [root])).toEqual({
+      kind: 'open',
+      path: join(root, 'Pack'),
+    });
+    expect(planOpenPath(join(root, 'Setup.exe'), [root])).toMatchObject({ kind: 'refuse' });
+    expect(planOpenPath(join(root, 'Evil.app'), [root])).toEqual({
+      kind: 'reveal',
+      path: join(root, 'Evil.app'),
+    });
+  });
+
+  it('judges a symlink by its target: a link to a bundle or a script cannot launch it', () => {
+    expect(planOpenPath(join(root, 'sub', 'clip'), [root])).toEqual({
+      kind: 'reveal',
+      path: join(root, 'Evil.app'),
+    });
+    expect(planOpenPath(join(root, 'sub', 'video.mp4'), [root])).toMatchObject({ kind: 'refuse' });
+    expect(planOpenLocation(join(root, 'sub', 'clip'), [root])).toEqual({
+      kind: 'reveal',
+      path: join(root, 'Evil.app'),
+    });
+  });
+
+  it('open-file-location reveals files and opens folders', () => {
+    expect(planOpenLocation(join(root, 'Setup.exe'), [root])).toEqual({
+      kind: 'reveal',
+      path: join(root, 'Setup.exe'),
+    });
+    expect(planOpenLocation(join(root, 'Pack'), [root])).toEqual({
+      kind: 'open',
+      path: join(root, 'Pack'),
+    });
+  });
+
+  it('opens the parent of a path that is gone, unless that parent is a bundle', () => {
+    expect(planOpenLocation(join(root, 'Pack', 'gone'), [root])).toEqual({
+      kind: 'open',
+      path: join(root, 'Pack'),
+      openedParent: true,
+    });
+    expect(planOpenLocation(join(root, 'Evil.app', 'nope'), [root])).toEqual({
+      kind: 'reveal',
+      path: join(root, 'Evil.app'),
+    });
+    expect(planOpenLocation(join(root, 'no', 'such', 'thing'), [root])).toEqual({
+      kind: 'refuse',
+      error: 'not found',
+    });
+  });
+
+  it('refuses anything outside the roots, missing or not', () => {
+    expect(planOpenPath(tmpdir(), [root])).toEqual({ kind: 'refuse', error: 'path not allowed' });
+    expect(planOpenLocation(join(tmpdir(), 'nope-omnidex'), [root])).toEqual({
+      kind: 'refuse',
+      error: 'path not allowed',
+    });
   });
 });
