@@ -232,25 +232,50 @@ export function createSearch(db, { legacy = false } = {}) {
    */
   function correct(ftsTable, terms, prefix) {
     const fixes = [];
-    const stems = new Set();
+    // term → the vocabulary words it now stands for, each searched as a prefix.
+    const stems = new Map();
     const out = terms.map((t) => {
       const lower = t.toLowerCase();
-      if (maxEdits(lower.length) === 0 || /\d/.test(lower) || hasHit(ftsTable, lower, prefix)) {
-        return t;
-      }
+      if (maxEdits(lower.length) === 0 || /\d/.test(lower)) return t;
+      const hit = hasHit(ftsTable, lower, prefix);
+      if (hit && !prefix) return t;
       const slice = vocabSlice(ftsTable, String.fromCodePoint(lower.codePointAt(0)));
-      const fix = nearestTerm(lower, slice) ?? stemPrefix(lower, slice);
-      if (!fix) return t;
-      fixes.push(`"${t}" → words starting "${fix}"`);
-      stems.add(fix);
-      return fix;
+      if (hit) {
+        // The word matches something, but the search still found too little: also take
+        // the stem it starts with. "narrat"* can hit a pack mentioning a "narrator" while
+        // the Narrative pack, stored as "narr", stays out of reach.
+        // Prefix searches only: a whole transcript word is stemmed by the tokenizer itself.
+        const stem = prefix ? stemPrefix(lower, slice) : null;
+        if (!stem) return t;
+        fixes.push(`"${t}" also as words starting "${stem}"`);
+        stems.set(lower, [lower, stem]);
+        return lower;
+      }
+      // Both, when they differ: the nearest word by edits can be an unrelated neighbour
+      // ("narrat" is one edit from some other word), while the stem the typed word starts
+      // with ("narr") is often what was meant. ORing them lets BM25 sort it out.
+      const alts = [...new Set([nearestTerm(lower, slice), stemPrefix(lower, slice)])].filter(
+        Boolean,
+      );
+      if (alts.length === 0) return t;
+      fixes.push(`"${t}" → words starting ${alts.map((a) => `"${a}"`).join(' or ')}`);
+      stems.set(alts[0], alts);
+      return alts[0];
     });
     return { terms: out, fixes, stems };
   }
 
-  /** `and` or `or` query over terms; corrected stems always prefix-match (see correct). */
+  /** `and` or `or` query over terms; corrected words match any of their stems as prefixes. */
   function build(terms, prefix, stems, joiner) {
-    return terms.map((t) => quote(t, prefix || stems.has(t))).join(joiner);
+    return terms
+      .map((t) => {
+        const alts = stems.get(t);
+        if (!alts) return quote(t, prefix);
+        return alts.length === 1
+          ? quote(alts[0], true)
+          : `(${alts.map((a) => quote(a, true)).join(' OR ')})`;
+      })
+      .join(joiner);
   }
 
   /**
@@ -262,7 +287,7 @@ export function createSearch(db, { legacy = false } = {}) {
     if (terms.length === 0) return { rows: [], notes: [], empty: true };
     if (legacy) return { rows: run(andQuery(terms, false), limit), notes: [] };
 
-    let stems = new Set();
+    let stems = new Map();
     let rows = run(andQuery(terms, prefix), limit);
     const notes = [];
     const enough = Math.min(FEW, limit);
@@ -273,7 +298,7 @@ export function createSearch(db, { legacy = false } = {}) {
       terms = fixed.terms;
       stems = fixed.stems;
       const again = run(build(terms, prefix, stems, ' '), limit);
-      notes.push(`Corrected spelling: ${fixed.fixes.join(', ')}.`);
+      notes.push(`Matched loosely: ${fixed.fixes.join('; ')}.`);
       rows = again;
       if (rows.length >= enough) return { rows, notes };
     }

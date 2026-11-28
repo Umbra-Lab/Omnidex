@@ -132,6 +132,15 @@ describe('Oracle staged search', () => {
     const a = createSearch(db).assets('narrat', 20);
     expect(names(a.rows)).toEqual(['Narrative Quests']);
     expect(names(createSearch(db).assets('narraitve', 20).rows)).toEqual(['Narrative Quests']);
+    // A one-edit neighbour must not crowd out the stem: both are searched.
+    seedAsset(db, { name: 'Narwal Statue', file_path: '/p/narwal', description: 'narat' });
+    const both = createSearch(db).assets('narrat', 20);
+    expect(names(both.rows)).toContain('Narrative Quests');
+    expect(both.notes[0]).toMatch(/words starting "narat" or "narr"/);
+    // A partial word that hits the wrong thing ("narrator") still widens to its stem.
+    seedAsset(db, { name: 'Voice Pack', file_path: '/p/voice', description: 'narrator' });
+    const wide = createSearch(db).assets('narrat', 20);
+    expect(names(wide.rows)).toEqual(expect.arrayContaining(['Voice Pack', 'Narrative Quests']));
   });
 
   it('prefix-matches asset words like the app search box', () => {
