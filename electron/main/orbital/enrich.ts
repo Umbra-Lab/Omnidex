@@ -12,7 +12,8 @@ type Candidate = Awaited<ReturnType<typeof matchAssetName>>[number];
 /**
  * The best candidate the user hasn't turned down for this asset. A listing
  * rejected in the Match view ("not this one") must not come straight back as
- * the automatic match, or a bulk run silently undoes the review.
+ * the automatic match, or a bulk run silently undoes the review. Null means
+ * leave the pack unmatched (it stays in the Match queue).
  */
 function bestUnrejected(db: Database, assetId: number, candidates: Candidate[]): Candidate | null {
   const rejected = new Set(
@@ -26,7 +27,12 @@ function bestUnrejected(db: Database, assetId: number, candidates: Candidate[]):
     ).map((r) => r.product_slug),
   );
   const top = candidates.find((c) => !rejected.has(c.item.slug));
-  return top && top.strength !== 'none' ? top : null;
+  if (!top || top.strength === 'none') return null;
+  // Once the user has turned a listing down, the pack is under review: only a
+  // strong runner-up is taken automatically. A weak one would set the match
+  // and drop the pack out of the Match queue nobody then looks at again.
+  if (rejected.size > 0 && top.strength !== 'high' && top.strength !== 'exact') return null;
+  return top;
 }
 
 /**

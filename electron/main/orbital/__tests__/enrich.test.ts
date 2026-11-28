@@ -136,11 +136,17 @@ describe('enrichOrbital attempted-marking', () => {
 
 describe('match decisions from the Match view', () => {
   const product = (slug: string) => ({ slug, title: slug });
-  const cand = (slug: string, score = 0.9) => ({
+  const cand = (slug: string, score = 0.9, strength: string = 'high') => ({
     item: { slug, title: slug },
     score,
-    strength: 'high' as const,
+    strength,
   });
+  const attemptedOf = (name: string) =>
+    (
+      (h.db as Database)
+        .prepare('SELECT orbital_match_attempted AS a FROM assets WHERE name = ?')
+        .get(name) as { a: number }
+    ).a;
   const slugOf = (name: string) =>
     (
       (h.db as Database)
@@ -168,8 +174,21 @@ describe('match decisions from the Match view', () => {
     h.getProduct.mockImplementation(async (slug: string) => product(slug));
     const r = await enrichOrbital(quiet);
     expect(slugOf('A')).toBeNull();
+    expect(attemptedOf('A')).toBe(1);
     expect(r.unmatched).toBe(1);
     expect(r.matched).toBe(2);
+  });
+
+  it('leaves a reviewed pack for the Match view when the runner-up is weak', async () => {
+    (h.db as Database)
+      .prepare("INSERT INTO orbital_match_rejections (asset_id, product_slug) VALUES (1, 'wrong')")
+      .run();
+    h.matchAssetName.mockResolvedValue([cand('wrong'), cand('maybe', 0.5, 'low')]);
+    h.getProduct.mockImplementation(async (slug: string) => product(slug));
+    await enrichOrbital(quiet);
+    expect(slugOf('A')).toBeNull();
+    // A pack nobody reviewed keeps its top candidate, as before.
+    expect(slugOf('B')).toBe('wrong');
   });
 
   it('leaves a dismissed asset out of the bulk run', async () => {
