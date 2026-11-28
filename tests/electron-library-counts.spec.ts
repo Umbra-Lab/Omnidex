@@ -99,6 +99,11 @@ test('ecosystemCounts comes back populated and partitions the library', async ()
 test('categoryCounts comes back populated', async () => {
   // Categories come from marketplace enrichment; an unenriched library has
   // none, and the sidebar then leaves the group out entirely.
+  // Wait for the sidebar's counts to load first, so a slow query isn't read
+  // as "no categories".
+  await expect(
+    sidebar().locator('[aria-labelledby="source-group-ecosystems"] button').first(),
+  ).toBeVisible({ timeout: 8000 });
   const group = sidebar().locator('[aria-labelledby="source-group-categories"]');
   test.skip((await group.count()) === 0, 'no enriched categories in this library');
   const counts = await groupCounts('source-group-categories');
