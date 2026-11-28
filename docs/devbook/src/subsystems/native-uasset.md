@@ -70,6 +70,8 @@ The evidence is unusually clean: a sequential sweep of the whole library crashes
 
 Crashed paths are therefore swept again at concurrency 1, and only a file that dies with the field to itself is reported as malformed. Innocent files get their thumbnail back instead of a permanent diagnostic entry.
 
+The first sweep's width also scales with the machine: `thumbnailLanes` runs one child per 4 GB of RAM, at most four, and at most one fewer than the CPU count. An 8 GB laptop extracts two at a time instead of asking for 6.5 GB at peak; 16 GB and up keeps four.
+
 ```admonish warning title="A sequential harness cannot reproduce this bug"
 Two separate attempts to name the offending file ran sequentially and both reported "0 of ~2,700 files abort the process". That is the expected result of the wrong experiment, not evidence the bug is gone. Reproducing it requires concurrency.
 ```

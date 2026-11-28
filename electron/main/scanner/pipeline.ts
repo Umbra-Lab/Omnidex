@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { availableParallelism, totalmem } from 'node:os';
 import { basename } from 'node:path';
 import type { ScanDiagnostic } from '@omnidex/types/db';
 import type { Database, Statement } from 'better-sqlite3';
@@ -17,7 +18,7 @@ import {
 import { scanDccLocation } from './dcc-index';
 import { decodeSubtitle } from './subtitles';
 import { findThumbnailSource } from './thumbnail-finder';
-import { extractThumbnailsIsolated } from './thumbnail-pool';
+import { extractThumbnailsIsolated, thumbnailLanes } from './thumbnail-pool';
 import { BACKGROUND_THUMBNAIL_SQL } from './thumbnail-sql';
 import { scanUnityLocation } from './unity';
 import type { DetectedAssetFolder } from './walker';
@@ -434,7 +435,9 @@ async function backgroundThumbnails(args: BackgroundThumbnailArgs): Promise<void
     targets: [...uassetPacks.keys()],
     outDir: thumbnailRoot,
     size: 256,
-    concurrency: CONCURRENCY,
+    // Fewer extractor children on small machines; the source lookup above is
+    // cheap file reads and keeps its fixed width.
+    concurrency: thumbnailLanes(totalmem(), availableParallelism()),
     timeoutMs: PER_PACK_TIMEOUT_MS,
     signal: controller.signal,
     onResult: (uassetPath, png) => {

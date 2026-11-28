@@ -110,6 +110,9 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Thumbnail extraction runs fewer child processes on small machines: one per
+  4 GB of RAM (at most four). Four at once could ask for ~6.5 GB at peak,
+  more than an 8 GB laptop has to spare.
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
