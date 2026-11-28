@@ -35,7 +35,17 @@ CREATE TABLE assets (
   orbital_categories TEXT,
   orbital_last_checked_timestamp TEXT,
   tags TEXT
-);`;
+);
+CREATE TABLE asset_tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset_id INTEGER NOT NULL,
+  tag TEXT NOT NULL,
+  tag_type TEXT NOT NULL,
+  confidence REAL,
+  source TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX idx_asset_tags_unique ON asset_tags(asset_id, tag, source);`;
 
 function json(status: number, body: unknown): Response {
   return {
@@ -63,6 +73,19 @@ function row(name: string): { fab_owned: number; asset_type: string; fab_item_id
 beforeEach(() => {
   const d = new DatabaseSync(':memory:');
   d.exec(SCHEMA);
+  // node:sqlite has no better-sqlite3 transaction(); polyfill the slice used.
+  (d as unknown as { transaction: unknown }).transaction =
+    <A extends unknown[]>(fn: (...args: A) => void) =>
+    (...args: A) => {
+      d.exec('BEGIN');
+      try {
+        fn(...args);
+        d.exec('COMMIT');
+      } catch (err) {
+        d.exec('ROLLBACK');
+        throw err;
+      }
+    };
   h.db = d;
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
@@ -184,5 +207,50 @@ describe('enrichFab matching', () => {
     );
     const r = await enrichFab(opts);
     expect(r.updated).toBe(1);
+  });
+});
+
+describe('enrichFab category tags', () => {
+  const db = () => h.db as Database;
+
+  it('adds the categories as tags without dropping the tags the person added', async () => {
+    seed('Pack One');
+    const id = (db().prepare('SELECT id FROM assets').get() as { id: number }).id;
+    db()
+      .prepare(
+        "INSERT INTO asset_tags (asset_id, tag, tag_type, source) VALUES (?, 'mine', 'technical', 'user')",
+      )
+      .run(id);
+    db().prepare('UPDATE assets SET tags = ? WHERE id = ?').run('["mine"]', id);
+    fetchMock.mockResolvedValueOnce(
+      json(200, {
+        results: [{ title: 'Pack One', assetId: 'a1', categories: [{ name: 'Props' }] }],
+      }),
+    );
+    await enrichFab(opts);
+
+    const mirror = (
+      db().prepare('SELECT tags FROM assets WHERE id = ?').get(id) as { tags: string }
+    ).tags;
+    expect((JSON.parse(mirror) as string[]).sort()).toEqual(['mine', 'props']);
+    const rows = db()
+      .prepare('SELECT tag, source FROM asset_tags WHERE asset_id = ? ORDER BY tag')
+      .all(id);
+    expect(rows).toEqual([
+      { tag: 'mine', source: 'user' },
+      { tag: 'props', source: 'official' },
+    ]);
+  });
+
+  it('replaces the categories from an earlier sync', async () => {
+    seed('Pack One');
+    const listing = (cat: string) =>
+      json(200, { results: [{ title: 'Pack One', assetId: 'a1', categories: [cat] }] });
+    fetchMock.mockResolvedValueOnce(listing('Props'));
+    await enrichFab(opts);
+    fetchMock.mockResolvedValueOnce(listing('Environments'));
+    await enrichFab(opts);
+    const mirror = (db().prepare('SELECT tags FROM assets').get() as { tags: string }).tags;
+    expect(JSON.parse(mirror)).toEqual(['environments']);
   });
 });

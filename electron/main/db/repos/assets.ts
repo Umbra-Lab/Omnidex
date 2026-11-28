@@ -532,7 +532,9 @@ export function pruneAssetsNotIn(
     // and notes cannot be reconstructed at all.
     const curated = `(
       EXISTS (SELECT 1 FROM collection_items ci WHERE ci.asset_id = assets.id)
-      OR EXISTS (SELECT 1 FROM asset_tags t WHERE t.asset_id = assets.id)
+      -- FAB category tags (source 'official') come back with the next sync, so
+      -- they do not make a row worth keeping.
+      OR EXISTS (SELECT 1 FROM asset_tags t WHERE t.asset_id = assets.id AND t.source <> 'official')
       OR EXISTS (SELECT 1 FROM asset_notes n WHERE n.asset_id = assets.id)
       -- A match decision is user-typed and unreconstructable, exactly like a
       -- tag. Without this line a rename hard-deletes the row, the cascade takes

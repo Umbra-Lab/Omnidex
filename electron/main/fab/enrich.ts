@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import { openDatabase } from '../db';
+import { officialTagsWriter } from '../db/repos/tags';
 import { type ActionProgress, emitProgress } from '../progress/bus';
 
 /**
@@ -267,8 +268,7 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
       return false;
     }
     const basic = Buffer.from(`${LAUNCHER_CLIENT_ID}:${LAUNCHER_CLIENT_SECRET}`).toString('base64');
-    const tokenUrl =
-      'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/token';
+    const tokenUrl = 'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/token';
     try {
       const resp = await fetch(tokenUrl, {
         method: 'POST',
@@ -444,10 +444,17 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
        orbital_source_url = ?,
        orbital_supported_versions = ?,
        orbital_categories = ?,
-       orbital_last_checked_timestamp = ?,
-       tags = COALESCE(?, tags)
+       orbital_last_checked_timestamp = ?
      WHERE id = ?`,
   );
+  // Category tags are rows in asset_tags (source 'official'), never a direct
+  // write to the assets.tags mirror: that dropped the person's own tags from
+  // search and the tag filter. See officialTagsWriter.
+  const writeOfficialTags = officialTagsWriter(db);
+  const applyItem = db.transaction((id: number, values: unknown[], tags: string[]) => {
+    updateStmt.run(...values, id);
+    writeOfficialTags(id, tags);
+  });
 
   let updated = 0;
   let unmatched = 0;
@@ -506,7 +513,12 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
     // Prefer the "Featured" image, fall back to first.
     let thumbnailUrl: string | null = null;
     for (const img of item.images ?? []) {
-      if (img && typeof img === 'object' && img.type === 'Featured' && typeof img.url === 'string') {
+      if (
+        img &&
+        typeof img === 'object' &&
+        img.type === 'Featured' &&
+        typeof img.url === 'string'
+      ) {
         thumbnailUrl = img.url;
         break;
       }
@@ -521,19 +533,21 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
     const assetType = FAB_LISTING_TYPE_MAP[listingType] ?? (listingType || 'Asset');
     const fabId = extractFabListingId(item);
 
-    updateStmt.run(
-      fabId,
-      assetType,
-      item.title ?? null,
-      item.description ?? null,
-      item.seller ?? null,
-      thumbnailUrl,
-      item.url ?? null,
-      engineVersions.length > 0 ? JSON.stringify(engineVersions) : null,
-      categories.length > 0 ? JSON.stringify(categories) : null,
-      now,
-      tags.length > 0 ? JSON.stringify(tags) : null,
+    applyItem(
       row.id,
+      [
+        fabId,
+        assetType,
+        item.title ?? null,
+        item.description ?? null,
+        item.seller ?? null,
+        thumbnailUrl,
+        item.url ?? null,
+        engineVersions.length > 0 ? JSON.stringify(engineVersions) : null,
+        categories.length > 0 ? JSON.stringify(categories) : null,
+        now,
+      ],
+      tags,
     );
     updated += 1;
   }

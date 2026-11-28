@@ -115,7 +115,7 @@ export function getScanLocationRemovalImpact(db: Database, id: number): ScanLoca
            WHERE a.scan_location_id = ?
              AND (TRIM(COALESCE(n.note_text, '')) <> '' OR n.rating IS NOT NULL)) AS notes,
          (SELECT COUNT(DISTINCT t.asset_id) FROM asset_tags t JOIN assets a ON a.id = t.asset_id
-           WHERE a.scan_location_id = ?) AS taggedAssets,
+           WHERE a.scan_location_id = ? AND t.source <> 'official') AS taggedAssets,
          (SELECT COUNT(*) FROM collection_items c JOIN assets a ON a.id = c.asset_id
            WHERE a.scan_location_id = ?) AS collectionEntries,
          (SELECT COUNT(*) FROM course_progress p

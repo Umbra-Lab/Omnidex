@@ -45,6 +45,11 @@ describe('getScanLocationRemovalImpact', () => {
     db.prepare("INSERT INTO asset_tags (asset_id, tag) VALUES (?, 'rock'), (?, 'moss')").run(a, a);
     db.prepare("INSERT INTO asset_tags (asset_id, tag) VALUES (?, 'rock')").run(b);
     db.prepare("INSERT INTO asset_tags (asset_id, tag) VALUES (?, 'rock')").run(other);
+    // C has only FAB category tags: the next sync writes them back, so they are not counted.
+    const c = (db.prepare("SELECT id FROM assets WHERE name = 'C'").get() as { id: number }).id;
+    db.prepare(
+      "INSERT INTO asset_tags (asset_id, tag, source) VALUES (?, 'props', 'official')",
+    ).run(c);
 
     db.prepare('INSERT INTO collection_items (collection_id, asset_id) VALUES (1, ?), (2, ?)').run(
       a,

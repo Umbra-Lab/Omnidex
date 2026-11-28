@@ -1,9 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import type { AssetFilter } from '@omnidex/types/db';
 import type { Database } from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { countAssets, getAssetById, searchAssets } from '../assets';
-import { addAssetTags, getAssetTags, searchTags, setAssetTags } from '../tags';
+import { addAssetTags, getAssetTags, officialTagsWriter, searchTags, setAssetTags } from '../tags';
 
 /**
  * `setAssetTags` is the one tag path that crosses three stores at once:
@@ -182,25 +183,30 @@ describe('setAssetTags', () => {
     expect(countAssets(db, { ...NO_FILTER, tags: ['new'] })).toBe(1);
   });
 
-  it('preserves ai/official rows and keeps them searchable in assets.tags', () => {
+  it('keeps the ai/official tags still in the list, with their source, and searchable', () => {
     const id = seed(db, 'Castle Pack');
     addTag(db, id, 'ai-genre', 'ai');
     addTag(db, id, 'official-cat', 'official');
-    setAssetTags(db, id, ['user-tag']);
+    // The modal shows every tag and saves the whole list.
+    setAssetTags(db, id, ['ai-genre', 'official-cat', 'user-tag']);
 
-    const tags = getAssetTags(db, id)
-      .map((t) => t.tag)
+    const rows = getAssetTags(db, id)
+      .map((t) => `${t.tag}:${t.source}`)
       .sort();
-    expect(tags).toEqual(['ai-genre', 'official-cat', 'user-tag']);
+    expect(rows).toEqual(['ai-genre:ai', 'official-cat:official', 'user-tag:user']);
 
     const row = db.prepare('SELECT tags FROM assets WHERE id = ?').get(id) as { tags: string };
-    expect((JSON.parse(row.tags) as string[]).sort()).toEqual([
-      'ai-genre',
-      'official-cat',
-      'user-tag',
-    ]);
-    // The preserved AI tag is still findable.
+    expect(JSON.parse(row.tags)).toEqual(['ai-genre', 'official-cat', 'user-tag']);
     expect(searchAssets(db, 'ai-genre').map((r) => r.id)).toEqual([id]);
+  });
+
+  it('removes an ai or official tag the person took out of the list', () => {
+    const id = seed(db, 'Castle Pack');
+    addTag(db, id, 'ai-genre', 'ai');
+    addTag(db, id, 'official-cat', 'official');
+    setAssetTags(db, id, ['official-cat']);
+    expect(getAssetTags(db, id).map((t) => t.tag)).toEqual(['official-cat']);
+    expect(countAssets(db, { ...NO_FILTER, tags: ['ai-genre'] })).toBe(0);
   });
 
   it('trims, de-dupes, and drops empty tags', () => {
@@ -224,13 +230,138 @@ describe('setAssetTags', () => {
     expect(getAssetById(db, id)?.tags ?? null).toBeNull();
   });
 
-  it('keeps assets.tags populated from machine tags even when user tags are cleared', () => {
+  it('does not add a user copy of a tag another source already holds', () => {
     const id = seed(db, 'Castle Pack');
-    addTag(db, id, 'ai-genre', 'ai');
-    setAssetTags(db, id, ['temp']);
-    setAssetTags(db, id, []);
+    addTag(db, id, 'official-cat', 'official');
+    setAssetTags(db, id, ['official-cat']);
+    setAssetTags(db, id, ['official-cat']);
+    expect(getAssetTags(db, id)).toHaveLength(1);
+  });
+});
+
+describe('officialTagsWriter — FAB category tags', () => {
+  it('does not rewrite (and reindex) the mirror when a re-sync brings the same categories', () => {
+    const id = seed(db, 'Castle Pack');
+    db.exec(`CREATE TEMP TABLE writes (n INTEGER);
+      CREATE TEMP TRIGGER count_writes AFTER UPDATE OF tags ON assets
+      BEGIN INSERT INTO writes VALUES (1); END;`);
+    const write = officialTagsWriter(db);
+    write(id, ['props', 'environments']);
+    write(id, ['props', 'environments']);
+    write(id, ['environments', 'props']);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM writes').get() as { n: number }).n).toBe(1);
     const row = db.prepare('SELECT tags FROM assets WHERE id = ?').get(id) as { tags: string };
-    expect(JSON.parse(row.tags)).toEqual(['ai-genre']);
+    expect(row.tags).toBe('["environments","props"]');
+  });
+
+  it('replaces the official tags and leaves user and ai tags, mirror included', () => {
+    const id = seed(db, 'Castle Pack');
+    setAssetTags(db, id, ['mine']);
+    addTag(db, id, 'ai-genre', 'ai');
+    addTag(db, id, 'old-cat', 'official');
+    officialTagsWriter(db)(id, ['props', 'environments']);
+
+    expect(
+      getAssetTags(db, id)
+        .map((t) => `${t.tag}:${t.source}`)
+        .sort(),
+    ).toEqual(['ai-genre:ai', 'environments:official', 'mine:user', 'props:official']);
+    const row = db.prepare('SELECT tags FROM assets WHERE id = ?').get(id) as { tags: string };
+    expect((JSON.parse(row.tags) as string[]).sort()).toEqual([
+      'ai-genre',
+      'environments',
+      'mine',
+      'props',
+    ]);
+    expect(countAssets(db, { ...NO_FILTER, tags: ['mine'] })).toBe(1);
+    expect(countAssets(db, { ...NO_FILTER, tags: ['old-cat'] })).toBe(0);
+  });
+
+  it('leaves the official tags alone when the listing has no categories', () => {
+    const id = seed(db, 'Castle Pack');
+    addTag(db, id, 'old-cat', 'official');
+    officialTagsWriter(db)(id, []);
+    expect(getAssetTags(db, id).map((t) => t.tag)).toEqual(['old-cat']);
+  });
+
+  it('keeps a user tag that matches a category as one tag in the mirror', () => {
+    const id = seed(db, 'Castle Pack');
+    setAssetTags(db, id, ['props']);
+    officialTagsWriter(db)(id, ['props']);
+    const row = db.prepare('SELECT tags FROM assets WHERE id = ?').get(id) as { tags: string };
+    expect(JSON.parse(row.tags)).toEqual(['props']);
+  });
+});
+
+describe('migration 20261128010000_unify_asset_tags', () => {
+  const sql = readFileSync(
+    'electron/main/db/migrations/20261128010000_unify_asset_tags.up.sql',
+    'utf8',
+  );
+  const mirror = (id: number) =>
+    (db.prepare('SELECT tags FROM assets WHERE id = ?').get(id) as { tags: string | null }).tags;
+
+  it('puts user tags a FAB sync dropped back in the mirror, and keeps the FAB tags', () => {
+    const id = seed(db, 'Synced Pack', '["props","environments"]');
+    addTag(db, id, 'mine', 'user');
+    db.exec(sql);
+    expect(
+      getAssetTags(db, id)
+        .map((t) => `${t.tag}:${t.source}`)
+        .sort(),
+    ).toEqual(['environments:user', 'mine:user', 'props:user']);
+    expect((JSON.parse(mirror(id) as string) as string[]).sort()).toEqual([
+      'environments',
+      'mine',
+      'props',
+    ]);
+    expect(countAssets(db, { ...NO_FILTER, tags: ['mine'] })).toBe(1);
+    expect(searchAssets(db, 'mine').map((r) => r.id)).toEqual([id]);
+  });
+
+  it('stores mirror-only tags as user tags, so a later FAB sync does not delete them', () => {
+    const id = seed(db, 'Old Pack', '["hand-typed"]');
+    db.exec(sql);
+    officialTagsWriter(db)(id, ['props']);
+    expect(mirror(id)).toBe('["hand-typed","props"]');
+  });
+
+  it('stores a FAB-synced pack’s mirror-only tags as official, so syncs keep them current', () => {
+    const id = seed(db, 'Synced Pack', '["props"]');
+    db.prepare(
+      'UPDATE assets SET fab_owned = 1, orbital_categories = \'["Props"]\' WHERE id = ?',
+    ).run(id);
+    db.exec(sql);
+    expect(getAssetTags(db, id).map((t) => `${t.tag}:${t.source}`)).toEqual(['props:official']);
+    officialTagsWriter(db)(id, ['environments']);
+    expect(mirror(id)).toBe('["environments"]');
+  });
+
+  it('gives mirror-only tags a row, trimmed, skipping blanks and non-strings', () => {
+    const id = seed(db, 'Old Pack', '[" stone ", "", 3, null, "stone"]');
+    db.exec(sql);
+    expect(getAssetTags(db, id).map((t) => t.tag)).toEqual(['stone']);
+    expect(mirror(id)).toBe('["stone"]');
+  });
+
+  it('survives a mirror that is not a JSON array, and leaves it alone', () => {
+    const bad = seed(db, 'Bad', 'not json');
+    const obj = seed(db, 'Obj', '{"a":1}');
+    addTag(db, bad, 'x', 'user');
+    expect(() => db.exec(sql)).not.toThrow();
+    expect(mirror(bad)).toBe('not json');
+    expect(mirror(obj)).toBe('{"a":1}');
+    expect(getAssetTags(db, obj)).toHaveLength(0);
+  });
+
+  it('leaves a mirror that already matches as it is, and is safe to run twice', () => {
+    const id = seed(db, 'Fine');
+    setAssetTags(db, id, ['a', 'b']);
+    const before = mirror(id);
+    db.exec(sql);
+    db.exec(sql);
+    expect(mirror(id)).toBe(before);
+    expect(getAssetTags(db, id)).toHaveLength(2);
   });
 });
 

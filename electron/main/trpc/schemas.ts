@@ -102,7 +102,7 @@ export const scanLocationUpdateSchema = z.object({
   content_format: contentFormatSchema.nullable().optional(),
 });
 
-// Replaces the full user-tag set for one asset (canonical `asset_tags` store +
+// Makes the list one asset's whole tag set, any source (canonical `asset_tags` store +
 // the re-serialized `assets.tags` JSON).
 export const setTagsSchema = z.object({
   assetId: idSchema,

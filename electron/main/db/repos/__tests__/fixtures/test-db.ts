@@ -74,7 +74,7 @@ CREATE TABLE asset_notes (
 
 CREATE TABLE scan_locations (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT);
 CREATE TABLE collections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT);
-CREATE TABLE asset_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id INTEGER, tag TEXT);
+CREATE TABLE asset_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id INTEGER, tag TEXT, source TEXT NOT NULL DEFAULT 'user');
 
 -- Mirrors the real cascade so prune behaviour can be tested honestly: the
 -- whole point of the soft-delete is that this row must survive a rename.

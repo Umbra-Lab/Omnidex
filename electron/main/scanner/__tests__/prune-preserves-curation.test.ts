@@ -100,6 +100,19 @@ describe('scan prune preserves curation', () => {
     expect(count('asset_notes')).toBe(1);
   });
 
+  it('does not keep a vanished pack for its FAB category tags alone', () => {
+    scanUpsert('/lib/Pack', 'Pack');
+    const id = (
+      db.prepare('SELECT id FROM assets WHERE file_path = ?').get('/lib/Pack') as { id: number }
+    ).id;
+    // The next FAB sync writes these back; they are not something the user typed.
+    db.prepare(
+      "INSERT INTO asset_tags (asset_id, tag, source) VALUES (?, 'props', 'official')",
+    ).run(id);
+    pruneAssetsNotIn(db, 1, ['/lib/Something-Else']);
+    expect(count('assets')).toBe(0);
+  });
+
   it('re-scanning an unchanged library is a no-op for ids and curation', () => {
     scanUpsert('/lib/A', 'A');
     scanUpsert('/lib/B', 'B');

@@ -42,11 +42,21 @@ export function ModalHost() {
  */
 function TaggingHost() {
   const tagging = useModals((s) => s.tagging);
-  const close = useModals((s) => s.closeTagging);
   const assetId = tagging?.assetId ?? null;
+  if (assetId == null) return null;
+  // Remount per asset and per opening, so the tags query below gets a fresh
+  // observer and the draft state resets. Within one opening the modal seeds
+  // itself from initialTags when loading finishes (see TaggingModal).
+  return <TaggingHostOpen key={assetId} assetId={assetId} />;
+}
 
+function TaggingHostOpen({ assetId }: { assetId: number }) {
+  const close = useModals((s) => s.closeTagging);
   const utils = trpc.useUtils();
-  const tagsQuery = trpc.assets.getTags.useQuery(assetId ?? 0, { enabled: assetId != null });
+  // `refetchOnMount: 'always'`: the cached list can be up to five minutes old
+  // (a FAB sync or a bulk add since then), and saving deletes every tag that
+  // isn't in the list, so the modal must start from what is in the database.
+  const tagsQuery = trpc.assets.getTags.useQuery(assetId, { refetchOnMount: 'always' });
   const setTags = trpc.assets.setTags.useMutation({
     onSuccess: () => {
       void utils.assets.invalidate();
@@ -56,12 +66,13 @@ function TaggingHost() {
     },
   });
 
-  if (assetId == null) return null;
-
   // Saving REPLACES the asset's tags, so the modal must not be editable until
   // the current set is known: seeding it with [] while the query is in flight
-  // (or after it failed) made one new tag overwrite all the existing ones.
-  const loaded = tagsQuery.data !== undefined;
+  // (or after it failed) made one new tag overwrite all the existing ones, and
+  // seeding it from a stale cache dropped tags added since. isFetchedAfterMount
+  // is true only once this opening's own fetch has landed.
+  const loaded =
+    tagsQuery.data !== undefined && tagsQuery.isFetchedAfterMount && !tagsQuery.isError;
   const loadingMessage = loaded
     ? undefined
     : tagsQuery.isError
@@ -70,9 +81,6 @@ function TaggingHost() {
 
   return (
     <TaggingModal
-      // Remount per-asset so the draft state resets. Within one asset the modal
-      // seeds itself from initialTags when loading finishes (see TaggingModal).
-      key={assetId}
       open
       onOpenChange={(next) => {
         if (!next) close();
