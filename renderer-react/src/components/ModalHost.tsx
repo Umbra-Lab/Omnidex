@@ -15,6 +15,7 @@ import { AddToCollectionDialog } from '@/features/collections/AddToCollectionDia
 import { TaggingModal } from '@/features/tagging/TaggingModal';
 import { trpc } from '@/ipc/trpc';
 import { cn } from '@/lib/cn';
+import { formatCount } from '@/lib/format';
 import { useModals } from '@/stores/modals';
 
 /**
@@ -57,16 +58,27 @@ function TaggingHost() {
 
   if (assetId == null) return null;
 
+  // Saving REPLACES the asset's tags, so the modal must not be editable until
+  // the current set is known: seeding it with [] while the query is in flight
+  // (or after it failed) made one new tag overwrite all the existing ones.
+  const loaded = tagsQuery.data !== undefined;
+  const loadingMessage = loaded
+    ? undefined
+    : tagsQuery.isError
+      ? 'Couldn’t load this asset’s tags. Close and try again.'
+      : 'Loading tags…';
+
   return (
     <TaggingModal
-      // Remount per-asset so the modal's internal draft state resets and picks
-      // up freshly-fetched initialTags.
+      // Remount per-asset so the draft state resets. Within one asset the modal
+      // seeds itself from initialTags when loading finishes (see TaggingModal).
       key={assetId}
       open
       onOpenChange={(next) => {
         if (!next) close();
       }}
       initialTags={tagsQuery.data ?? []}
+      {...(loadingMessage ? { loadingMessage } : {})}
       onSave={(tags) => {
         setTags.mutate({ assetId, tags: [...tags] });
       }}
@@ -170,7 +182,7 @@ function BulkTaggingHost() {
         if (!next) close();
       }}
       initialTags={[]}
-      title={`Add tags to ${ids.length} ${ids.length === 1 ? 'asset' : 'assets'}`}
+      title={`Add tags to ${formatCount(ids.length)} ${ids.length === 1 ? 'asset' : 'assets'}`}
       description="Press Enter to add. These are added to each selected asset; existing tags are kept."
       saveLabel="Add tags"
       requireTags

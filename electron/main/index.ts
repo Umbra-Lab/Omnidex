@@ -32,7 +32,6 @@ import { registerMenuIpc } from './ipc/menu';
 import { registerOrbitalIpc } from './ipc/orbital';
 import { registerScannerIpc } from './ipc/scanner';
 import { registerShellIpc } from './ipc/shell';
-import { registerUassetIpc } from './ipc/uasset';
 import { initLogger } from './logger';
 import { registerGlobalHotkeys } from './native/hotkeys';
 import { registerNotificationIpc } from './native/notifications';
@@ -541,7 +540,6 @@ app.whenReady().then(() => {
   }
 
   registerScannerIpc();
-  registerUassetIpc();
   registerOrbitalIpc();
   registerFabIpc();
   registerShellIpc();
@@ -821,6 +819,9 @@ async function runEnrichOrbitalAndQuit(): Promise<number> {
   progressBus.on('progress', logProgressLine);
   try {
     const result = await enrichOrbital();
+    // An open breaker or deadline stops the run early; the packs it never
+    // reached stay unattempted, but the run did not finish.
+    if (result.interrupted) return 1;
     if (result.failed > 0) {
       console.error(`[enrich] ${result.failed} of ${result.total} failed`);
     }
@@ -869,12 +870,13 @@ async function runEnrichFabAndQuit(): Promise<number> {
   };
   progressBus.on('progress', onProgress);
   try {
-    await enrichFab({
+    const result = await enrichFab({
       fabToken,
       fabAccount,
       // Preserve today's CLI behavior: interactive stdin re-auth on stale creds.
       promptAuthCode: readAuthCodeFromStdin,
     });
+    if (result.fetchError) return 1;
   } catch (e) {
     if (e instanceof FabAuthRequiredError) {
       console.error(`[fab] ${e.message}`);

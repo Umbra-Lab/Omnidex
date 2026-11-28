@@ -37,7 +37,7 @@ export function LibrarySummary() {
       <button
         type="button"
         onClick={reviewUnmatched}
-        className="group flex flex-col gap-1.5 rounded-md border border-surface-800/60 bg-surface-900/40 p-4 text-left shadow-sm transition-colors [transition-duration:var(--duration-micro)] hover:border-surface-700 hover:bg-surface-900 focus-visible:outline-none"
+        className="group flex flex-col gap-1.5 rounded-md border border-surface-800/60 bg-surface-900/40 p-4 text-left transition-colors [transition-duration:var(--duration-micro)] hover:border-surface-700 hover:bg-surface-900 focus-visible:outline-none"
       >
         <span className="cap-12 text-surface-400">Unmatched</span>
         <span

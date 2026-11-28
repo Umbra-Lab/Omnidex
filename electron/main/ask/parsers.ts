@@ -114,9 +114,12 @@ export function parseClaudeLine(line: string): ClaudeLineOut {
 
   if (obj.type === 'result') {
     const sessionId = typeof obj.session_id === 'string' ? obj.session_id : null;
-    if (obj.subtype && obj.subtype !== 'success') {
+    // is_error covers failures that still report subtype "success", such as
+    // "Invalid API key · Please run /login"; they must not read as an answer.
+    if (obj.is_error === true || (obj.subtype && obj.subtype !== 'success')) {
       const detail = typeof obj.result === 'string' ? `: ${obj.result}` : '';
-      return { ...EMPTY, sessionId, error: `Claude Code ${String(obj.subtype)}${detail}` };
+      const kind = obj.subtype && obj.subtype !== 'success' ? ` ${String(obj.subtype)}` : '';
+      return { ...EMPTY, sessionId, error: `Claude Code${kind || ' failed'}${detail}` };
     }
     const usageObj = obj.usage as
       | { input_tokens?: number; output_tokens?: number }

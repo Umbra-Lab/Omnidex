@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useReducer } from 'react';
+import { useCallback, useMemo, useReducer, useState } from 'react';
 
 /**
  * Multi-selection over an ordered id list.
@@ -141,8 +141,23 @@ export interface AssetSelection {
   readonly forget: (ids: readonly number[]) => void;
 }
 
-export function useAssetSelection(orderedIds: readonly number[]): AssetSelection {
+/**
+ * `scopeKey` names what the list is showing (filter, query, sort). When it
+ * changes the selection is dropped: rows selected under one view must not stay
+ * selected, invisible, behind bulk actions in the next.
+ */
+export function useAssetSelection(
+  orderedIds: readonly number[],
+  scopeKey: string = '',
+): AssetSelection {
   const [state, dispatch] = useReducer(selectionReducer, EMPTY_SELECTION);
+  // Reset during render (React's documented pattern for state that follows a
+  // prop), so the bulk bar never paints one frame with the stale count.
+  const [lastScope, setLastScope] = useState(scopeKey);
+  if (scopeKey !== lastScope) {
+    setLastScope(scopeKey);
+    if (state !== EMPTY_SELECTION) dispatch({ type: 'clear' });
+  }
 
   const select = useCallback(
     (id: number, modifiers: SelectModifiers = {}) =>

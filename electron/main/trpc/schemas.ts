@@ -153,6 +153,7 @@ export const scanDiagnosticKindSchema = z.enum([
   'depth-limit-abandoned',
   'thumbnail-failed',
   'path-near-max-length',
+  'unreadable-folder',
 ]);
 
 export const diagnosticListSchema = z.object({

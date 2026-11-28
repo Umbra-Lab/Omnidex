@@ -284,7 +284,7 @@ function CitationChip({
         if (target !== null) onSeek(target, seconds);
       }}
       className={cn(
-        'mx-0.5 inline-flex translate-y-[-1px] items-center gap-1 rounded-full border px-1.5 py-px font-mono cap-10',
+        'mx-0.5 inline-flex translate-y-[-1px] items-center gap-1 rounded-sm border px-1.5 py-px font-mono cap-10',
         target !== null
           ? 'border-accent-500/50 text-accent-300 transition-colors hover:bg-accent-500/10'
           : 'border-surface-700 text-surface-500',

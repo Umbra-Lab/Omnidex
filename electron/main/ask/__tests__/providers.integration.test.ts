@@ -10,8 +10,8 @@ import { claudeCodeAvailable, streamClaudeCode } from '../providers';
 const enabled = process.env.OMNIDEX_TEST_CLAUDE_CODE === '1';
 
 describe.skipIf(!enabled)('streamClaudeCode (live)', () => {
-  it('detects the CLI', () => {
-    expect(claudeCodeAvailable()).toBe(true);
+  it('detects the CLI', async () => {
+    expect(await claudeCodeAvailable()).toBe(true);
   });
 
   it(
