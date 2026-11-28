@@ -5,6 +5,17 @@ import { scanLocationsRepo } from '../../db/repos';
 import { publicProcedure, router } from '../init';
 import { idSchema, scanLocationInputSchema, scanLocationUpdateSchema } from '../schemas';
 
+/** Refuse a second location on a folder that already has one. */
+function assertFolderFree(path: string, exceptId?: number): void {
+  const existing = scanLocationsRepo.findScanLocationAtPath(openDatabase(), path, exceptId);
+  if (existing) {
+    throw new TRPCError({
+      code: 'CONFLICT',
+      message: `That folder is already in your library as "${existing.name}".`,
+    });
+  }
+}
+
 export const scanLocationsRouter = router({
   list: publicProcedure.query(() => scanLocationsRepo.listScanLocations(openDatabase())),
 
@@ -17,9 +28,10 @@ export const scanLocationsRouter = router({
     .input(idSchema)
     .query(({ input }) => scanLocationsRepo.getScanLocation(openDatabase(), input)),
 
-  create: publicProcedure
-    .input(scanLocationInputSchema)
-    .mutation(({ input }) => scanLocationsRepo.createScanLocation(openDatabase(), input)),
+  create: publicProcedure.input(scanLocationInputSchema).mutation(({ input }) => {
+    assertFolderFree(input.path);
+    return scanLocationsRepo.createScanLocation(openDatabase(), input);
+  }),
 
   setActive: publicProcedure
     .input(z.object({ id: idSchema, is_active: z.boolean() }))
@@ -43,6 +55,15 @@ export const scanLocationsRouter = router({
         code: 'BAD_REQUEST',
         message: 'DCC and Unity locations cannot be Learn locations',
       });
+    }
+    // Only a real move is checked, so a library that already has two
+    // locations on one folder can still rename or pause them.
+    if (
+      fields.path != null &&
+      (current == null ||
+        scanLocationsRepo.folderKey(fields.path) !== scanLocationsRepo.folderKey(current.path))
+    ) {
+      assertFolderFree(fields.path, id);
     }
     scanLocationsRepo.updateScanLocationFull(openDatabase(), id, fields);
     return true;

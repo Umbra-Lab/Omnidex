@@ -32,7 +32,7 @@ The largest surface. Browsing, filtering, faceting, and curation.
 |---|---|---|
 | `list`, `get` | query | Configured locations |
 | `stats` | query | Per-location counts |
-| `create`, `update`, `delete` | mutation | Manage locations |
+| `create`, `update`, `delete` | mutation | Manage locations. `create` and a path-changing `update` answer `CONFLICT` for a folder that is already a location under any spelling |
 | `setActive` | mutation | Include or exclude from `refreshAll` |
 
 ## scanner
