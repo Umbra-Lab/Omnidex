@@ -431,7 +431,9 @@ function InspectorContent({
           </Tabs>
 
           <Separator />
-          <NotesSection assetId={assetId} />
+          {/* Keyed so a new asset starts from an empty draft, not the last
+              asset's text and stars (which a click or blur then saved to it). */}
+          <NotesSection key={assetId} assetId={assetId} />
         </div>
       </div>
 
@@ -480,8 +482,23 @@ function NotesSection({ assetId }: { readonly assetId: number }) {
   const utils = trpc.useUtils();
   const noteQuery = trpc.notes.get.useQuery(assetId);
   const upsert = trpc.notes.upsert.useMutation({
-    onSuccess: () => {
-      void utils.notes.get.invalidate(assetId);
+    // Write the draft into the cache as the save goes out. Queries stay fresh
+    // for 30s, so reopening the asset inside that window seeded the editor
+    // from the pre-save note, and the next edit started from stale text.
+    onMutate: (req) => {
+      utils.notes.get.setData(req.asset_id, (prev) => ({
+        id: prev?.id ?? null,
+        asset_id: req.asset_id,
+        note_text: req.note_text,
+        rating: req.rating,
+        tested_ue_versions: prev?.tested_ue_versions ?? null,
+        reminders: prev?.reminders ?? null,
+        created_at: prev?.created_at ?? null,
+        updated_at: prev?.updated_at ?? null,
+      }));
+    },
+    onSettled: (_data, _error, req) => {
+      void utils.notes.get.invalidate(req.asset_id);
     },
   });
 
@@ -489,6 +506,7 @@ function NotesSection({ assetId }: { readonly assetId: number }) {
   const [rating, setRating] = useState<number | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSaved = useRef<{ text: string | null; rating: number | null } | null>(null);
 
   // Seed local state from the loaded note whenever the asset changes. Keyed on
   // assetId (not the note object) so re-renders from autosave don't clobber the
@@ -498,36 +516,57 @@ function NotesSection({ assetId }: { readonly assetId: number }) {
     if (noteQuery.data) {
       setText(noteQuery.data.note_text ?? '');
       setRating(noteQuery.data.rating);
+      lastSaved.current = { text: noteQuery.data.note_text, rating: noteQuery.data.rating };
     } else if (noteQuery.isFetched) {
       setText('');
       setRating(null);
+      lastSaved.current = { text: null, rating: null };
     }
   }, [assetId, noteQuery.isFetched]);
 
+  // Keyed per asset, this unmounts on every switch. A debounced edit still
+  // waiting is flushed, not dropped: Esc or a shortcut can close the panel
+  // without the textarea ever blurring.
+  const flushRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        flushRef.current?.();
+      }
     };
   }, []);
 
+  // Until the stored note arrives the draft is empty, so editing (and the
+  // blur save) waits for it: saving early would overwrite the real note.
+  const ready = noteQuery.isFetched;
+
   const persist = useCallback(
     (nextText: string, nextRating: number | null) => {
-      upsert.mutate({
-        asset_id: assetId,
-        note_text: nextText.trim() ? nextText : null,
-        rating: nextRating,
-        tested_ue_versions: null,
-        reminders: null,
-      });
+      if (!ready) return;
+      const noteText = nextText.trim() ? nextText : null;
+      // A blur with nothing changed used to write a row anyway, leaving an
+      // empty note behind for every asset whose field was merely focused.
+      // Compared with what was last sent, not the query data, which lags a
+      // save until its refetch lands (and would swallow a quick undo).
+      const last = lastSaved.current;
+      if (last && last.text === noteText && last.rating === nextRating) return;
+      lastSaved.current = { text: noteText, rating: nextRating };
+      // tested_ue_versions and reminders are omitted so the stored lists stay.
+      upsert.mutate({ asset_id: assetId, note_text: noteText, rating: nextRating });
     },
-    [assetId, upsert],
+    [assetId, upsert, ready],
   );
 
   const onTextChange = (value: string) => {
     const clipped = value.slice(0, NOTE_MAX_LENGTH);
     setText(clipped);
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => persist(clipped, rating), NOTE_SAVE_DELAY);
+    flushRef.current = () => persist(clipped, rating);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      persist(clipped, rating);
+    }, NOTE_SAVE_DELAY);
   };
 
   const onRate = (value: number) => {
@@ -535,6 +574,7 @@ function NotesSection({ assetId }: { readonly assetId: number }) {
     const next = rating === value ? null : value;
     setRating(next);
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
     persist(text, next);
   };
 
@@ -549,6 +589,7 @@ function NotesSection({ assetId }: { readonly assetId: number }) {
                 key={star}
                 type="button"
                 onClick={() => onRate(star)}
+                disabled={!ready}
                 onMouseEnter={() => setHover(star)}
                 onMouseLeave={() => setHover(null)}
                 aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
@@ -573,9 +614,11 @@ function NotesSection({ assetId }: { readonly assetId: number }) {
       </div>
       <textarea
         value={text}
+        disabled={!ready}
         onChange={(e) => onTextChange(e.target.value)}
         onBlur={() => {
           if (saveTimer.current) clearTimeout(saveTimer.current);
+          saveTimer.current = null;
           persist(text, rating);
         }}
         placeholder="Add a private note for this asset…"
