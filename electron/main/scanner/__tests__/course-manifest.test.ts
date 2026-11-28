@@ -274,13 +274,13 @@ describe('readMp4Duration', () => {
       return box('mehd', p);
     };
     /** sidx v0, timescale 90000, one reference per duration. */
-    const sidx = (durations: number[], referenceType = 0) => {
+    const sidx = (durations: number[], referenceType = 0, refSize = 1000) => {
       const p = Buffer.alloc(24 + durations.length * 12);
       p.writeUInt32BE(1, 4); // reference_ID
       p.writeUInt32BE(90_000, 8); // timescale
       p.writeUInt16BE(durations.length, 22);
       durations.forEach((d, i) => {
-        p.writeUInt32BE(((referenceType << 31) | 1000) >>> 0, 24 + i * 12);
+        p.writeUInt32BE(((referenceType << 31) | refSize) >>> 0, 24 + i * 12);
         p.writeUInt32BE(d, 28 + i * 12);
       });
       return box('sidx', p);
@@ -312,6 +312,69 @@ describe('readMp4Duration', () => {
         moof,
       );
       expect(await readMp4Duration(file)).toBeCloseTo(10, 3);
+    });
+
+    it('reads a global index whose sizes match the fragments, with a trailing mfra', async () => {
+      // Two 24-byte moof boxes, indexed exactly, then an mfra after them.
+      const file = write(
+        'exact.mp4',
+        ftyp,
+        box('moov', mvhd(0)),
+        sidx([90_000 * 3, 90_000 * 5], 0, moof.length),
+        moof,
+        moof,
+        box('mfra', Buffer.alloc(8)),
+      );
+      expect(await readMp4Duration(file)).toBeCloseTo(8, 3);
+    });
+
+    it('returns null for one index per fragment instead of the first fragment alone', async () => {
+      // ffmpeg -movflags dash without global_sidx: sidx, moof, sidx, moof...
+      const one = sidx([90_000 * 2], 0, moof.length);
+      const file = write(
+        'per-fragment.mp4',
+        ftyp,
+        box('moov', mvhd(0)),
+        one,
+        moof,
+        one,
+        moof,
+        one,
+        moof,
+      );
+      expect(await readMp4Duration(file)).toBeNull();
+    });
+
+    it('reads a version-1 index', async () => {
+      const p = Buffer.alloc(32 + 12);
+      p.writeUInt8(1, 0);
+      p.writeUInt32BE(1000, 8); // timescale
+      p.writeUInt16BE(1, 30); // reference_count
+      p.writeUInt32BE(moof.length, 32);
+      p.writeUInt32BE(15_000, 36);
+      const file = write('sidx-v1.mp4', ftyp, box('moov', mvhd(0)), box('sidx', p), moof);
+      expect(await readMp4Duration(file)).toBeCloseTo(15, 3);
+    });
+
+    it('reads a version-1 mehd', async () => {
+      const p = Buffer.alloc(12);
+      p.writeUInt8(1, 0);
+      p.writeBigUInt64BE(BigInt(61_000), 4);
+      const file = write(
+        'mehd-v1.mp4',
+        ftyp,
+        box('moov', Buffer.concat([mvhd(0), box('mvex', box('mehd', p))])),
+        moof,
+      );
+      expect(await readMp4Duration(file)).toBeCloseTo(61, 3);
+    });
+
+    it('rejects an index whose reference count runs past its box', async () => {
+      const p = Buffer.alloc(24 + 12);
+      p.writeUInt32BE(90_000, 8);
+      p.writeUInt16BE(500, 22); // claims 500 references, holds 1
+      const file = write('hostile.mp4', ftyp, box('moov', mvhd(0)), box('sidx', p), moof);
+      expect(await readMp4Duration(file)).toBeNull();
     });
 
     it('treats an all-ones mvhd as unknown, not 13 hours', async () => {

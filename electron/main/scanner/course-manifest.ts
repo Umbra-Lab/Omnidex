@@ -158,8 +158,11 @@ export async function readMp4Duration(path: string): Promise<number | null> {
     handle = await open(path, 'r');
     const { size } = await handle.stat();
     let offset = 0;
-    let movieTimescale = 0;
     let sawMoov = false;
+    // Set once a segment index is read: its length, and the byte it says the
+    // indexed fragments end at. Fragments past that byte mean the index only
+    // covered part of the file.
+    let indexed: { seconds: number; coversTo: number } | null = null;
 
     // Top-level scan. `moov` is usually first or last; either way we only read
     // 16 bytes per box header, not the payloads.
@@ -181,21 +184,29 @@ export async function readMp4Duration(path: string): Promise<number | null> {
       }
       if (boxSize < headerLen) break;
 
-      if (type === 'moov') {
+      if (indexed) {
+        // Past the indexed range, only trailing boxes (mfra, free) may follow.
+        // Another fragment or index means one sidx per fragment, and the first
+        // index alone would report a 30-minute lesson as 2 seconds.
+        if (type === 'moof' || type === 'sidx') return null;
+      } else if (type === 'moov') {
         sawMoov = true;
         const movie = await readMovieDuration(handle, offset + headerLen, offset + boxSize);
         if (movie.seconds !== null) return movie.seconds;
-        movieTimescale = movie.timescale;
       } else if (type === 'sidx' && sawMoov) {
-        return await readSidxDuration(handle, offset + headerLen, offset + boxSize);
-      } else if (type === 'moof' && sawMoov && movieTimescale > 0) {
+        indexed = await readSidxDuration(handle, offset + headerLen, offset + boxSize);
+        if (!indexed) return null;
+        // Jump to where the index says its fragments end, and check the rest.
+        offset = Math.max(offset + boxSize, indexed.coversTo);
+        continue;
+      } else if (type === 'moof' && sawMoov) {
         // Fragments without a segment index ahead of them: there is nothing
         // short of walking every fragment, so stop here rather than read on.
         return null;
       }
       offset += boxSize;
     }
-    return null;
+    return indexed?.seconds ?? null;
   } catch {
     return null;
   } finally {
@@ -290,16 +301,16 @@ async function readMehdWithin(
 /**
  * A top-level `sidx` indexes the fragments that follow it. Its timescale is its
  * own (usually the media track's), and each reference carries a subsegment
- * duration. Summed, they are the file's length. An index that points at other
- * indexes (reference_type 1) is hierarchical; rather than follow it, give up.
+ * duration and a byte size. Summed, the durations are the length of what it
+ * indexes, and `coversTo` is the byte where that ends, so the caller can check
+ * nothing follows. An index that points at other indexes (reference_type 1) is
+ * hierarchical; rather than follow it, give up.
  */
-const MAX_SIDX_REFERENCES = 100_000;
-
 async function readSidxDuration(
   handle: Awaited<ReturnType<typeof open>>,
   start: number,
   end: number,
-): Promise<number | null> {
+): Promise<{ seconds: number; coversTo: number } | null> {
   const fixed = Buffer.alloc(32);
   const { bytesRead } = await handle.read(fixed, 0, Math.min(32, end - start), start);
   if (bytesRead < 4) return null;
@@ -309,20 +320,27 @@ async function readSidxDuration(
   const countAt = version === 0 ? 20 : 28;
   if (bytesRead < countAt + 4) return null;
   const timescale = fixed.readUInt32BE(8);
+  const firstOffset = version === 0 ? fixed.readUInt32BE(16) : Number(fixed.readBigUInt64BE(20));
+  // 16-bit count, so the reference list is at most 786 KB.
   const count = fixed.readUInt16BE(countAt + 2);
-  if (timescale <= 0 || count === 0 || count > MAX_SIDX_REFERENCES) return null;
+  if (timescale <= 0 || count === 0) return null;
 
   const refsStart = start + countAt + 4;
+  if (refsStart + count * 12 > end) return null;
   const refs = Buffer.alloc(count * 12);
   const read = await handle.read(refs, 0, refs.length, refsStart);
-  if (read.bytesRead < refs.length || refsStart + refs.length > end) return null;
+  if (read.bytesRead < refs.length) return null;
   let ticks = 0;
+  let bytes = 0;
   for (let i = 0; i < count; i++) {
     const typeAndSize = refs.readUInt32BE(i * 12);
     if (typeAndSize >>> 31 === 1) return null; // points at another sidx
+    bytes += typeAndSize & 0x7fffffff;
     ticks += refs.readUInt32BE(i * 12 + 4);
   }
-  return ticks > 0 ? ticks / timescale : null;
+  if (ticks <= 0) return null;
+  // Offsets count from the first byte after the sidx box.
+  return { seconds: ticks / timescale, coversTo: end + firstOffset + bytes };
 }
 
 /**
