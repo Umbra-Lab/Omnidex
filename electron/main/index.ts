@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath, URL as NodeURL, pathToFileURL } from 'node:url';
+import { URL as NodeURL, pathToFileURL } from 'node:url';
 import { extractThumbnail } from '@omnidex/uasset';
 import { app, BrowserWindow, dialog, net, protocol, session, shell } from 'electron';
 import { createIPCHandler } from 'electron-trpc/main';
@@ -58,7 +58,9 @@ const REVERT_GALLERY_FIXTURE = process.argv.includes('--revert-gallery-fixture')
 // exit code reports the outcome so a scheduled run can be trusted.
 const HEADLESS = isHeadlessRun(process.argv);
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
+// The built main bundle's directory. Not named __dirname: electron-vite 6 injects
+// that binding into ESM output itself, and a second declaration fails to load.
+const mainDir = import.meta.dirname;
 
 // Pin the app name BEFORE any code reads `app.getPath('userData')`.
 // `electron <script.mjs>` (Playwright launch path) doesn't auto-load
@@ -95,11 +97,6 @@ if (!singleInstanceLock) {
 }
 
 let mainWindow: BrowserWindow | null = null;
-
-// electron-trpc's IPC handler, created once at ready. Every window (including
-// one macOS recreates on `activate`) is attached to it so its subscriptions
-// are closed when that window reloads or is destroyed.
-let ipcHandler: ReturnType<typeof createIPCHandler> | null = null;
 
 // Global last-resort crash handlers. Without these, a stray rejection (e.g.
 // from the detached background-thumbnail job) or an uncaught exception
@@ -343,7 +340,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     ...macChrome,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.cjs'),
+      preload: join(mainDir, '../preload/index.cjs'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -364,7 +361,6 @@ function createWindow(): void {
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
   });
-  ipcHandler?.attachWindow(win);
 
   // Electron process-death recovery for this window (render-process-gone /
   // unresponsive) — distinct from the JS-level handlers above. Logs the event
@@ -393,7 +389,7 @@ function createWindow(): void {
     mainWindow.loadURL(devServerUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer-react/index.html'));
+    mainWindow.loadFile(join(mainDir, '../renderer-react/index.html'));
   }
 }
 
@@ -585,12 +581,19 @@ app.whenReady().then(() => {
     return;
   }
 
-  // electron-trpc attaches a BrowserWindow-scoped IPC router. The React
-  // renderer calls through `ipcLink()` in renderer-react/src/ipc/trpc.ts.
-  // Created before the window so createWindow can attach every window to it.
-  ipcHandler = createIPCHandler({ router: appRouter });
   createWindow();
   registerGlobalHotkeys(() => mainWindow);
+
+  // electron-trpc serves the React renderer, which calls through `ipcLink()`
+  // in renderer-react/src/ipc/trpc.ts. 1.0 listens for every renderer, so
+  // `allow` keeps it to the main window (read at request time, so a window
+  // re-created on `activate` is served too). The preload calls
+  // exposeElectronTRPC itself, so electron-trpc registers no preload of its own.
+  createIPCHandler({
+    router: appRouter,
+    allow: (event) => event.sender === mainWindow?.webContents,
+    preload: false,
+  });
 
   initAutoUpdater(() => mainWindow);
 
