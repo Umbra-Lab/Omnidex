@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useViewStatus } from '@/components/layout/StatusBar';
 import { Input } from '@/components/ui/input';
 import { AskPane } from '@/features/learn/AskPane';
+import { pickResumeTarget, RESUME_LABEL } from '@/features/learn/resumeTarget';
 import { trpc } from '@/ipc/trpc';
 import { toAssetUrl } from '@/lib/assetUrl';
 import { cn } from '@/lib/cn';
@@ -297,12 +298,10 @@ function CourseDetail({
     setSeek((prev) => ({ fileId, seconds, nonce: (prev?.nonce ?? 0) + 1 }));
   }, []);
 
-  // Resume target: the first unfinished lesson that has a saved position,
-  // otherwise the first lesson.
-  const resumeTarget = useMemo(
-    () => videos.find((v) => !v.completed && (v.position_seconds ?? 0) > 0) ?? videos[0] ?? null,
-    [videos],
-  );
+  // What the play card offers: a lesson stopped partway, else the first one
+  // not finished, else the first lesson again.
+  const resume = useMemo(() => pickResumeTarget(videos), [videos]);
+  const resumeTarget = resume?.video ?? null;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the player only when the course changes
   useEffect(() => {
@@ -333,7 +332,10 @@ function CourseDetail({
             fileId={active.id}
             absPath={active.abs_path}
             title={active.rel_path.split('/').pop() ?? active.rel_path}
-            startAt={activeSeek?.seconds ?? active.position_seconds ?? 0}
+            // A finished lesson's saved position is its last frame, so opening
+            // it again starts from the top rather than at the end.
+            startAt={activeSeek?.seconds ?? (active.completed ? 0 : (active.position_seconds ?? 0))}
+            wasCompleted={Boolean(active.completed)}
             seekNonce={activeSeek?.nonce ?? 0}
             onEnded={() => setPlayingId(null)}
           />
@@ -351,10 +353,9 @@ function CourseDetail({
             </span>
             <span className="min-w-0">
               <span className="block truncate cap-14 text-surface-50">
-                {(resumeTarget.position_seconds ?? 0) > 0 ? 'Resume' : 'Start'} —{' '}
-                {resumeTarget.rel_path.split('/').pop()}
+                {RESUME_LABEL[resume?.mode ?? 'start']} — {resumeTarget.rel_path.split('/').pop()}
               </span>
-              {(resumeTarget.position_seconds ?? 0) > 0 ? (
+              {resume?.mode === 'resume' ? (
                 <span className="block font-mono cap-11 text-surface-400">
                   at {formatClock(resumeTarget.position_seconds ?? 0)}
                 </span>
@@ -504,6 +505,7 @@ function Player({
   title,
   startAt,
   seekNonce,
+  wasCompleted,
   onEnded,
 }: {
   readonly fileId: number;
@@ -512,6 +514,8 @@ function Player({
   readonly startAt: number;
   /** Changes when a seek to `startAt` is requested for this lesson. */
   readonly seekNonce: number;
+  /** Rewatching a finished lesson keeps it finished. */
+  readonly wasCompleted: boolean;
   readonly onEnded: () => void;
 }) {
   const utils = trpc.useUtils();
@@ -519,6 +523,8 @@ function Player({
   const lastSave = useRef(0);
   const pauseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setProgress = trpc.courses.setProgress.useMutation();
+  const isComplete = (el: HTMLVideoElement) =>
+    wasCompleted || (el.duration > 0 && el.currentTime / el.duration > COMPLETE_AT);
 
   // A save the user will look for straight away (pause, closing the lesson):
   // once it settles, refresh what shows progress — the course %, the chapter
@@ -531,7 +537,7 @@ function Player({
       .mutateAsync({
         fileId,
         positionSeconds: el.currentTime,
-        completed: el.duration > 0 && el.currentTime / el.duration > COMPLETE_AT,
+        completed: isComplete(el),
       })
       .catch(() => {
         // The global mutation-cache handler surfaces the error.
@@ -672,7 +678,7 @@ function Player({
           setProgress.mutate({
             fileId,
             positionSeconds: el.currentTime,
-            completed: el.duration > 0 && el.currentTime / el.duration > COMPLETE_AT,
+            completed: isComplete(el),
           });
         }}
         onEnded={() => {

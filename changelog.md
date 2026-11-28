@@ -110,6 +110,10 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- The course play card offers the next unfinished lesson ("Up next") after you
+  finish one, instead of falling back to lesson 1, and "Watch again" once every
+  lesson is done. Opening a finished lesson starts it from the top rather than
+  at its last frame, and rewatching it no longer un-ticks it. (#39)
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would

@@ -84,7 +84,9 @@ test('selecting a course lists its lessons grouped by chapter', async () => {
   expect(await win.locator('[data-testid="course-lesson"]').count()).toBeGreaterThan(0);
 
   // The old screen's only verb was opening Explorer; there is a play path now.
-  await expect(win.getByRole('button', { name: /^(Start|Resume) —/ })).toBeVisible();
+  await expect(
+    win.getByRole('button', { name: /^(Start|Resume|Up next|Watch again) —/ }),
+  ).toBeVisible();
 });
 
 test('search reaches inside subtitle cues, not just folder names', async () => {
