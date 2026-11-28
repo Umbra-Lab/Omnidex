@@ -29,11 +29,22 @@ import { fileURLToPath } from 'node:url';
 
 const TOP = 5;
 const here = dirname(fileURLToPath(import.meta.url));
+// Flags: --only=narrat,farmework scores just the queries containing one of those words;
+// --show prints what the new search returned for every miss (notes included).
+const flags = process.argv.slice(2).filter((a) => a.startsWith('--'));
+const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const only = flags
+  .find((f) => f.startsWith('--only='))
+  ?.slice('--only='.length)
+  .split(',')
+  .map((w) => w.trim().toLowerCase())
+  .filter(Boolean);
+const show = flags.includes('--show');
 const dbPath =
-  process.argv[3] ??
+  positional[1] ??
   process.env.ORACLE_DB ??
   join(process.env.APPDATA ?? '.', 'omnidex', 'omnidex.db');
-const goldenPath = process.argv[2] ?? join(dirname(dbPath), 'oracle-golden.json');
+const goldenPath = positional[0] ?? join(dirname(dbPath), 'oracle-golden.json');
 
 let golden;
 try {
@@ -43,6 +54,7 @@ try {
   console.error(`Start from ${join(here, 'golden.example.json')}.`);
   process.exit(2);
 }
+if (only) golden = golden.filter((g) => only.some((w) => g.query.toLowerCase().includes(w)));
 
 function startServer(legacy) {
   const server = spawn(process.execPath, [join(here, 'server.mjs')], {
@@ -109,6 +121,7 @@ function results(text) {
   return out;
 }
 
+const outputs = [];
 async function score(legacy) {
   const server = startServer(legacy);
   const hits = [];
@@ -120,6 +133,7 @@ async function score(legacy) {
         .slice(0, TOP)
         .findIndex((r) => r.toLowerCase().includes(want));
       hits.push(rank);
+      if (!legacy) outputs.push(text);
     }
   } finally {
     server.stop();
@@ -137,11 +151,11 @@ try {
   process.exit(1);
 }
 
-const show = (rank) => (rank < 0 ? '  -' : `  ${rank + 1}`);
+const showRank = (rank) => (rank < 0 ? '  -' : `  ${rank + 1}`);
 console.log('before after  tool                query → expect');
 golden.forEach((g, i) => {
   console.log(
-    `${show(before[i]).padStart(6)} ${show(after[i]).padStart(5)}  ${g.tool.padEnd(19)} ${g.query} → ${g.expect}`,
+    `${showRank(before[i]).padStart(6)} ${showRank(after[i]).padStart(5)}  ${g.tool.padEnd(19)} ${g.query} → ${g.expect}`,
   );
 });
 console.log('');
@@ -164,4 +178,12 @@ for (const k of kinds) {
   console.log(
     `${k.padEnd(32)} ${rate(before)}/${idx.length} before, ${rate(after)}/${idx.length} after`,
   );
+}
+
+if (show) {
+  golden.forEach((g, i) => {
+    if (after[i] >= 0) return;
+    console.log(`\n=== MISS ${g.tool} "${g.query}" (want ${g.expect})`);
+    console.log(outputs[i].split('\n').slice(0, 14).join('\n'));
+  });
 }
