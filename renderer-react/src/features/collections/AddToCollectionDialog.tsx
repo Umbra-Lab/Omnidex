@@ -1,5 +1,5 @@
 import { Check, FolderPlus, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -74,31 +74,67 @@ function AddToCollectionBody({ assetIds, onDone }: AddToCollectionBodyProps) {
     onDone();
   };
 
-  const addAssets = trpc.collections.addAssets.useMutation();
-  const create = trpc.collections.create.useMutation();
+  // handleAdd reports failures itself, naming the step that failed. An
+  // onError here keeps the app-wide mutation toast from adding a second one.
+  const quiet = { onError: () => {} };
+  const addAssets = trpc.collections.addAssets.useMutation(quiet);
+  const create = trpc.collections.create.useMutation(quiet);
 
   const pending = addAssets.isPending || create.isPending;
+  // `pending` only updates on the next render, so a second Enter in the
+  // same tick would create the collection twice. The ref closes that gap.
+  const busy = useRef(false);
+  // A collection this dialog already created. If the add after it fails, a
+  // retry adds to that one instead of leaving an empty twin behind.
+  const created = useRef<{ id: number; name: string } | null>(null);
 
   const handleAdd = async () => {
-    if (creating) {
-      const name = newName.trim();
-      if (!name) return;
-      const id = await create.mutateAsync({
-        name,
-        description: null,
-        color: null,
-        icon: null,
-        is_smart: null,
-        smart_filter: null,
-      });
+    if (busy.current) return;
+    busy.current = true;
+    // Which call threw, so the toast names the right one.
+    let step: 'create' | 'add' = 'add';
+    try {
+      let id: number;
+      let label: string;
+      if (creating) {
+        const name = newName.trim();
+        if (!name) return;
+        if (created.current?.name === name) {
+          id = created.current.id;
+        } else {
+          step = 'create';
+          id = await create.mutateAsync({
+            name,
+            description: null,
+            color: null,
+            icon: null,
+            is_smart: null,
+            smart_filter: null,
+          });
+          created.current = { id, name };
+          void utils.collections.list.invalidate();
+        }
+        label = name;
+      } else {
+        if (selectedId == null) return;
+        id = selectedId;
+        label = collections.data?.find((c) => c.id === selectedId)?.name ?? 'collection';
+      }
+      step = 'add';
       await addAssets.mutateAsync({ collection_id: id, asset_ids: assetIds });
-      await onSuccess(id, name);
-      return;
+      await onSuccess(id, label);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(
+        step === 'create'
+          ? `Couldn't create collection: ${message}`
+          : creating && created.current
+            ? `Created "${created.current.name}" but couldn't add to it: ${message}. It's in the list to try again.`
+            : `Couldn't add to collection: ${message}`,
+      );
+    } finally {
+      busy.current = false;
     }
-    if (selectedId == null) return;
-    const label = collections.data?.find((c) => c.id === selectedId)?.name ?? 'collection';
-    await addAssets.mutateAsync({ collection_id: selectedId, asset_ids: assetIds });
-    await onSuccess(selectedId, label);
   };
 
   const canSubmit = creating ? newName.trim().length > 0 : selectedId != null;
