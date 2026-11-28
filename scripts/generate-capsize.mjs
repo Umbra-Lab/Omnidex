@@ -123,14 +123,16 @@ lines.push('');
 // content one gap late) and `justify-between` spreads the real content into
 // the middle (the card footer badge sat centred under each asset). A row has
 // no vertical trim to give anyway, so the pseudo-elements go. Column flex is
-// left alone: there the ::before margin does pull the first line up.
+// left alone: there the ::before margin does pull the first line up. An
+// element that draws with Tailwind's before:/after: variants (the tab
+// underline) owns its pseudo-elements and is skipped.
 lines.push('/* Flex rows and grids: the trim pseudo-elements are layout items there. */');
 lines.push(
   [
-    ':is(.flex, .inline-flex):not(.flex-col, .flex-col-reverse)[class*="cap-"]::before,',
-    ':is(.flex, .inline-flex):not(.flex-col, .flex-col-reverse)[class*="cap-"]::after,',
-    ':is(.grid, .inline-grid)[class*="cap-"]::before,',
-    ':is(.grid, .inline-grid)[class*="cap-"]::after {',
+    ':is(.flex, .inline-flex):not(.flex-col, .flex-col-reverse)[class*="cap-"]:not([class*="before:"])::before,',
+    ':is(.flex, .inline-flex):not(.flex-col, .flex-col-reverse)[class*="cap-"]:not([class*="after:"])::after,',
+    ':is(.grid, .inline-grid)[class*="cap-"]:not([class*="before:"])::before,',
+    ':is(.grid, .inline-grid)[class*="cap-"]:not([class*="after:"])::after {',
     '  content: none;',
     '}',
   ].join('\n'),
