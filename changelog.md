@@ -114,7 +114,7 @@ work that reached `main` through direct merges with no pull request, the commit.
   longer sit flush against the line above. Capsize trims each line to its cap
   height and baseline, so the old 4px margins read as touching. The five
   health cards lay out 3 + 2 at 1024px and in one row from 1280px, instead of
-  leaving "Could not be read" alone on a second row.
+  leaving "Could not be read" alone on a second row. (#48)
 
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
