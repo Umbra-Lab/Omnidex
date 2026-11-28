@@ -1,4 +1,7 @@
-/** The server validates history at 20 entries / 20k chars each; stay under both. */
+/**
+ * The server validates history at 20 entries / 20k chars each; stay under both.
+ * Even, so the trimmed window keeps whole question-and-answer pairs.
+ */
 export const HISTORY_LIMIT = 12;
 export const HISTORY_CHAR_LIMIT = 20_000;
 
