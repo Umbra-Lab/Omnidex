@@ -17,6 +17,8 @@ import { formatClock } from '@/lib/format';
  */
 
 interface ThreadMessage {
+  /** Stable React key; messages are only ever appended. */
+  readonly id: number;
   readonly role: 'user' | 'assistant';
   readonly content: string;
 }
@@ -40,6 +42,7 @@ export function AskPane({
 }) {
   const status = trpc.ask.status.useQuery();
   const [thread, setThread] = useState<ThreadMessage[]>([]);
+  const nextId = useRef(0);
   const [input, setInput] = useState('');
   const [activeId, setActiveId] = useState<number | null>(null);
   const [contextInfo, setContextInfo] = useState<AskContextInfo | null>(null);
@@ -69,7 +72,7 @@ export function AskPane({
     if (stream.error) {
       setError(stream.error);
     } else if (stream.text) {
-      setThread((t) => [...t, { role: 'assistant', content: stream.text }]);
+      setThread((t) => [...t, { id: nextId.current++, role: 'assistant', content: stream.text }]);
       setLastUsage(stream.usage);
     } else {
       // A completed request with no text and no error is still an outcome the
@@ -120,7 +123,7 @@ export function AskPane({
     const question = input.trim();
     if (!question || busy) return;
     setError(null);
-    setThread((t) => [...t, { role: 'user', content: question }]);
+    setThread((t) => [...t, { id: nextId.current++, role: 'user', content: question }]);
     setInput('');
     start.mutate({
       assetId,
@@ -178,9 +181,11 @@ export function AskPane({
         </p>
       ) : null}
 
-      {thread.map((m, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: append-only thread
-        <div key={i} className={cn('cap-13', m.role === 'user' ? 'text-surface-300' : 'text-surface-100')}>
+      {thread.map((m) => (
+        <div
+          key={m.id}
+          className={cn('cap-13', m.role === 'user' ? 'text-surface-300' : 'text-surface-100')}
+        >
           {m.role === 'user' ? (
             <span className="font-medium text-surface-200">You: {m.content}</span>
           ) : (
