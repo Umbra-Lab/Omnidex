@@ -113,7 +113,7 @@ work that reached `main` through direct merges with no pull request, the commit.
 - Orbital enrichment respects what you decided in the Match view. The bulk run
   no longer auto-matches a pack you dismissed, or to a listing you rejected,
   and accepting a match that then fails (Orbital unreachable, listing gone) no
-  longer throws away your earlier rejections. (#PR)
+  longer throws away your earlier rejections. (#57)
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
