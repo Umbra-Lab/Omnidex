@@ -110,6 +110,10 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- The command palette's "Type a command or search…" box searches the library: any
+  text offers "Search the library for …", which opens Assets with that query.
+  It used to answer an asset name with "No matches." The asset search box also
+  stopped wiping a query set from elsewhere a moment after it landed. (#43)
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would

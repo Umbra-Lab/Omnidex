@@ -1,4 +1,14 @@
-import { Boxes, FolderPlus, GraduationCap, Library, RefreshCw, Settings, Star } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import {
+  Boxes,
+  FolderPlus,
+  GraduationCap,
+  Library,
+  RefreshCw,
+  Search,
+  Settings,
+  Star,
+} from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { useHotkey } from '@/hooks/useHotkey';
 import { trpc } from '@/ipc/trpc';
@@ -6,7 +16,6 @@ import { useRuntime } from '@/runtime/useRuntime';
 import { useUiStore } from '@/stores/ui';
 import {
   CommandDialog,
-  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -110,6 +119,8 @@ export function CommandPalette() {
   const setOpen = useUiStore((s) => s.setPalette);
   const toggleOpen = useUiStore((s) => s.togglePalette);
   const [search, setSearch] = useState('');
+  const routerNavigate = useNavigate();
+  const query = search.trim();
 
   // macOS shows the ⌘ glyph; everywhere else the modifier is Ctrl. Derive it
   // from the runtime platform so Windows/Linux don't display a Mac-only key.
@@ -165,6 +176,16 @@ export function CommandPalette() {
 
   const groups = groupBy(COMMANDS, (c) => c.group);
 
+  // The box says "Type a command or search…", but only commands were listed,
+  // so typing an asset's name ended at "No matches." Hand the text to the
+  // library search instead. The router, not a raw hash, writes `q`, so a query
+  // like "105" stays a string.
+  const searchLibrary = () => {
+    setOpen(false);
+    setSearch('');
+    void routerNavigate({ to: '/assets', search: { q: query } });
+  };
+
   return (
     <CommandDialog
       open={open}
@@ -179,7 +200,6 @@ export function CommandPalette() {
         onValueChange={setSearch}
       />
       <CommandList>
-        <CommandEmpty>No matches.</CommandEmpty>
         {Array.from(groups.entries()).map(([group, items], idx) => (
           <div key={group}>
             {idx > 0 ? <CommandSeparator /> : null}
@@ -203,6 +223,15 @@ export function CommandPalette() {
             </CommandGroup>
           </div>
         ))}
+        {query ? (
+          <CommandGroup heading="Library" forceMount>
+            {/* Always shown: cmdk's filter would hide it for most text. */}
+            <CommandItem forceMount value={`search-library ${query}`} onSelect={searchLibrary}>
+              <Search />
+              <span className="min-w-0 truncate">Search the library for “{query}”</span>
+            </CommandItem>
+          </CommandGroup>
+        ) : null}
       </CommandList>
     </CommandDialog>
   );

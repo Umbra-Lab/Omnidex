@@ -72,6 +72,15 @@ export function AssetToolbar({
   const search = useSearch({ strict: false }) as SearchSchema;
   const navigate = useNavigate();
   const [query, setQuery] = useState(search.q ?? '');
+  // Follow `q` when something else changes it (the command palette, back and
+  // forward). Without this the debounce below saw the stale box text differ
+  // from the URL and wrote it back, wiping the new query. Our own commits
+  // match the trimmed box text, so they never reset what is being typed.
+  const [lastUrlQ, setLastUrlQ] = useState(search.q);
+  if (search.q !== lastUrlQ) {
+    setLastUrlQ(search.q);
+    if ((search.q ?? '') !== query.trim()) setQuery(search.q ?? '');
+  }
   // The grid reads the committed URL `q` (not the typing buffer), so the
   // ordering indicator tracks that: active search → BM25 relevance order.
   const searchActive = (search.q ?? '').trim().length > 0;

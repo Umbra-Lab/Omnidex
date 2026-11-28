@@ -137,3 +137,19 @@ test('Escape closes the palette', async () => {
   await win.keyboard.press('Escape');
   await expect(palette()).toBeHidden({ timeout: 3000 });
 });
+
+test('text that matches no command searches the library instead', async () => {
+  await openPalette();
+  // A word no command contains, so only the library search is left to offer.
+  await win.getByPlaceholder(/Type a command/).fill('qzxv');
+  const option = win.getByRole('option', { name: /Search the library for “qzxv”/ });
+  await expect(option).toBeVisible();
+  await option.click();
+
+  await expect(palette()).toBeHidden({ timeout: 3000 });
+  // The asset toolbar used to write its stale box text back over a `q` set
+  // from outside, so the query vanished a moment after it landed.
+  await win.waitForTimeout(600);
+  expect(await win.evaluate(() => window.location.hash)).toBe('#/assets?q=qzxv');
+  await expect(win.getByRole('textbox', { name: 'Search assets' })).toHaveValue('qzxv');
+});
