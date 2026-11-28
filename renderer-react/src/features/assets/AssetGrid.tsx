@@ -1,6 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { resolveThumbnail } from '@/lib/assetUrl';
 import { AssetCard, type AssetCardShape } from './AssetCard';
 import type { SelectModifiers } from './useAssetSelection';
 
@@ -21,8 +22,13 @@ interface AssetGridProps {
 }
 
 // Card = 16:9 image + ~58px metadata strip. With 240px-ish columns the image
-// is ~135px tall, so 200 covers it with breathing room. Bump if cards clip.
+// is ~135px tall, so 200 covers it with breathing room. Used for skeletons
+// and as the first guess for a row with a thumbnail; real rows are measured.
 const CARD_HEIGHT = 200;
+// A thumbnail-less card collapses its image well to a 32px strip (see
+// AssetCard). Most packs have no thumbnail, and a fixed 200px row left
+// ~90px of empty card under each of them.
+const CARD_HEIGHT_NO_IMAGE = 112;
 const GAP = 12;
 const MIN_CARD_WIDTH = 240;
 
@@ -67,7 +73,11 @@ export function AssetGrid({
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => CARD_HEIGHT + GAP,
+    estimateSize: (i) =>
+      (rows[i]?.some((a) => resolveThumbnail(a)) ? CARD_HEIGHT : CARD_HEIGHT_NO_IMAGE) + GAP,
+    // Rows are measured, so a long two-line title, a wide column (taller 16:9
+    // image) or a thumbnail that fails to load all get the height they need.
+    measureElement: (el) => el.getBoundingClientRect().height,
     // Larger overscan keeps the wheel jank-free at the cost of a few extra
     // off-screen rows; the cards are cheap (image + 2 text spans).
     overscan: 12,
@@ -119,17 +129,19 @@ export function AssetGrid({
           return (
             <div
               key={virtualRow.index}
+              data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
               style={{
                 position: 'absolute',
                 top: 0,
                 left: 0,
                 width: '100%',
-                height: CARD_HEIGHT,
                 transform: `translateY(${virtualRow.start}px)`,
                 display: 'grid',
                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
                 gap: GAP,
-                padding: `0 ${GAP / 2}px`,
+                // The gap below the row is part of its measured height.
+                padding: `0 ${GAP / 2}px ${GAP}px`,
               }}
             >
               {row.map((asset) => (
