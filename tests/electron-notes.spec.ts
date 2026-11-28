@@ -16,7 +16,8 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  * The notes editor autosaves on a 600ms debounce. These pin two failures:
  * an edit lost when the panel unmounted before the debounce fired, and one
  * asset's draft showing (and being saved) on the next asset while that
- * asset's note was still loading. Each test clears what it wrote.
+ * asset's note was still loading. This runs against the real library, so
+ * each test records the notes it will touch and puts them back.
  */
 
 let app: ElectronApplication;
@@ -51,16 +52,22 @@ async function openCard(index: number) {
   await expect(win.locator(NOTE)).toBeEnabled({ timeout: 5000 });
 }
 
-async function clearNote(index: number) {
+async function readNote(index: number): Promise<string> {
   await openCard(index);
-  await win.locator(NOTE).fill('');
+  return await win.locator(NOTE).inputValue();
+}
+
+async function restoreNote(index: number, original: string) {
+  await openCard(index);
+  await win.locator(NOTE).fill(original);
   await win.locator(NOTE).blur();
+  await expect(win.locator(NOTE)).toHaveValue(original);
   await win.waitForTimeout(300);
 }
 
 test('an edit survives leaving the screen before the autosave fires', async () => {
   const marker = `note-${Date.now()}`;
-  await openCard(0);
+  const original = await readNote(0);
   await win.locator(NOTE).fill(marker);
   // Navigate away at once, inside the 600ms debounce, as the app menu does.
   // (Typing keeps the app's own shortcuts off.)
@@ -76,12 +83,12 @@ test('an edit survives leaving the screen before the autosave fires', async () =
   await openCard(0);
   await expect(win.locator(NOTE)).toHaveValue(marker);
 
-  await clearNote(0);
+  await restoreNote(0, original);
 });
 
 test("one asset's note never shows on, or saves to, the next", async () => {
   const marker = `only-first-${Date.now()}`;
-  await openCard(0);
+  const original = await readNote(0);
   await win.locator(NOTE).fill(marker);
   await win.locator(NOTE).blur();
   await win.waitForTimeout(300);
@@ -89,5 +96,5 @@ test("one asset's note never shows on, or saves to, the next", async () => {
   await openCard(1);
   await expect(win.locator(NOTE)).not.toHaveValue(marker);
 
-  await clearNote(0);
+  await restoreNote(0, original);
 });

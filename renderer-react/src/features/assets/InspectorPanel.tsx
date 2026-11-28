@@ -481,6 +481,8 @@ const NOTE_SAVE_DELAY = 600;
 function NotesSection({ assetId }: { readonly assetId: number }) {
   const utils = trpc.useUtils();
   const noteQuery = trpc.notes.get.useQuery(assetId);
+  // What was last sent for this asset; see `persist`.
+  const lastSaved = useRef<{ text: string | null; rating: number | null } | null>(null);
   const upsert = trpc.notes.upsert.useMutation({
     // Write the draft into the cache as the save goes out. Queries stay fresh
     // for 30s, so reopening the asset inside that window seeded the editor
@@ -497,6 +499,11 @@ function NotesSection({ assetId }: { readonly assetId: number }) {
         updated_at: prev?.updated_at ?? null,
       }));
     },
+    // A failed save must be retried by the next blur or edit, so forget what
+    // was "last sent" rather than let the skip check treat it as stored.
+    onError: () => {
+      lastSaved.current = null;
+    },
     onSettled: (_data, _error, req) => {
       void utils.notes.get.invalidate(req.asset_id);
     },
@@ -506,7 +513,6 @@ function NotesSection({ assetId }: { readonly assetId: number }) {
   const [rating, setRating] = useState<number | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSaved = useRef<{ text: string | null; rating: number | null } | null>(null);
 
   // Seed local state from the loaded note whenever the asset changes. Keyed on
   // assetId (not the note object) so re-renders from autosave don't clobber the
@@ -517,12 +523,12 @@ function NotesSection({ assetId }: { readonly assetId: number }) {
       setText(noteQuery.data.note_text ?? '');
       setRating(noteQuery.data.rating);
       lastSaved.current = { text: noteQuery.data.note_text, rating: noteQuery.data.rating };
-    } else if (noteQuery.isFetched) {
+    } else if (noteQuery.isSuccess) {
       setText('');
       setRating(null);
       lastSaved.current = { text: null, rating: null };
     }
-  }, [assetId, noteQuery.isFetched]);
+  }, [assetId, noteQuery.isSuccess]);
 
   // Keyed per asset, this unmounts on every switch. A debounced edit still
   // waiting is flushed, not dropped: Esc or a shortcut can close the panel
@@ -539,7 +545,9 @@ function NotesSection({ assetId }: { readonly assetId: number }) {
 
   // Until the stored note arrives the draft is empty, so editing (and the
   // blur save) waits for it: saving early would overwrite the real note.
-  const ready = noteQuery.isFetched;
+  // isSuccess, not isFetched: a failed read is "fetched" too, and unlocking
+  // an empty draft then would let one star click wipe the stored text.
+  const ready = noteQuery.isSuccess;
 
   const persist = useCallback(
     (nextText: string, nextRating: number | null) => {
