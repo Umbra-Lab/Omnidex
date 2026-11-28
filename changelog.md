@@ -110,6 +110,10 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Ask this course keeps working after a question fails. The failed question
+  went into the next request's history, giving two user turns in a row, which
+  many local chat templates reject; every later question then failed too. Only
+  answered questions are sent now. (#38)
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would

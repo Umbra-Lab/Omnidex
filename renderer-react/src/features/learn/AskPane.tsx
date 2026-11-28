@@ -4,6 +4,7 @@ import { type AskContextInfo, useAskStream } from '@/hooks/useAskStream';
 import { trpc } from '@/ipc/trpc';
 import { splitAnswer } from '@/lib/citations';
 import { cn } from '@/lib/cn';
+import { askHistory } from './askHistory';
 
 /**
  * Ask this course — a question box under the player that answers from the
@@ -25,10 +26,6 @@ const FAILURE_TEXT: Record<string, string> = {
   'claude-code-missing':
     'Claude Code is not installed on this machine. Switch the Ask provider to Local in Settings → AI.',
 };
-
-/** The server validates history at 20 entries / 20k chars each; stay under both. */
-const HISTORY_LIMIT = 12;
-const HISTORY_CHAR_LIMIT = 20_000;
 
 function formatClock(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
@@ -131,11 +128,9 @@ export function AskPane({
     start.mutate({
       assetId,
       question,
-      // Trimmed to the server's validation caps — an over-long thread must
-      // degrade to a shorter memory, not brick every further question.
-      history: thread
-        .slice(-HISTORY_LIMIT)
-        .map(({ role, content }) => ({ role, content: content.slice(0, HISTORY_CHAR_LIMIT) })),
+      // Answered pairs only, trimmed to the server's caps: neither an over-long
+      // thread nor one failed question may brick every further question.
+      history: askHistory(thread),
     });
   };
 
