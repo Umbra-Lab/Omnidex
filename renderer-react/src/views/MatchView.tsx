@@ -108,8 +108,13 @@ export function MatchView() {
   );
 
   const match = trpc.orbital.match.useMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
       void utils.assets.invalidate();
+      // matched 0: the listing is gone from Orbital, so nothing was saved.
+      if (result.matched === 0) {
+        toast.error('That listing is no longer on Orbital. Pick another.');
+        return;
+      }
       setAccepted((n) => n + 1);
       toast.success('Match accepted');
       setManualOpen(false);

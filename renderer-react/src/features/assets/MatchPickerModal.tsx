@@ -67,9 +67,14 @@ export function MatchPickerModal({
   );
 
   const match = trpc.orbital.match.useMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
       void utils.assets.get.invalidate(assetId);
       void utils.assets.listCards.invalidate();
+      // matched 0: the listing is gone from Orbital, so nothing was saved.
+      if (result.matched === 0) {
+        toast.error('That listing is no longer on Orbital. Pick another.');
+        return;
+      }
       toast.success('Marketplace match updated');
       onOpenChange(false);
     },

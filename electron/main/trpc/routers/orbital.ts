@@ -21,12 +21,13 @@ export const orbitalRouter = router({
   /** Per-card match: optional `slug` skips ranking and records that product. */
   match: publicProcedure
     .input(z.object({ assetId: idSchema, slug: z.string().optional() }))
-    .mutation(({ input }) => {
-      const result = enrichOneOrbital(input.assetId, input.slug);
-      // Accepting a match settles the asset, so any earlier "not this one" is
-      // spent. Leaving the rows would keep a now-matched pack out of a future
-      // re-review, and they can no longer mean anything useful.
-      orbitalRejectionsRepo.clearForAsset(openDatabase(), input.assetId);
+    .mutation(async ({ input }) => {
+      const result = await enrichOneOrbital(input.assetId, input.slug);
+      // A match that actually landed settles the asset, so any earlier "not
+      // this one" is spent. Only then: clearing before the outcome was known
+      // threw the user's decisions away when Orbital was unreachable or the
+      // listing was gone.
+      if (result.matched > 0) orbitalRejectionsRepo.clearForAsset(openDatabase(), input.assetId);
       return result;
     }),
 

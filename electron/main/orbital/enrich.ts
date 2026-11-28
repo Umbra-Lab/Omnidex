@@ -1,4 +1,4 @@
-import type { Statement } from 'better-sqlite3';
+import type { Database, Statement } from 'better-sqlite3';
 import { openDatabase } from '../db';
 import { type ActionProgress, emitProgress } from '../progress/bus';
 import { RateLimitError } from './client';
@@ -6,6 +6,34 @@ import { ORBITAL_CANDIDATES_SQL } from './enrich-candidates';
 import { matchAssetName } from './matcher';
 import { getProduct } from './product';
 import { mapOrbitalDetailToAssetFields } from './product-mapping';
+
+type Candidate = Awaited<ReturnType<typeof matchAssetName>>[number];
+
+/**
+ * The best candidate the user hasn't turned down for this asset. A listing
+ * rejected in the Match view ("not this one") must not come straight back as
+ * the automatic match, or a bulk run silently undoes the review. Null means
+ * leave the pack unmatched (it stays in the Match queue).
+ */
+function bestUnrejected(db: Database, assetId: number, candidates: Candidate[]): Candidate | null {
+  const rejected = new Set(
+    (
+      db
+        .prepare(
+          `SELECT product_slug FROM orbital_match_rejections
+            WHERE asset_id = ? AND product_slug IS NOT NULL`,
+        )
+        .all(assetId) as { product_slug: string }[]
+    ).map((r) => r.product_slug),
+  );
+  const top = candidates.find((c) => !rejected.has(c.item.slug));
+  if (!top || top.strength === 'none') return null;
+  // Once the user has turned a listing down, the pack is under review: only a
+  // strong runner-up is taken automatically. A weak one would set the match
+  // and drop the pack out of the Match queue nobody then looks at again.
+  if (rejected.size > 0 && top.strength !== 'high' && top.strength !== 'exact') return null;
+  return top;
+}
 
 /**
  * Orbital enrichment service.
@@ -181,8 +209,8 @@ export async function enrichOrbital(opts: EnrichOrbitalOptions = {}): Promise<En
       } catch (e) {
         throw new Error(`matchAssetName threw: ${(e as Error).message}`, { cause: e });
       }
-      const top = candidates[0];
-      if (!top || top.strength === 'none') {
+      const top = bestUnrejected(db, row.id, candidates);
+      if (!top) {
         markAttempted.run(row.id);
         unmatched += 1;
       } else {
@@ -304,8 +332,8 @@ export async function enrichOneOrbital(assetId: number, slug?: string): Promise<
   }
 
   const candidates = await matchAssetName(folderName, 5);
-  const top = candidates[0];
-  if (!top || top.strength === 'none') {
+  const top = bestUnrejected(db, row.id, candidates);
+  if (!top) {
     markAttempted.run(row.id);
     return { total: 1, matched: 0, unmatched: 1, failed: 0 };
   }

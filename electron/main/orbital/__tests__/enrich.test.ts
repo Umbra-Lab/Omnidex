@@ -20,7 +20,7 @@ vi.mock('../../db', () => ({ openDatabase: () => h.db }));
 vi.mock('../matcher', () => ({ matchAssetName: h.matchAssetName }));
 vi.mock('../product', () => ({ getProduct: h.getProduct }));
 
-import { enrichOrbital } from '../enrich';
+import { enrichOneOrbital, enrichOrbital } from '../enrich';
 
 const SCHEMA = /* sql */ `
 CREATE TABLE assets (
@@ -48,6 +48,12 @@ CREATE TABLE assets (
   orbital_thumbnail_url TEXT,
   orbital_source_url TEXT,
   orbital_last_checked_timestamp TEXT
+);
+CREATE TABLE orbital_match_rejections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset_id INTEGER NOT NULL,
+  product_slug TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );`;
 
 function attempted(): Record<string, number> {
@@ -125,5 +131,84 @@ describe('enrichOrbital attempted-marking', () => {
     const r = await enrichOrbital(quiet);
     expect(r.failed).toBe(1);
     expect(attempted()).toEqual({ A: 0, B: 1, C: 1 });
+  });
+});
+
+describe('match decisions from the Match view', () => {
+  const product = (slug: string) => ({ slug, title: slug });
+  const cand = (slug: string, score = 0.9, strength: string = 'high') => ({
+    item: { slug, title: slug },
+    score,
+    strength,
+  });
+  const attemptedOf = (name: string) =>
+    (
+      (h.db as Database)
+        .prepare('SELECT orbital_match_attempted AS a FROM assets WHERE name = ?')
+        .get(name) as { a: number }
+    ).a;
+  const slugOf = (name: string) =>
+    (
+      (h.db as Database)
+        .prepare('SELECT matched_orbital_product_slug AS s FROM assets WHERE name = ?')
+        .get(name) as { s: string | null }
+    ).s;
+
+  it('skips a listing the user rejected and takes the next one', async () => {
+    (h.db as Database)
+      .prepare("INSERT INTO orbital_match_rejections (asset_id, product_slug) VALUES (1, 'wrong')")
+      .run();
+    h.matchAssetName.mockResolvedValue([cand('wrong'), cand('right', 0.8)]);
+    h.getProduct.mockImplementation(async (slug: string) => product(slug));
+    await enrichOrbital(quiet);
+    expect(slugOf('A')).toBe('right');
+    // Other assets have no rejections, so their top candidate stands.
+    expect(slugOf('B')).toBe('wrong');
+  });
+
+  it('counts an asset as unmatched when every candidate was rejected', async () => {
+    (h.db as Database)
+      .prepare("INSERT INTO orbital_match_rejections (asset_id, product_slug) VALUES (1, 'only')")
+      .run();
+    h.matchAssetName.mockResolvedValue([cand('only')]);
+    h.getProduct.mockImplementation(async (slug: string) => product(slug));
+    const r = await enrichOrbital(quiet);
+    expect(slugOf('A')).toBeNull();
+    expect(attemptedOf('A')).toBe(1);
+    expect(r.unmatched).toBe(1);
+    expect(r.matched).toBe(2);
+  });
+
+  it('leaves a reviewed pack for the Match view when the runner-up is weak', async () => {
+    (h.db as Database)
+      .prepare("INSERT INTO orbital_match_rejections (asset_id, product_slug) VALUES (1, 'wrong')")
+      .run();
+    h.matchAssetName.mockResolvedValue([cand('wrong'), cand('maybe', 0.5, 'low')]);
+    h.getProduct.mockImplementation(async (slug: string) => product(slug));
+    await enrichOrbital(quiet);
+    expect(slugOf('A')).toBeNull();
+    // A pack nobody reviewed keeps its top candidate, as before.
+    expect(slugOf('B')).toBe('wrong');
+  });
+
+  it('leaves a dismissed asset out of the bulk run', async () => {
+    (h.db as Database)
+      .prepare('INSERT INTO orbital_match_rejections (asset_id, product_slug) VALUES (2, NULL)')
+      .run();
+    h.matchAssetName.mockResolvedValue([cand('pack')]);
+    h.getProduct.mockImplementation(async (slug: string) => product(slug));
+    const r = await enrichOrbital(quiet);
+    expect(r.total).toBe(2);
+    expect(slugOf('B')).toBeNull();
+  });
+
+  it('applies the same rule to a single automatic match', async () => {
+    (h.db as Database)
+      .prepare("INSERT INTO orbital_match_rejections (asset_id, product_slug) VALUES (3, 'wrong')")
+      .run();
+    h.matchAssetName.mockResolvedValue([cand('wrong'), cand('right', 0.8)]);
+    h.getProduct.mockImplementation(async (slug: string) => product(slug));
+    await enrichOneOrbital(3);
+    expect(slugOf('C')).toBe('right');
   });
 });
