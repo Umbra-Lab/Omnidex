@@ -1,7 +1,7 @@
 import type { Asset, AssetCardData, AssetFilter, SortOption } from '@omnidex/types/db';
 import { DEFAULT_SORT, SORT_OPTION_SQL } from '@omnidex/types/db';
 import type { Database } from 'better-sqlite3';
-import { normalizeRow, normalizeRows, toSqliteBool } from './row-helpers';
+import { escapeLike, normalizeRow, normalizeRows, toSqliteBool } from './row-helpers';
 
 /**
  * Query layer for the `assets` table. Mirrors behavior of
@@ -83,6 +83,7 @@ export function categoryCounts(db: Database): Record<string, number> {
        FROM assets, json_each(assets.orbital_categories)
        WHERE assets.orbital_categories IS NOT NULL
          AND assets.content_format IS NULL
+         AND assets.missing_since IS NULL
        GROUP BY json_each.value
        ORDER BY count DESC`,
     )
@@ -97,7 +98,7 @@ export function ecosystemCounts(db: Database): Record<string, number> {
     .prepare(
       `SELECT COALESCE(asset_ecosystem, ecosystem, 'unknown') AS eco, COUNT(*) AS count
        FROM assets
-       WHERE content_format IS NULL
+       WHERE content_format IS NULL AND missing_since IS NULL
        GROUP BY eco`,
     )
     .all() as { eco: string; count: number }[];
@@ -130,11 +131,13 @@ export function marketplaceSourceCounts(db: Database): Record<string, number> {
   const one = (sql: string): number => (db.prepare(sql).get() as { n: number }).n;
   const orbital = one(
     `SELECT COUNT(*) AS n FROM assets
-     WHERE matched_orbital_product_slug IS NOT NULL AND content_format IS NULL`,
+     WHERE matched_orbital_product_slug IS NOT NULL AND content_format IS NULL
+       AND missing_since IS NULL`,
   );
   const fab = one(
     `SELECT COUNT(*) AS n FROM assets
-     WHERE scan_location_id = -1 AND content_format IS NULL`,
+     WHERE scan_location_id = -1 AND content_format IS NULL
+       AND missing_since IS NULL`,
   );
   const out: Record<string, number> = {};
   if (orbital > 0) out.orbital = orbital;
@@ -187,17 +190,58 @@ export function duplicatesOf(db: Database, id: number): DuplicateInfo {
   return { count, scan_location_ids: rows.map((r) => r.scan_location_id) };
 }
 
+/**
+ * Null `thumbnail_path` for rows whose thumbnail lives under `dir` (the app's
+ * thumbnail cache). Course covers point at the user's own folders and must
+ * survive a cache purge. Compares with `\` folded to `/` and a literal prefix,
+ * case-insensitively on Windows where paths are case-insensitive.
+ * Returns the number of rows cleared.
+ */
+export function clearThumbnailsUnder(
+  db: Database,
+  dir: string,
+  platform: NodeJS.Platform = process.platform,
+): number {
+  // Compared in JS, not SQL: SQLite lower() is ASCII-only and substr counts code
+  // points, so non-ASCII profile names (Иван, Émile) would never match.
+  const norm = (p: string): string => {
+    const folded = p.replace(/\\/g, '/');
+    return platform === 'win32' ? folded.toLowerCase() : folded;
+  };
+  const prefix = `${norm(dir).replace(/\/+$/, '')}/`;
+  const rows = db
+    .prepare('SELECT id, thumbnail_path FROM assets WHERE thumbnail_path IS NOT NULL')
+    .all() as { id: number; thumbnail_path: string }[];
+  const ids = rows.filter((r) => norm(r.thumbnail_path).startsWith(prefix)).map((r) => r.id);
+  const clear = db.prepare(
+    'UPDATE assets SET thumbnail_path = NULL, has_local_thumbnail = 0 WHERE id = ?',
+  );
+  db.exec('BEGIN');
+  try {
+    for (const id of ids) clear.run(id);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  return ids.length;
+}
+
 export function favoriteCount(db: Database): number {
   const row = db
-    .prepare('SELECT COUNT(*) AS n FROM assets WHERE is_favorite = 1 AND content_format IS NULL')
+    .prepare(
+      'SELECT COUNT(*) AS n FROM assets WHERE is_favorite = 1 AND content_format IS NULL AND missing_since IS NULL',
+    )
     .get() as { n: number } | undefined;
   return row?.n ?? 0;
 }
 
 export function totalCount(db: Database): number {
-  const row = db.prepare('SELECT COUNT(*) AS n FROM assets WHERE content_format IS NULL').get() as
-    | { n: number }
-    | undefined;
+  const row = db
+    .prepare(
+      'SELECT COUNT(*) AS n FROM assets WHERE content_format IS NULL AND missing_since IS NULL',
+    )
+    .get() as { n: number } | undefined;
   return row?.n ?? 0;
 }
 
@@ -255,7 +299,7 @@ export function listLearnAssets(db: Database, filter: LearnAssetsFilter = {}): u
   }
   const sql = `SELECT ${LEARN_COLUMNS} FROM assets WHERE ${where.join(
     ' AND ',
-  )} ORDER BY modified_date DESC${pagination}`;
+  )} ORDER BY modified_date DESC, id ASC${pagination}`;
   const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
   return normalizeRows(rows);
 }
@@ -351,7 +395,7 @@ export function searchAssets(
     FROM assets
     JOIN assets_fts ON assets_fts.rowid = assets.id
     WHERE assets_fts MATCH ? AND ${where.join(' AND ')}
-    ORDER BY bm25(assets_fts, 10.0, 1.0, 5.0, 8.0, 2.0, 2.0)
+    ORDER BY bm25(assets_fts, 10.0, 1.0, 5.0, 8.0, 2.0, 2.0), assets.id ASC
     LIMIT ? OFFSET ?
   `;
   const rows = db.prepare(sql).all(ftsQuery, ...params, limit, offset) as Record<string, unknown>[];
@@ -578,7 +622,8 @@ export interface AssetStats {
  */
 export function getAssetStats(db: Database): AssetStats {
   const one = (sql: string): number => (db.prepare(sql).get() as { n: number }).n;
-  const PACKS = 'content_format IS NULL';
+  // Same predicate as the grid (assetFilterClauses): packs only, still on disk.
+  const PACKS = 'content_format IS NULL AND missing_since IS NULL';
   return {
     total: one(`SELECT COUNT(*) AS n FROM assets WHERE ${PACKS}`),
     courses: one('SELECT COUNT(*) AS n FROM assets WHERE content_format IS NOT NULL'),
@@ -671,17 +716,17 @@ function assetFilterClauses(filter: AssetFilter | null): {
     params.push(filter.scan_location_id);
   }
   if (filter?.name_search) {
-    where.push('(assets.name LIKE ? OR assets.orbital_title LIKE ?)');
-    const like = `%${filter.name_search}%`;
+    where.push("(assets.name LIKE ? ESCAPE '\\' OR assets.orbital_title LIKE ? ESCAPE '\\')");
+    const like = `%${escapeLike(filter.name_search)}%`;
     params.push(like, like);
   }
   if (filter?.tags && filter.tags.length > 0) {
     // Tags are a JSON string; match as substring per-tag (same approach as
     // src-tauri/src/services/query_builder.rs).
-    const tagClauses = filter.tags.map(() => 'assets.tags LIKE ?').join(' AND ');
+    const tagClauses = filter.tags.map(() => "assets.tags LIKE ? ESCAPE '\\'").join(' AND ');
     where.push(`(${tagClauses})`);
     for (const tag of filter.tags) {
-      params.push(`%"${tag}"%`);
+      params.push(`%"${escapeLike(tag)}"%`);
     }
   }
   if (filter?.date_range) {

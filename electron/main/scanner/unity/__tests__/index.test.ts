@@ -472,7 +472,8 @@ describe('Unity location scan', () => {
     (db as unknown as { close(): void }).close();
   });
 
-  it('reports a project another location owns as a failure and keeps going', async () => {
+  // A DCC location's row gives way instead (see ownership.test.ts); any other owner wins.
+  it('reports a project a non-DCC location owns as a failure and keeps going', async () => {
     const db = unityDb();
     const { root, project, thumbs } = library();
     dirs.push(thumbs);
