@@ -17,7 +17,7 @@ import { useHotkey } from '@/hooks/useHotkey';
 import { trpc } from '@/ipc/trpc';
 import { resolveThumbnail } from '@/lib/assetUrl';
 import { cn } from '@/lib/cn';
-import { formatBytes, formatCount, formatRating } from '@/lib/format';
+import { formatBytes, formatCount, formatRating, formatTaxonomyLabel } from '@/lib/format';
 
 /**
  * The Match queue — the screen the app was missing.
@@ -265,7 +265,7 @@ export function MatchView() {
             <Well thumb={resolveThumbnail(current)} />
             <Field label="Name" value={current.name} />
             <Field label="Size on disk" value={formatBytes(current.file_size)} />
-            <Field label="Kind" value={current.asset_type ?? '—'} />
+            <Field label="Kind" value={formatTaxonomyLabel(current.asset_type)} />
             <Field label="Added" value={current.created_date?.slice(0, 10) ?? '—'} />
             <Field label="Path" value={current.file_path ?? '—'} wrap />
           </Pane>
@@ -484,7 +484,17 @@ function Field({
   readonly wrap?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-[130px_minmax(0,1fr)] items-baseline gap-3 border-b border-surface-800/40 py-2 font-mono">
+    <div
+      className={cn(
+        'grid grid-cols-[130px_minmax(0,1fr)] gap-3 border-b border-surface-800/40 py-2 font-mono',
+        // Not items-baseline: a Capsize-trimmed cap-N element's first baseline
+        // is its trim pseudo-element (an empty table) at the top of the box, so
+        // a trimmed label and a truncated (untrimmed) value sat 7px apart. The
+        // last baseline is the box bottom, which the trim puts on the text
+        // baseline. A wrapped value aligns its first line with the label instead.
+        wrap ? 'items-start' : 'items-baseline-last',
+      )}
+    >
       <span className="cap-11 uppercase tracking-[0.1em] text-surface-500">{label}</span>
       <span
         className={cn('min-w-0 cap-12 text-surface-100', wrap ? 'break-all' : 'truncate')}
