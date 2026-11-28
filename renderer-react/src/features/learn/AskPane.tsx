@@ -72,7 +72,10 @@ export function AskPane({
     if (stream.error) {
       setError(stream.error);
     } else if (stream.text) {
-      setThread((t) => [...t, { id: nextId.current++, role: 'assistant', content: stream.text }]);
+      // Take the id outside the updater: StrictMode runs updaters twice.
+      const id = nextId.current++;
+      const content = stream.text;
+      setThread((t) => [...t, { id, role: 'assistant', content }]);
       setLastUsage(stream.usage);
     } else {
       // A completed request with no text and no error is still an outcome the
@@ -123,7 +126,8 @@ export function AskPane({
     const question = input.trim();
     if (!question || busy) return;
     setError(null);
-    setThread((t) => [...t, { id: nextId.current++, role: 'user', content: question }]);
+    const id = nextId.current++;
+    setThread((t) => [...t, { id, role: 'user', content: question }]);
     setInput('');
     start.mutate({
       assetId,
