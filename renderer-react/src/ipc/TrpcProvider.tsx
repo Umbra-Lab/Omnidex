@@ -2,6 +2,7 @@ import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@ta
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { ipcLink } from 'electron-trpc/renderer';
 import { type ReactNode, useState } from 'react';
+import superjson from 'superjson';
 import { toast } from '@/components/ui/toaster';
 import { trpc } from './trpc';
 
@@ -45,11 +46,9 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
   );
   const [trpcClient] = useState(() =>
     trpc.createClient({
-      // tRPC v11 dropped the root-level `transformer` option (it now lives on
-      // the individual links). The patched electron-trpc@1.0.0-alpha.0 (see
-      // patches/) detects a missing transformer and falls back to superjson,
-      // matching the router's `initTRPC.create({ transformer: superjson })`.
-      links: [ipcLink()],
+      // tRPC v11 puts the transformer on the link. It matches the router's
+      // `initTRPC.create({ transformer: superjson })`.
+      links: [ipcLink({ transformer: superjson })],
     }),
   );
 
