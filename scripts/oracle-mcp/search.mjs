@@ -265,7 +265,10 @@ export function createSearch(db, { legacy = false } = {}) {
     return { terms: out, fixes, stems };
   }
 
-  /** `and` or `or` query over terms; corrected words match any of their stems as prefixes. */
+  /**
+   * `and` or `or` query over terms; corrected words match any of their stems as prefixes.
+   * Join ANDs with an explicit ' AND ': FTS5 rejects an implicit AND before a parenthesis.
+   */
   function build(terms, prefix, stems, joiner) {
     return terms
       .map((t) => {
@@ -297,7 +300,7 @@ export function createSearch(db, { legacy = false } = {}) {
     if (fixed.fixes.length > 0) {
       terms = fixed.terms;
       stems = fixed.stems;
-      const again = run(build(terms, prefix, stems, ' '), limit);
+      const again = run(build(terms, prefix, stems, ' AND '), limit);
       notes.push(`Matched loosely: ${fixed.fixes.join('; ')}.`);
       rows = again;
       if (rows.length >= enough) return { rows, notes };
@@ -305,7 +308,7 @@ export function createSearch(db, { legacy = false } = {}) {
 
     if (orFallback) {
       const loose = contentTerms(terms);
-      const strictQuery = build(terms, prefix, stems, ' ');
+      const strictQuery = build(terms, prefix, stems, ' AND ');
       const looseQuery = build(loose, prefix, stems, ' OR ');
       if (loose.length > 0 && looseQuery !== strictQuery) {
         const seen = new Set(rows.map(key));

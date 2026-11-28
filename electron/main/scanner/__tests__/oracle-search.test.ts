@@ -141,6 +141,8 @@ describe('Oracle staged search', () => {
     seedAsset(db, { name: 'Voice Pack', file_path: '/p/voice', description: 'narrator' });
     const wide = createSearch(db).assets('narrat', 20);
     expect(names(wide.rows)).toEqual(expect.arrayContaining(['Voice Pack', 'Narrative Quests']));
+    // With another word in front, the widened group still parses (explicit AND).
+    expect(names(createSearch(db).assets('quests narrat', 20).rows)).toContain('Narrative Quests');
   });
 
   it('prefix-matches asset words like the app search box', () => {
