@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const toastError = vi.hoisted(() => vi.fn());
-vi.mock('@/components/ui/toaster', () => ({ toast: { error: toastError } }));
+const { toastError, toastInfo } = vi.hoisted(() => ({ toastError: vi.fn(), toastInfo: vi.fn() }));
+vi.mock('@/components/ui/toaster', () => ({ toast: { error: toastError, info: toastInfo } }));
 
 import { openFolder } from '../openFolder';
 
-type Shell = { openFileLocation: (p: string) => Promise<{ ok: boolean; error?: string }> };
+type Shell = {
+  openFileLocation: (p: string) => Promise<{ ok: boolean; error?: string; openedParent?: boolean }>;
+};
 
 function withShell(shell: Shell | undefined) {
   (window as unknown as { omnidex?: { shell?: Shell } }).omnidex = shell ? { shell } : undefined;
@@ -13,6 +15,7 @@ function withShell(shell: Shell | undefined) {
 
 afterEach(() => {
   toastError.mockReset();
+  toastInfo.mockReset();
   withShell(undefined);
 });
 
@@ -25,29 +28,37 @@ describe('openFolder', () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
-  it('says a moved pack is gone', async () => {
-    withShell({ openFileLocation: async () => ({ ok: false, error: 'not found' }) });
-    await expect(openFolder('E:/Packs/Rocks')).resolves.toBe(false);
-    expect(toastError).toHaveBeenCalledWith(expect.stringContaining("isn't there any more"));
+  it('says a moved pack is gone when its parent opened instead', async () => {
+    withShell({ openFileLocation: async () => ({ ok: true, openedParent: true }) });
+    await expect(openFolder('E:/Packs/Rocks')).resolves.toBe(true);
+    expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining("isn't there any more"));
+    expect(toastError).not.toHaveBeenCalled();
   });
 
-  it('points at Settings for a paused scan folder', async () => {
+  it('suggests reconnecting when the whole location is unavailable', async () => {
+    withShell({ openFileLocation: async () => ({ ok: false, error: 'not found' }) });
+    await expect(openFolder('E:/Packs/Rocks')).resolves.toBe(false);
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining("isn't connected"));
+  });
+
+  it('points at Settings for a path outside the scan folders', async () => {
     withShell({ openFileLocation: async () => ({ ok: false, error: 'path not allowed' }) });
     await openFolder('E:/Packs/Rocks');
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('outside your scan folders'));
     expect(toastError).toHaveBeenCalledWith(expect.stringContaining('Settings → Folders'));
   });
 
   it('reports a failure it has no words for, and a thrown one', async () => {
     withShell({ openFileLocation: async () => ({ ok: false, error: 'EACCES' }) });
     await openFolder('E:/x');
-    expect(toastError).toHaveBeenLastCalledWith("Couldn't open the folder: EACCES");
+    expect(toastError).toHaveBeenLastCalledWith("Couldn't open that location: EACCES");
     withShell({
       openFileLocation: async () => {
         throw new Error('ipc closed');
       },
     });
     await openFolder('E:/x');
-    expect(toastError).toHaveBeenLastCalledWith("Couldn't open the folder: ipc closed");
+    expect(toastError).toHaveBeenLastCalledWith("Couldn't open that location: ipc closed");
   });
 
   it('says it needs the desktop app without a bridge', async () => {

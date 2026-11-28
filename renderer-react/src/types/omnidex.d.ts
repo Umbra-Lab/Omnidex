@@ -19,7 +19,9 @@ export interface OmnidexBridge {
     readonly node?: string;
   };
   readonly shell?: {
-    openFileLocation: (p: string) => Promise<{ ok: boolean; error?: string }>;
+    openFileLocation: (
+      p: string,
+    ) => Promise<{ ok: boolean; error?: string; openedParent?: boolean }>;
     openExternal: (p: string) => Promise<{ ok: boolean; error?: string }>;
     openPath: (p: string) => Promise<{ ok: boolean; error?: string }>;
   };
