@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toaster';
 import { trpc } from '@/ipc/trpc';
 import { resolveThumbnail } from '@/lib/assetUrl';
+import { cn } from '@/lib/cn';
 import { formatBytes, formatCount } from '@/lib/format';
 import { useModals } from '@/stores/modals';
 
@@ -233,7 +234,7 @@ export function CollectionsView() {
 }
 
 /**
- * 2x2 mosaic from the four most recently added members.
+ * Cover mosaic from up to four of the most recently added members' thumbnails.
  *
  * A collection is a curated set of 3D content and its card was a name, a
  * number and a border — no cover, no colour, no icon, in an app for visual
@@ -247,36 +248,57 @@ function CoverMosaic({ covers }: { readonly covers: string | null }) {
     try {
       const parsed = JSON.parse(covers) as unknown;
       if (!Array.isArray(parsed)) return [] as string[];
-      return parsed
+      const resolved = parsed
         .filter((v): v is string => typeof v === 'string' && v.length > 0)
         .map((v) => resolveThumbnail({ thumbnail_path: v, orbital_thumbnail_url: null }))
-        .filter((v): v is string => Boolean(v))
-        .slice(0, 4);
+        .filter((v): v is string => Boolean(v));
+      return [...new Set(resolved)].slice(0, 4);
     } catch {
       return [] as string[];
     }
   }, [covers]);
 
-  if (urls.length === 0) {
+  // A thumbnail can go missing after it was recorded (cache purged, file
+  // moved). A broken-image glyph on the cover reads as a fault, so a failed
+  // tile drops out and the rest re-tile.
+  const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
+  // A new cover list (a member added, thumbnails re-extracted) gets a fresh
+  // try. Reset during render, as LearnView's Player does for its error flag.
+  const [lastCovers, setLastCovers] = useState(covers);
+  if (covers !== lastCovers) {
+    setLastCovers(covers);
+    setFailed(new Set());
+  }
+  const shown = urls.filter((u) => !failed.has(u));
+
+  if (shown.length === 0) {
     return <div className="h-20 w-full rounded-t-md bg-surface-900" />;
   }
 
+  // One cover fills the band, two sit side by side, three put the newest on
+  // the left at full height. Repeating one image four times looked like a bug.
   return (
-    <div className="grid h-20 w-full grid-cols-2 grid-rows-2 gap-px overflow-hidden rounded-t-md bg-surface-800">
-      {Array.from({ length: 4 }).map((_, i) => {
-        const url = urls[i % urls.length];
-        return (
-          <img
-            // biome-ignore lint/suspicious/noArrayIndexKey: fixed 4-cell mosaic, index IS the cell
-            key={i}
-            src={url}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className="h-full w-full object-cover"
-          />
-        );
-      })}
+    <div
+      className={cn(
+        'grid h-20 w-full gap-px overflow-hidden rounded-t-md bg-surface-800',
+        shown.length === 1 ? 'grid-cols-1' : 'grid-cols-2',
+        shown.length >= 3 ? 'grid-rows-2' : 'grid-rows-1',
+      )}
+    >
+      {shown.map((url, i) => (
+        <img
+          key={url}
+          src={url}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed((prev) => new Set(prev).add(url))}
+          className={cn(
+            'h-full w-full object-cover',
+            shown.length === 3 && i === 0 && 'row-span-2',
+          )}
+        />
+      ))}
     </div>
   );
 }
