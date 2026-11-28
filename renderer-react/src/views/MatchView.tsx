@@ -112,6 +112,9 @@ export function MatchView() {
   // Orbital", which drops the pack from the queue for good on the strength of
   // a network error.
   const unreachable = candidates.isError && !candidates.isFetching;
+  // Dismissing is only safe on a finished, successful search: not while a
+  // first fetch or a "Try again" is in flight, and not after a failure.
+  const searched = candidates.isSuccess && !candidates.isFetching;
 
   const match = trpc.orbital.match.useMutation({
     onSuccess: () => {
@@ -164,9 +167,9 @@ export function MatchView() {
 
   /** "Nothing on Orbital is this pack." Takes it out of the queue. */
   const onDismiss = useCallback(() => {
-    if (!current || dismiss.isPending) return;
+    if (!current || !searched || dismiss.isPending) return;
     dismiss.mutate(current.id);
-  }, [current, dismiss]);
+  }, [current, searched, dismiss]);
 
   useHotkey({ key: 'a', handler: onAccept, enabled: Boolean(current && best) });
   // preventDefault: otherwise the "s" lands in the search box this autofocuses.
@@ -176,7 +179,7 @@ export function MatchView() {
   }, []);
   useHotkey({ key: 's', handler: openManual, enabled: Boolean(current) });
   useHotkey({ key: 'r', handler: onReject, enabled: Boolean(current && best) });
-  useHotkey({ key: 'd', handler: onDismiss, enabled: Boolean(current) && !unreachable });
+  useHotkey({ key: 'd', handler: onDismiss, enabled: Boolean(current) && searched });
 
   if (queue.isPending) {
     return <Centered>Loading the queue…</Centered>;
@@ -252,7 +255,7 @@ export function MatchView() {
               {Math.round(best.score * 100)}% · {best.strength}
             </span>
           ) : unreachable ? (
-            <span className="shrink-0 font-mono cap-11 text-warning-300">orbital unreachable</span>
+            <span className="shrink-0 font-mono cap-11 text-warning-300">search failed</span>
           ) : (
             <span className="shrink-0 font-mono cap-11 text-surface-400">no candidate</span>
           )}
@@ -315,9 +318,11 @@ export function MatchView() {
             ) : unreachable ? (
               <div className="flex flex-col items-start gap-3 py-8">
                 <p className="cap-12 text-surface-300">
-                  Couldn't reach Orbital Market, so this pack hasn't been searched. Check your
-                  connection and try again.
+                  The Orbital Market search failed, so this pack hasn't been searched.
                 </p>
+                {candidates.error?.message ? (
+                  <p className="font-mono cap-11 text-surface-500">{candidates.error.message}</p>
+                ) : null}
                 <Button variant="secondary" size="sm" onClick={() => void candidates.refetch()}>
                   <RotateCw size={12} />
                   Try again
@@ -370,7 +375,7 @@ export function MatchView() {
             variant="ghost"
             size="md"
             onClick={onDismiss}
-            disabled={unreachable}
+            disabled={!searched}
             title={unreachable ? 'Orbital was not searched for this pack' : undefined}
           >
             <CircleSlash size={14} />
