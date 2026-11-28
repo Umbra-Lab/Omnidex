@@ -1,9 +1,7 @@
-import { existsSync, statSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { app, ipcMain, shell } from 'electron';
 import { openDatabase } from '../db/connection';
 import { scanLocationsRepo } from '../db/repos';
-import { isLaunchableBundle, isOpenableFile, resolveWithin } from './path-guard';
+import { planOpenLocation, planOpenPath, type ShellPlan } from './path-guard';
 
 /**
  * Shell operations. Replaces `@tauri-apps/plugin-shell` open() + Tauri's
@@ -43,6 +41,19 @@ function isAllowedExternalUrl(rawUrl: string): boolean {
   }
 }
 
+/** Carry out an open or reveal decided by path-guard, on the canonical path. */
+async function runPlan(
+  plan: Exclude<ShellPlan, { kind: 'refuse' }>,
+): Promise<{ ok: boolean; error?: string; openedParent?: true }> {
+  if (plan.kind === 'reveal') {
+    shell.showItemInFolder(plan.path);
+    return { ok: true };
+  }
+  const err = await shell.openPath(plan.path);
+  if (err) return { ok: false, error: err };
+  return plan.openedParent ? { ok: true, openedParent: true } : { ok: true };
+}
+
 let registered = false;
 
 export function registerShellIpc(): void {
@@ -51,50 +62,28 @@ export function registerShellIpc(): void {
 
   ipcMain.handle('omnidex:shell:open-path', async (_e, path: string) => {
     if (!path) return { ok: false, error: 'empty path' };
-    let safePath: string;
-    try {
-      safePath = resolveWithin(path, assetRoots(), { allowMissing: true });
-    } catch {
-      console.warn(`[omnidex] shell:open-path denied path outside allowed roots: ${path}`);
-      return { ok: false, error: 'path not allowed' };
+    // Only media, plain documents and folders: opening anything else with its
+    // default app can run it. See planOpenPath.
+    const plan = planOpenPath(path, assetRoots());
+    if (plan.kind === 'refuse') {
+      console.warn(`[omnidex] shell:open-path refused (${plan.error}): ${path}`);
+      return { ok: false, error: plan.error };
     }
-    if (!existsSync(safePath)) return { ok: false, error: 'not found' };
-    // Only media and documents: opening anything else with its default app
-    // can run it (see isOpenableFile). Folders open in the file manager.
-    const isDir = statSync(safePath).isDirectory();
-    if (isDir ? isLaunchableBundle(safePath) : !isOpenableFile(safePath)) {
-      console.warn(`[omnidex] shell:open-path refused a file type that could run: ${safePath}`);
-      return { ok: false, error: 'file type not allowed' };
-    }
-    const err = await shell.openPath(safePath);
-    return err ? { ok: false, error: err } : { ok: true };
+    return runPlan(plan);
   });
 
   ipcMain.handle('omnidex:shell:open-file-location', async (_e, path: string) => {
     if (!path) return { ok: false, error: 'empty path' };
-    let safePath: string;
-    try {
-      safePath = resolveWithin(path, assetRoots(), { allowMissing: true });
-    } catch {
-      console.warn(`[omnidex] shell:open-file-location denied path outside allowed roots: ${path}`);
-      return { ok: false, error: 'path not allowed' };
-    }
-    if (existsSync(safePath)) {
-      const isDir = statSync(safePath).isDirectory();
-      // A macOS bundle is a directory that openPath would launch; reveal it.
-      if (isDir && !isLaunchableBundle(safePath)) {
-        const err = await shell.openPath(safePath);
-        return err ? { ok: false, error: err } : { ok: true };
+    const plan = planOpenLocation(path, assetRoots());
+    if (plan.kind === 'refuse') {
+      if (plan.error === 'path not allowed') {
+        console.warn(
+          `[omnidex] shell:open-file-location denied path outside allowed roots: ${path}`,
+        );
       }
-      shell.showItemInFolder(safePath);
-      return { ok: true };
+      return { ok: false, error: plan.error };
     }
-    const parent = dirname(safePath);
-    if (existsSync(parent)) {
-      const err = await shell.openPath(parent);
-      return err ? { ok: false, error: err } : { ok: true };
-    }
-    return { ok: false, error: 'not found' };
+    return runPlan(plan);
   });
 
   ipcMain.handle('omnidex:shell:open-external', async (_e, url: string) => {
