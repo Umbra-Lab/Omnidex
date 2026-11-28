@@ -114,6 +114,7 @@ work that reached `main` through direct merges with no pull request, the commit.
   the Inspector open it spilled over the sidebar and the Inspector's footer, and
   every label wrapped onto two lines; under 40rem of column width the buttons
   now show icons only, with their names kept as tooltips and accessible labels.
+  (#45)
 
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
