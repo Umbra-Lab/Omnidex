@@ -295,7 +295,7 @@ export function AssetsView() {
   return (
     <div className="flex h-full w-full min-w-0 flex-row">
       <SourceList selectedKeys={facets} onSelect={onToggleFacet} />
-      <section className="relative flex min-w-0 flex-1 flex-col">
+      <section className="@container relative flex min-w-0 flex-1 flex-col">
         <AssetToolbar
           total={total.data ?? 0}
           sort={sort}

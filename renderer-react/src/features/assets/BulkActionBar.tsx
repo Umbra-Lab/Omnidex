@@ -1,4 +1,4 @@
-import { FolderPlus, Heart, ScanSearch, Tag, Trash2 } from 'lucide-react';
+import { FolderPlus, Heart, ScanSearch, Tag, Trash2, X } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { formatCount } from '@/lib/format';
 
@@ -23,6 +23,11 @@ interface BulkActionBarProps {
  * batch to act on. Every mutation behind these buttons already took an array.
  *
  * Appears on first selection, floating over the content column.
+ *
+ * The column is a size container (`@container` on the parent). When it is
+ * narrower than the bar's full width, typically with the inspector open on a
+ * small window, the buttons drop to icons with their names as tooltips rather
+ * than wrapping each label onto two or three lines.
  */
 export function BulkActionBar({
   count,
@@ -48,10 +53,12 @@ export function BulkActionBar({
       // Absolute within the content column, not fixed to the viewport. Centred
       // on the window it drifted over the inspector and covered its action
       // footer — the buttons were visible but unclickable. The bar acts on the
-      // grid selection, so it belongs over the grid.
-      className="-translate-x-1/2 absolute bottom-4 left-1/2 z-40 flex items-center gap-1 rounded-lg border border-surface-700 bg-surface-800 px-3 py-2 shadow-xl shadow-black/60"
+      // grid selection, so it belongs over the grid. `w-max` because an
+      // absolute box at left-1/2 otherwise shrinks to the half-column to its
+      // right and wraps every label.
+      className="-translate-x-1/2 absolute bottom-4 left-1/2 z-40 flex w-max max-w-[calc(100%-2rem)] items-center gap-1 rounded-lg border border-surface-700 bg-surface-800 px-3 py-2 shadow-xl shadow-black/60"
     >
-      <span className="pr-2 font-mono tabular-nums cap-14 font-semibold text-surface-50">
+      <span className="shrink-0 whitespace-nowrap pr-2 font-mono tabular-nums cap-14 font-semibold text-surface-50">
         {formatCount(count)} selected
       </span>
       <span className="h-6 w-px self-stretch bg-surface-600" />
@@ -74,9 +81,12 @@ export function BulkActionBar({
       <button
         type="button"
         onClick={onClear}
-        className="pl-2 font-mono cap-12 text-surface-400 hover:text-surface-200"
+        aria-label="Clear selection (Esc)"
+        title="Clear selection (Esc)"
+        className="flex shrink-0 items-center whitespace-nowrap pl-2 font-mono cap-12 text-surface-400 hover:text-surface-200"
       >
-        esc to clear
+        <span className="hidden @2xl:inline">esc to clear</span>
+        <X size={14} className="@2xl:hidden" aria-hidden />
       </button>
     </motion.div>
   );
@@ -95,8 +105,10 @@ function BulkButton({ icon, label, onClick, primary, destructive }: BulkButtonPr
     <button
       type="button"
       onClick={onClick}
+      aria-label={label}
+      title={label}
       className={[
-        'flex h-8 items-center gap-1.5 rounded-md px-3 cap-14 font-medium transition-colors [transition-duration:var(--duration-micro)]',
+        'flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 @2xl:px-3 cap-14 font-medium transition-colors [transition-duration:var(--duration-micro)]',
         primary
           ? 'bg-accent-500 text-accent-on hover:bg-accent-400'
           : destructive
@@ -105,7 +117,7 @@ function BulkButton({ icon, label, onClick, primary, destructive }: BulkButtonPr
       ].join(' ')}
     >
       {icon}
-      {label}
+      <span className="hidden @2xl:inline">{label}</span>
     </button>
   );
 }

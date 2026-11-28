@@ -110,6 +110,11 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- The library toolbar and the selection bar fit a narrow grid column (a small
+  window with the inspector open). The bar no longer wraps each label onto two
+  or three lines, and the Grid/Table switch is no longer pushed under the
+  inspector. Below about 670px the labels become icon tooltips.
+
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would

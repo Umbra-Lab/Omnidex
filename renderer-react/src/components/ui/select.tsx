@@ -14,7 +14,7 @@ export const SelectTrigger = forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'flex h-8 w-full items-center justify-between rounded-md border border-surface-800/60 bg-surface-950 px-2.5 cap-14 text-surface-100',
+      'flex h-8 w-full items-center justify-between gap-1.5 whitespace-nowrap rounded-md border border-surface-800/60 bg-surface-950 px-2.5 cap-14 text-surface-100 [&>span]:min-w-0 [&>span]:truncate',
       'placeholder:text-surface-500 transition-colors hover:border-surface-700',
       'focus:border-accent-500 focus:outline-none',
       'disabled:cursor-not-allowed disabled:opacity-50',

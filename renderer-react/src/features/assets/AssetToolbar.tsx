@@ -98,14 +98,14 @@ export function AssetToolbar({
   const placeholder = `Search ${formatCount(total)} assets…`;
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-3 border-b border-surface-800/60 bg-surface-950/60 px-3">
-      <div className="relative max-w-2xl flex-1">
+    <div className="flex h-12 shrink-0 items-center gap-2 border-b @xl:gap-3 border-surface-800/60 bg-surface-950/60 px-3">
+      <div className="relative min-w-24 max-w-2xl flex-1">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-surface-400" />
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={placeholder}
-          className="h-8 border-surface-700/80 bg-surface-900/80 pl-9 pr-20 cap-14 text-surface-100 placeholder:text-surface-400 focus-visible:border-accent-500/60 focus-visible:ring-1 focus-visible:ring-accent-500/40"
+          className="h-8 border-surface-700/80 bg-surface-900/80 pl-9 pr-9 @2xl:pr-20 cap-14 text-surface-100 placeholder:text-surface-400 focus-visible:border-accent-500/60 focus-visible:ring-1 focus-visible:ring-accent-500/40"
           aria-label="Search assets"
         />
         {query ? (
@@ -118,18 +118,18 @@ export function AssetToolbar({
             <X size={12} />
           </button>
         ) : (
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono cap-10 uppercase tracking-[0.18em] text-surface-400">
+          <span className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 font-mono cap-10 uppercase tracking-[0.18em] text-surface-400 @2xl:block">
             {formatCount(total)}
           </span>
         )}
       </div>
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex shrink-0 items-center gap-2">
         {searchActive ? (
           // FTS search ranks by BM25 relevance, which overrides the sort options.
           // Surface a static indicator so the ordering isn't a silent surprise;
           // the sort dropdown returns (with its prior value) once search clears.
           <div
-            className="flex h-8 w-[180px] items-center gap-1.5 rounded-md border border-surface-800 px-3 cap-12 text-surface-400"
+            className="flex h-8 w-[120px] items-center gap-1.5 rounded-md @xl:w-[140px] @2xl:w-[180px] border border-surface-800 px-3 cap-12 text-surface-400"
             title="Search results are ranked by relevance"
           >
             <Sparkles size={12} />
@@ -137,7 +137,7 @@ export function AssetToolbar({
           </div>
         ) : (
           <Select value={sort} onValueChange={(v) => onSortChange(v as SortOption)}>
-            <SelectTrigger className="h-8 w-[180px] cap-12">
+            <SelectTrigger className="h-8 w-[120px] cap-12 @xl:w-[140px] @2xl:w-[180px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -157,7 +157,9 @@ export function AssetToolbar({
             </SelectContent>
           </Select>
         )}
-        {/* Two named views, not two unlabeled 12px glyphs. The old control
+        {/* Two named views, not two unlabeled 12px glyphs. (The names drop to
+            tooltips only when the column is narrow, e.g. inspector open on a
+            small window, so the toolbar never pushes the control off screen.) The old control
             was a density stepper whose icons implied grid-vs-list while only
             changing the column count — the source comment apologised for the
             metaphor. What a 3,000-item library actually needs is a table, and
@@ -167,19 +169,23 @@ export function AssetToolbar({
             type="button"
             onClick={() => onViewChange('grid')}
             aria-pressed={view === 'grid'}
+            aria-label="Grid"
+            title="Grid"
             className={viewButtonClass(view === 'grid')}
           >
             <LayoutGrid size={13} />
-            Grid
+            <span className="hidden @2xl:inline">Grid</span>
           </button>
           <button
             type="button"
             onClick={() => onViewChange('table')}
             aria-pressed={view === 'table'}
+            aria-label="Table"
+            title="Table"
             className={viewButtonClass(view === 'table')}
           >
             <Table2 size={13} />
-            Table
+            <span className="hidden @2xl:inline">Table</span>
           </button>
         </div>
       </div>
@@ -189,7 +195,7 @@ export function AssetToolbar({
 
 function viewButtonClass(active: boolean): string {
   return [
-    'flex h-[30px] items-center gap-1.5 px-3 cap-12 font-medium transition-colors',
+    'flex h-[30px] items-center gap-1.5 px-2.5 @2xl:px-3 cap-12 font-medium transition-colors',
     active ? 'bg-surface-800 text-surface-50' : 'text-surface-300 hover:text-surface-100',
   ].join(' ');
 }
