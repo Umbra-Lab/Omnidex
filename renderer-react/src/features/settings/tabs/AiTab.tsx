@@ -150,7 +150,12 @@ export function AiTab() {
           </div>
 
           <div className="flex justify-end border-t border-surface-800/60 pt-3">
-            <Button variant="primary" size="sm" onClick={() => void save()} disabled={setSetting.isPending}>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void save()}
+              disabled={setSetting.isPending}
+            >
               {setSetting.isPending ? 'Saving…' : 'Save'}
             </Button>
           </div>

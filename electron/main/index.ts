@@ -835,12 +835,12 @@ async function runEnrichOrbitalAndQuit(): Promise<number> {
 function readAuthCodeFromStdin(redirectUrl: string): Promise<string> {
   console.log('');
   console.log('================================================================');
-  console.log('  ACTION REQUIRED — Re-authorize Omnidex against your Epic account');
+  console.log('  ACTION REQUIRED — Sign in to your Epic account');
   console.log('================================================================');
   console.log('');
   console.log('  1. Make sure you are signed into Epic Games in your browser');
   console.log(`  2. Open: ${redirectUrl}`);
-  console.log('  3. Copy the value of "authorizationCode" from the JSON page');
+  console.log('  3. Copy the "authorizationCode" value (or the whole page) it shows');
   console.log('  4. Paste it below and press Enter:');
   console.log('');
   process.stdout.write('  authorizationCode> ');

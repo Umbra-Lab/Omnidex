@@ -74,13 +74,13 @@ Rejections are consulted on every subsequent match, so re-running enrichment doe
 
 `electron/main/fab/` imports from Epic's local VaultCache. The default path resolver and a live watcher live there.
 
-Auth uses Epic's interactive authorization-code flow, which the renderer cannot run itself. On stale credentials the service throws `FabAuthRequiredError` carrying a redirect URL, and the renderer offers an "open Epic login" action.
+Auth uses Epic's authorization-code flow. Epic's launcher client has no redirect back into the app: after signing in, the browser shows a JSON page holding a one-time `authorizationCode`. With no stored login, or one that a token refresh can't revive, the service throws `FabAuthRequiredError` carrying the sign-in URL. The renderer opens a sign-in dialog (`EpicSignInDialog`) where the user pastes that page or the code, `fab.connect` exchanges it and saves the login, and the sync runs again. The CLI asks for the same code on stdin. `parseAuthorizationCode` accepts the whole page, the bare code, or a `?code=` URL.
 
 ```admonish warning title="The redirect URL cannot travel on a thrown error"
 The superjson patch bypasses tRPC's `errorFormatter`, so custom `data` on a thrown `TRPCError` never reaches the renderer. The URL must be returned in the procedure's result. See [IPC and the tRPC layer](ipc.md).
 ```
 
-Tokens are stored via `keytar` in the OS keychain, never in the database.
+Tokens are stored in `<userData>/epic_credentials.json`, never in the database. It is a plain JSON file, not the OS keychain; PRIVACY.md says so.
 
 For headless runs without stored credentials:
 

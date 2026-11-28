@@ -1,4 +1,5 @@
 import { RefreshCw, Sparkles } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -9,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useActionProgress } from '@/hooks/useActionProgress';
 import { trpc } from '@/ipc/trpc';
 import { formatCount } from '@/lib/format';
+import { EpicSignInDialog } from '../EpicSignInDialog';
 
 export function MarketplaceTab() {
   const utils = trpc.useUtils();
@@ -32,23 +34,20 @@ export function MarketplaceTab() {
 
   // FAB library enrichment — pulls the user's FAB library (Epic) and enriches
   // matching assets. Mirrors the Orbital "Enrich now" trigger; progress flows
-  // through the same `enrich` slot of `useActionProgress`. Stale Epic creds
-  // can't be re-authed from the renderer (no interactive auth-code flow), so the
-  // router returns `{ reauthRequired, redirectUrl }` instead of throwing — we
-  // surface that as an "open Epic login" toast action.
+  // through the same `enrich` slot of `useActionProgress`. With no Epic login,
+  // or a stale one, the router returns `{ reauthRequired, redirectUrl }` and
+  // we open the sign-in dialog, which saves a fresh login and syncs again.
+  const [signInUrl, setSignInUrl] = useState<string | null>(null);
   const enrichFab = trpc.fab.enrich.useMutation({
     onSuccess: (r) => {
       if (r.reauthRequired) {
-        const url = r.redirectUrl;
-        toast.error('Epic re-authorization required', {
-          description: 'Your saved Epic credentials are stale. Re-authorize, then sync again.',
-          action: url
-            ? {
-                label: 'Open Epic login',
-                onClick: () => void window.omnidex?.shell?.openExternal(url),
-              }
-            : undefined,
-        });
+        if (r.redirectUrl) {
+          setSignInUrl(r.redirectUrl);
+        } else {
+          toast.error('Epic sign-in required', {
+            description: 'Run pnpm enrich-fab once from a terminal to sign in.',
+          });
+        }
         return;
       }
       if (r.fetchError) {
@@ -234,6 +233,16 @@ export function MarketplaceTab() {
           </div>
         </div>
       </Card>
+
+      <EpicSignInDialog
+        redirectUrl={signInUrl}
+        onClose={() => setSignInUrl(null)}
+        onConnected={(displayName) => {
+          setSignInUrl(null);
+          toast.success(displayName ? `Signed in to Epic as ${displayName}` : 'Signed in to Epic');
+          enrichFab.mutate(undefined);
+        }}
+      />
     </div>
   );
 }

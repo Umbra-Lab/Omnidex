@@ -79,7 +79,8 @@ The largest surface. Browsing, filtering, faceting, and curation.
 
 | Procedure | Kind | Purpose |
 |---|---|---|
-| `enrich` | mutation | Sync the FAB library |
+| `enrich` | mutation | Sync the FAB library. Returns `reauthRequired` + `redirectUrl` when there is no usable Epic login |
+| `connect` | mutation | Exchange a pasted Epic authorization code (or the whole page Epic shows) and save the login |
 | `startWatch`, `stopWatch`, `isWatching` | mutation / query | Live VaultCache watching |
 | `defaultVaultPath` | query | Resolved default path |
 

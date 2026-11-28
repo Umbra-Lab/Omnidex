@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { enrichFab } from '../../fab/enrich';
+import { enrichFab, exchangeEpicAuthCode, parseAuthorizationCode } from '../../fab/enrich';
 import { defaultVaultPath, isWatching, start, stop } from '../../fab/watcher';
 import { publicProcedure, router } from '../init';
 
@@ -27,7 +27,11 @@ export const fabRouter = router({
       } catch (e) {
         // Duck-typed on `name` + `redirectUrl` to stay decoupled from the error
         // class (and robust across the electron-trpc boundary).
-        if (e && typeof e === 'object' && (e as { name?: string }).name === 'FabAuthRequiredError') {
+        if (
+          e &&
+          typeof e === 'object' &&
+          (e as { name?: string }).name === 'FabAuthRequiredError'
+        ) {
           return {
             libraryItems: 0,
             updated: 0,
@@ -38,6 +42,25 @@ export const fabRouter = router({
         }
         throw e;
       }
+    }),
+
+  /**
+   * Finish an Epic sign-in from the renderer: the user signed in at the
+   * `redirectUrl` that `enrich` returned and pasted what Epic showed. Accepts
+   * the whole JSON page or just the code. Saves the login on success.
+   */
+  connect: publicProcedure
+    .input(z.object({ pasted: z.string().max(10_000) }))
+    .mutation(async ({ input }) => {
+      const code = parseAuthorizationCode(input.pasted);
+      if (!code) {
+        return {
+          ok: false as const,
+          message:
+            'No authorization code found. Paste the "authorizationCode" value Epic shows after you sign in.',
+        };
+      }
+      return exchangeEpicAuthCode(code);
     }),
 
   /** Start watching the FAB vault (defaults to `defaultVaultPath()`). */
