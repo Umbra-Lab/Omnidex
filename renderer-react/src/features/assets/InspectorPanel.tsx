@@ -676,7 +676,7 @@ function LibraryHealthAside() {
       ) : null}
 
       <div className="flex flex-col gap-2">
-        <div className="flex items-baseline justify-between gap-2">
+        <div className="flex items-baseline-last justify-between gap-2">
           <span className="cap-12 text-surface-300">Matched</span>
           <span className="font-mono tabular-nums cap-12 text-surface-200">
             {formatCount(matched)} of {formatCount(s.total)} · {pct}%
@@ -691,7 +691,7 @@ function LibraryHealthAside() {
         <Section title="Ecosystems">
           <div className="flex flex-col gap-1.5">
             {topEcosystems.map(([name, count]) => (
-              <div key={name} className="flex items-baseline justify-between gap-2">
+              <div key={name} className="flex items-baseline-last justify-between gap-2">
                 <span className="min-w-0 truncate cap-12 text-surface-300">
                   {formatTaxonomyLabel(name)}
                 </span>
@@ -705,14 +705,14 @@ function LibraryHealthAside() {
       ) : null}
 
       <Section title="Storage">
-        <div className="flex items-baseline justify-between gap-2">
+        <div className="flex items-baseline-last justify-between gap-2">
           <span className="cap-12 text-surface-300">Packs on disk</span>
           <span className="font-mono tabular-nums cap-12 text-surface-200">
             {formatBytes(s.size_bytes)}
           </span>
         </div>
         {s.courses > 0 ? (
-          <div className="flex items-baseline justify-between gap-2">
+          <div className="flex items-baseline-last justify-between gap-2">
             <span className="cap-12 text-surface-300">Courses</span>
             <span className="font-mono tabular-nums cap-12 text-surface-200">
               {formatCount(s.courses)}

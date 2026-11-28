@@ -207,7 +207,7 @@ export function StorageTab() {
               {byLocation.map((row) => (
                 <div
                   key={row.key}
-                  className="grid grid-cols-[1fr_auto] items-baseline gap-4 border-b border-surface-800/60 py-1 last:border-0"
+                  className="grid grid-cols-[1fr_auto] items-baseline-last gap-4 border-b border-surface-800/60 py-1 last:border-0"
                 >
                   <span className="truncate cap-12 text-surface-200">{row.name}</span>
                   <span className="shrink-0 font-mono cap-11 tabular-nums text-surface-400">
@@ -218,7 +218,7 @@ export function StorageTab() {
                   </span>
                 </div>
               ))}
-              <div className="grid grid-cols-[1fr_auto] items-baseline gap-4 pt-1">
+              <div className="grid grid-cols-[1fr_auto] items-baseline-last gap-4 pt-1">
                 <span className="font-mono cap-10 uppercase tracking-[0.14em] text-surface-500">
                   Total
                 </span>
@@ -248,7 +248,7 @@ function StorageRow({
   return (
     <div className="flex items-center justify-between gap-4 border-b border-surface-800/60 pb-3 last:border-0 last:pb-0">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-baseline-last gap-2">
           <span className="cap-12 text-surface-200">{label}</span>
           {value ? (
             <span className="font-mono cap-11 tabular-nums text-surface-100">{value}</span>
