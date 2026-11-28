@@ -46,6 +46,8 @@ vi.mock('@/features/collections/AddToCollectionDialog', () => ({
 }));
 vi.mock('@/components/ui/toaster', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
+import { toast } from '@/components/ui/toaster';
+import { markToasted } from '@/lib/toastedErrors';
 import { useModals } from '@/stores/modals';
 import { ModalHost } from '../ModalHost';
 
@@ -106,5 +108,52 @@ describe('single-asset tagging', () => {
     expect(document.body.textContent).not.toContain('No tags yet');
     expect(saveButton()?.disabled ?? true).toBe(true);
     expect(api.setTags).not.toHaveBeenCalled();
+  });
+});
+
+describe('confirm failures', () => {
+  beforeEach(() => {
+    vi.mocked(toast.error).mockClear();
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => useModals.getState().closeConfirm());
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  async function confirmWith(error: Error) {
+    await render();
+    await act(async () =>
+      useModals.getState().openConfirm({
+        title: 'Remove?',
+        body: 'Gone.',
+        confirmLabel: 'Remove',
+        destructive: true,
+        onConfirm: async () => {
+          throw error;
+        },
+      }),
+    );
+    const button = [...document.body.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Remove',
+    );
+    await act(async () => button?.click());
+  }
+
+  it('shows the error when nothing else has', async () => {
+    await confirmWith(new Error('disk full'));
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledWith('disk full');
+  });
+
+  it('stays quiet about a mutation error the app already toasted', async () => {
+    const err = new Error('database is locked');
+    markToasted(err);
+    await confirmWith(err);
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });

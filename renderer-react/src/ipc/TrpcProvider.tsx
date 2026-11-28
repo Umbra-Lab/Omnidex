@@ -4,6 +4,7 @@ import { ipcLink } from 'electron-trpc/renderer';
 import { type ReactNode, useState } from 'react';
 import superjson from 'superjson';
 import { toast } from '@/components/ui/toaster';
+import { markToasted } from '@/lib/toastedErrors';
 import { trpc } from './trpc';
 
 function errorMessage(error: unknown): string {
@@ -33,6 +34,7 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
           onError: (error, _vars, _ctx, mutation) => {
             if (mutation.options.onError) return;
             toast.error(errorMessage(error));
+            markToasted(error);
           },
         }),
         defaultOptions: {
