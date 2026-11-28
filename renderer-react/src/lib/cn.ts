@@ -12,7 +12,7 @@ import { extendTailwindMerge } from 'tailwind-merge';
  * A `cap-*` class sets font-size and line-height, so a later one also
  * replaces an earlier `text-<size>` or `leading-*`.
  */
-const twMerge = extendTailwindMerge({
+const twMerge = extendTailwindMerge<'cap-size'>({
   extend: {
     classGroups: {
       'cap-size': [{ cap: [(value: string) => /^\d+(-prose)?$/.test(value)] }],
