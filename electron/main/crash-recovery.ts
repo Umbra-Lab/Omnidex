@@ -1,5 +1,5 @@
-import { app, type BrowserWindow, crashReporter, dialog } from 'electron';
-import { logLine } from './logger';
+import { app, type BrowserWindow, crashReporter, dialog, shell } from 'electron';
+import { getLogFilePath, logLine } from './logger';
 
 /**
  * Electron PROCESS-DEATH recovery (distinct from the JS-level
@@ -53,20 +53,25 @@ export function startCrashReporter(): void {
 export function installCrashHandlers(win: BrowserWindow): void {
   const contents = win.webContents;
 
+  const recentCrashes: number[] = [];
+
   contents.on('render-process-gone', (_event, details) => {
     const { reason, exitCode } = details;
-    logLine(
-      'error',
-      `[omnidex] render process gone — reason=${reason} exitCode=${exitCode}`,
-    );
+    logLine('error', `[omnidex] render process gone — reason=${reason} exitCode=${exitCode}`);
     // 'clean-exit' is a normal teardown (e.g. window closing); don't nag.
     if (reason === 'clean-exit') return;
     if (win.isDestroyed()) return;
 
-    const { response } = dialog.showMessageBoxSync
-      ? { response: dialog.showMessageBoxSync(win, crashDialogOptions(reason)) }
-      : { response: 1 };
-    if (response === 0) {
+    const now = Date.now();
+    recentCrashes.push(now);
+    while (recentCrashes.length > 0 && now - recentCrashes[0] > CRASH_LOOP_WINDOW_MS) {
+      recentCrashes.shift();
+    }
+    const looping = recentCrashes.length >= CRASH_LOOP_COUNT;
+
+    const response = dialog.showMessageBoxSync(win, crashDialogOptions(reason, looping));
+    const choice = crashDialogChoice(response, looping);
+    if (choice === 'reload') {
       logLine('info', '[omnidex] reloading window after render-process-gone');
       // reload() re-runs the page in a fresh renderer process.
       try {
@@ -75,6 +80,13 @@ export function installCrashHandlers(win: BrowserWindow): void {
         logLine('error', `[omnidex] reload failed, relaunching app: ${(err as Error).message}`);
         relaunchApp();
       }
+    } else if (choice === 'logs') {
+      const logFile = getLogFilePath();
+      if (logFile) shell.showItemInFolder(logFile);
+      win.close();
+    } else {
+      // "Close" used to do nothing, leaving a blank window with no renderer.
+      win.close();
     }
   });
 
@@ -118,7 +130,26 @@ export function installChildProcessHandlers(): void {
   });
 }
 
-function crashDialogOptions(reason: string) {
+/**
+ * A renderer that dies this often this fast is crashing on load (a renderer
+ * OOM on a big library does it on every start). Offering Reload again only
+ * loops, so the dialog offers the logs and closing instead.
+ */
+export const CRASH_LOOP_COUNT = 3;
+export const CRASH_LOOP_WINDOW_MS = 60_000;
+
+export function crashDialogOptions(reason: string, looping: boolean) {
+  if (looping) {
+    return {
+      type: 'error' as const,
+      title: 'Omnidex — Display keeps crashing',
+      message: 'The Omnidex window keeps crashing.',
+      detail: `It has crashed ${CRASH_LOOP_COUNT} times in a minute (${reason}), so reloading again is unlikely to help. The log may say why.`,
+      buttons: ['Show log', 'Close', 'Try again'],
+      defaultId: 0,
+      cancelId: 1,
+    };
+  }
   return {
     type: 'error' as const,
     title: 'Omnidex — Display crashed',
@@ -128,6 +159,12 @@ function crashDialogOptions(reason: string) {
     defaultId: 0,
     cancelId: 1,
   };
+}
+
+/** Map the dialog's button index to what to do. */
+export function crashDialogChoice(response: number, looping: boolean): 'reload' | 'logs' | 'close' {
+  if (looping) return response === 0 ? 'logs' : response === 2 ? 'reload' : 'close';
+  return response === 0 ? 'reload' : 'close';
 }
 
 /** Full app relaunch fallback when an in-place reload isn't possible. */
