@@ -14,7 +14,7 @@ A course asset gets one `course_files` row per file that matters:
 | `subtitle` | An `.srt` or `.vtt` sidecar |
 | `doc` | A PDF or readme shipped with the course |
 
-`chapter` and `order_index` come from the folder layout and the author's numbering. Ordering is numeric-aware, so lessons sort `1, 2, 10` rather than `1, 10, 2`.
+`chapter` and `order_index` come from the folder layout and the author's numbering. The chapter is the section folder directly under the course root, so a section's `Videos/` and `Exercises/` subfolders share one chapter (`assignChapters`). Leading folders that hold every video are treated as a wrapper and skipped, but a course with a single section keeps it as its chapter. Inside a chapter, files sit in folder order (files directly in the section first), then by the author's numbering. Ordering is numeric-aware, so lessons sort `1, 2, 10` rather than `1, 10, 2`. Existing courses regroup on their next scan.
 
 Built by `buildCourseManifest` in `electron/main/scanner/course-manifest.ts`, walking to depth 6.
 

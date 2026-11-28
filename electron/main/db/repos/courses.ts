@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3';
+import { compareDirs } from '../../scanner/course-manifest';
 import { subtitleStem, videoStem } from '../../scanner/subtitles';
 
 /**
@@ -205,6 +206,10 @@ export function listCourseFiles(db: Database, assetId: number): CourseFileRow[] 
       if ((a.chapter === null) !== (b.chapter === null)) return a.chapter === null ? -1 : 1;
       const ch = byNumber(a.chapter ?? '', b.chapter ?? '');
       if (ch !== 0) return ch;
+      // A chapter is the section folder and can hold subfolders (Videos/,
+      // Exercises/); keep each together, files directly in the chapter first.
+      const dir = compareDirs(a.rel_path, b.rel_path);
+      if (dir !== 0) return dir;
       if (a.order_index !== b.order_index) return a.order_index - b.order_index;
       return byNumber(a.rel_path, b.rel_path);
     });

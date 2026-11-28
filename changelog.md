@@ -110,6 +110,13 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Removing a scan location now says exactly what goes with it: how many assets
+  leave the library, and how many notes, tagged assets, favorites and
+  collection entries are deleted. The old dialog said the indexed assets would
+  stay, which was false. (#21)
+- Course chapters follow the sections under the course folder. A course whose
+  sections each keep lessons in a `Videos/` subfolder used to show one merged
+  "Videos" chapter. Existing courses regroup on their next scan. (#21)
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers

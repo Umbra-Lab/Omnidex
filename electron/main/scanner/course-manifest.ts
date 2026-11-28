@@ -264,10 +264,6 @@ export async function buildCourseManifest(
       if (!kind) continue;
 
       const rel = relative(courseRoot, abs);
-      const parts = rel.split(sep);
-      // The immediate parent under the course root is the chapter. A file at
-      // the root has none.
-      const chapter = parts.length > 1 ? parts[parts.length - 2] : null;
 
       let sizeBytes = 0;
       try {
@@ -285,7 +281,8 @@ export async function buildCourseManifest(
         relPath,
         absPath: abs,
         kind,
-        chapter,
+        // Filled in by `assignChapters` once every file is known.
+        chapter: null,
         orderIndex: parseOrderIndex(basename(entry.name)),
         sizeBytes,
         durationSeconds: reuse
@@ -325,15 +322,79 @@ export async function buildCourseManifest(
   out.length = 0;
   out.push(...deduped);
 
-  // Chapter order first, then the author's numbering inside it. Both fall back
-  // to a locale-aware compare so unnumbered files stay stable.
+  const chaptered = assignChapters(out);
+  out.length = 0;
+  out.push(...chaptered);
+
+  // Chapter order first, then the subfolder inside the chapter (files directly
+  // in the chapter come first), then the author's numbering. All fall back to a
+  // locale-aware compare so unnumbered files stay stable.
   out.sort((a, b) => {
     const ch = (a.chapter ?? '').localeCompare(b.chapter ?? '', undefined, { numeric: true });
     if (ch !== 0) return ch;
+    const dir = compareDirs(a.relPath, b.relPath);
+    if (dir !== 0) return dir;
     if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
     return a.relPath.localeCompare(b.relPath, undefined, { numeric: true });
   });
   return out;
+}
+
+/**
+ * Folder part of a forward-slash relative path; `''` at the course root.
+ */
+function dirOf(relPath: string): string {
+  const cut = relPath.lastIndexOf('/');
+  return cut < 0 ? '' : relPath.slice(0, cut);
+}
+
+/**
+ * Order two files of one chapter by the folder they sit in. Files directly in
+ * the chapter folder sort before its subfolders; subfolders sort numerically.
+ */
+export function compareDirs(a: string, b: string): number {
+  const da = dirOf(a);
+  const db = dirOf(b);
+  if (da === db) return 0;
+  if (da.startsWith(`${db}/`)) return 1;
+  if (db.startsWith(`${da}/`)) return -1;
+  return da.localeCompare(db, undefined, { numeric: true });
+}
+
+/**
+ * Set each file's chapter to the section folder it belongs to.
+ *
+ * A course is one root over many sections, and a section often keeps its
+ * lessons in subfolders (`01 - Intro/Videos`, `01 - Intro/Exercises`). The
+ * chapter is therefore the first folder under the course root, not the file's
+ * own parent: keying on the parent merged every section's `Videos` folder into
+ * one chapter.
+ *
+ * Leading folders that every video shares are a wrapper, not a section
+ * (`Course/Niagara Masterclass/01 - Intro/...`), so they are skipped, but never
+ * so far that a video would be left with no folder: a course with one section
+ * keeps that section as its chapter. Files outside the wrapper, such as a cover
+ * at the root, use their own first folder, or none.
+ */
+export function assignChapters(files: readonly CourseFile[]): CourseFile[] {
+  const videoDirs = files
+    .filter((f) => f.kind === 'video')
+    .map((f) => dirOf(f.relPath))
+    .map((d) => (d === '' ? [] : d.split('/')));
+  let wrapper = 0;
+  if (videoDirs.length > 0) {
+    const first = videoDirs[0];
+    const limit = Math.min(...videoDirs.map((d) => d.length - 1));
+    while (wrapper < limit && videoDirs.every((d) => d[wrapper] === first[wrapper])) wrapper += 1;
+  }
+  const prefix = videoDirs[0]?.slice(0, wrapper) ?? [];
+  return files.map((f) => {
+    const dir = dirOf(f.relPath);
+    const segs = dir === '' ? [] : dir.split('/');
+    const inWrapper = prefix.every((p, i) => segs[i] === p);
+    const rest = inWrapper ? segs.slice(prefix.length) : segs;
+    return { ...f, chapter: rest[0] ?? null };
+  });
 }
 
 /**
