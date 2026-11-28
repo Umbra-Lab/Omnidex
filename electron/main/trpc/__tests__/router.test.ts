@@ -547,6 +547,19 @@ describe('scanLocations router', () => {
     await caller.scanLocations.delete(id);
     expect(await caller.scanLocations.get(id)).toBeNull();
   });
+
+  it('delete stops a scan of that location before removing it', async () => {
+    const id = await caller.scanLocations.create(fullLocation);
+    scannerSvc.cancelScan.mockClear();
+    scannerSvc.cancelScan.mockImplementationOnce((locationId: number) => {
+      // The scan is cancelled while the location still exists.
+      expect(db.prepare('SELECT id FROM scan_locations WHERE id = ?').get(locationId)).toBeTruthy();
+      return { locationId, cancelled: true };
+    });
+    await caller.scanLocations.delete(id);
+    expect(scannerSvc.cancelScan).toHaveBeenCalledWith(id);
+    expect(await caller.scanLocations.get(id)).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
