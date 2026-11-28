@@ -13,6 +13,8 @@ import {
   decodeAssetPath,
   encodeAssetUrl,
   isPathAllowed,
+  isUncPath,
+  isUncPathPermitted,
   parseRangeHeader,
 } from '../asset-protocol';
 
@@ -36,7 +38,7 @@ describe('omnidex-asset path round-trip', () => {
   it('preserves a macOS absolute path through encode → decode (darwin)', () => {
     const original = '/Users/brandon/Library/Application Support/omnidex/thumbnails/thumb.png';
     const url = encodeAssetUrl(original);
-    expect(url.startsWith('omnidex-asset:///')).toBe(true);
+    expect(url.startsWith('omnidex-asset://local/')).toBe(true);
     expect(decodeAssetPath(url, 'darwin')).toBe(original);
   });
 
@@ -85,11 +87,67 @@ describe('omnidex-asset path round-trip', () => {
     expect(decoded).toBe('/Users/brandon/x.png');
   });
 
-  it('decodes the empty-authority double-slash form correctly (darwin)', () => {
-    // The standard-scheme parser yields `omnidex-asset:////Users/...` for an
-    // absolute posix path — two leading slashes survive into the raw path and
-    // must collapse to exactly one.
-    expect(encodeAssetUrl('/Users/brandon/x.png')).toBe('omnidex-asset:////Users/brandon/x.png');
+  it('names a fixed authority so no path segment can become the host', () => {
+    expect(encodeAssetUrl('/Users/brandon/x.png')).toBe(
+      'omnidex-asset://local/Users/brandon/x.png',
+    );
+    expect(encodeAssetUrl('C:\\Users\\x.png')).toBe('omnidex-asset://local/C:/Users/x.png');
+  });
+
+  it('decodes the legacy empty-authority double-slash form (darwin)', () => {
+    // The old encoding produced `omnidex-asset:////Users/...`; under Node's
+    // parser two leading slashes survive into the pathname and must collapse.
+    expect(decodeAssetPath('omnidex-asset:////Users/brandon/x.png', 'darwin')).toBe(
+      '/Users/brandon/x.png',
+    );
+  });
+
+  it('keeps the case of the first path segment (linux is case-sensitive)', () => {
+    const original = '/Home/Brandon/Packs/x.png';
+    const url = encodeAssetUrl(original);
+    // What Chromium delivers is unchanged: the host is already canonical.
+    expect(new URL(url).hostname).toBe('local');
+    expect(decodeAssetPath(url, 'linux')).toBe(original);
+  });
+
+  it('round-trips a Windows UNC path (win32)', () => {
+    const original = '\\\\nas\\Game Assets\\Pack\\thumb.png';
+    expect(decodeAssetPath(encodeAssetUrl(original), 'win32')).toBe(original);
+  });
+
+  it('round-trips a first segment that is not a valid hostname (space, unicode)', () => {
+    const original = '/Média Library/Pack 1/thumb.png';
+    expect(decodeAssetPath(encodeAssetUrl(original), 'linux')).toBe(original);
+  });
+});
+
+/**
+ * What Chromium delivered for the OLD encoding on macOS and Linux.
+ *
+ * Chromium skips every slash after a standard scheme's `://` and takes the
+ * first path segment as the host, case-folded. `omnidex-asset:////home/u/x.png`
+ * reached the handler as host `home`, pathname `/u/x.png`, and the decoder
+ * returned the RELATIVE `home/u/x.png`, so every local thumbnail and course
+ * video failed the allowlist with a 403 (seen live on Linux:
+ * `outside allowlist: home/claude/lib/assets/.../reference.png`).
+ */
+describe('omnidex-asset decode — Chromium-canonicalized posix form (legacy)', () => {
+  it('puts the promoted host back in front of the path (linux)', () => {
+    expect(decodeAssetPath('omnidex-asset://home/u/Packs/x.png', 'linux')).toBe(
+      '/home/u/Packs/x.png',
+    );
+  });
+
+  it('returns an ABSOLUTE path for the macOS form (darwin)', () => {
+    const decoded = decodeAssetPath('omnidex-asset://users/brandon/x.png', 'darwin');
+    expect(decoded.startsWith('/')).toBe(true);
+    expect(decoded).toBe('/users/brandon/x.png');
+  });
+
+  it('decodes the current fixed-authority form as delivered (darwin)', () => {
+    expect(
+      decodeAssetPath('omnidex-asset://local/Users/brandon/M%C3%A9ga%20Pack/x.png', 'darwin'),
+    ).toBe('/Users/brandon/Méga Pack/x.png');
   });
 });
 
@@ -187,6 +245,51 @@ describe('isPathAllowed — allowlist containment (pure, posix-pinned)', () => {
   it('rejects the empty path and empty roots', () => {
     expect(isPathAllowed('', roots, '/')).toBe(false);
     expect(isPathAllowed('/data/userData/x.png', [], '/')).toBe(false);
+  });
+});
+
+/**
+ * UNC paths must be judged before the filesystem is touched: on Windows,
+ * realpath on `\\\\attacker.example\\x.png` connects to that host and offers
+ * the user's NTLM hash. A thumbnail URL from Orbital can carry such a path
+ * without any script injection, so this is reachable.
+ */
+describe('UNC paths (win32)', () => {
+  it('decodes a UNC URL to a UNC path', () => {
+    expect(decodeAssetPath('omnidex-asset://local//nas/share/x.png', 'win32')).toBe(
+      '\\\\nas\\share\\x.png',
+    );
+    // Legacy form: the server became the host.
+    expect(decodeAssetPath('omnidex-asset://nas/share/x.png', 'win32')).toBe(
+      '\\\\nas\\share\\x.png',
+    );
+  });
+
+  it('recognises UNC paths in either slash style, and nothing else', () => {
+    expect(isUncPath('\\\\nas\\share')).toBe(true);
+    expect(isUncPath('//nas/share')).toBe(true);
+    expect(isUncPath('C:\\Users')).toBe(false);
+    expect(isUncPath('/home/u')).toBe(false);
+    expect(isUncPath('\\\\')).toBe(false);
+    expect(isUncPath('\\\\\\nas\\share')).toBe(true);
+    expect(isUncPath('///nas/share')).toBe(true);
+  });
+
+  it('refuses a UNC server that is not an allowed root, with no filesystem call', () => {
+    const roots = ['C:\\Users\\u\\AppData\\Roaming\\omnidex', 'D:\\Packs'];
+    expect(isUncPathPermitted('\\\\attacker.example\\share\\x.png', roots)).toBe(false);
+  });
+
+  it('allows a file on a network share the user added as a scan location', () => {
+    const roots = ['C:\\Users\\u\\AppData\\Roaming\\omnidex', '\\\\NAS\\Assets'];
+    expect(isUncPathPermitted('\\\\nas\\assets\\Pack\\thumb.png', roots)).toBe(true);
+  });
+
+  it('does not let .. climb out of an allowed share, or a sibling share prefix match', () => {
+    const roots = ['\\\\nas\\Assets\\Packs'];
+    expect(isUncPathPermitted('\\\\nas\\Assets\\Packs\\..\\Private\\x.png', roots)).toBe(false);
+    expect(isUncPathPermitted('\\\\nas\\Assets\\Packs-secret\\x.png', roots)).toBe(false);
+    expect(isUncPathPermitted('\\\\nas\\Other\\Packs\\x.png', roots)).toBe(false);
   });
 });
 
@@ -303,11 +406,18 @@ describe('parseRangeHeader', () => {
 
 describe('preload fileUrl parity', () => {
   it('uses the same encoding expression as encodeAssetUrl', () => {
-    const expr = /return `omnidex-asset:\/\/\/\$\{[^`]*\}`;/;
-    const main = readFileSync(join(__dirname, '..', 'asset-protocol.ts'), 'utf8').match(expr)?.[0];
-    const preload = readFileSync(join(__dirname, '..', '..', 'preload', 'index.ts'), 'utf8').match(
-      expr,
-    )?.[0];
+    // The two lines that build the URL, comments dropped (each copy points at the other).
+    const expr =
+      /const rooted = [^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*return `omnidex-asset:\/\/local\$\{[^`]*\}`;/;
+    const code = (file: string) =>
+      readFileSync(file, 'utf8')
+        .match(expr)?.[0]
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => !line.startsWith('//'))
+        .join('\n');
+    const main = code(join(__dirname, '..', 'asset-protocol.ts'));
+    const preload = code(join(__dirname, '..', '..', 'preload', 'index.ts'));
     expect(main).toBeTruthy();
     expect(preload).toBe(main);
   });

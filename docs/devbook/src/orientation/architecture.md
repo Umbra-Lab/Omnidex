@@ -64,7 +64,7 @@ When adding renderer-facing data access, extend the tRPC router. Do not add `ipc
 
 ## Serving local media
 
-The renderer cannot read a file path. `omnidex-asset://<encoded-absolute-path>` is a privileged scheme registered in `electron/main/index.ts` that streams local files — thumbnails, video, audio, documents — to the renderer.
+The renderer cannot read a file path. `omnidex-asset://local/<encoded-absolute-path>` is a privileged scheme registered in `electron/main/index.ts` that streams local files — thumbnails, video, audio, documents — to the renderer.
 
 The handler supports HTTP range requests and answers with `206 Partial Content` plus `Content-Range`, and advertises `Accept-Ranges: bytes` on every response. This is not an optimization. Chromium's media pipeline will not let you seek in a video served without range support, and playback position cannot be restored on resume.
 

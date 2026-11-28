@@ -5,7 +5,13 @@ import { extractThumbnail } from '@omnidex/uasset';
 import { app, BrowserWindow, dialog, net, protocol, session, shell } from 'electron';
 import { createIPCHandler } from 'electron-trpc/main';
 import { installAppMenu } from './app-menu';
-import { decodeAssetPath, isPathAllowed, parseRangeHeader } from './asset-protocol';
+import {
+  decodeAssetPath,
+  isPathAllowed,
+  isUncPath,
+  isUncPathPermitted,
+  parseRangeHeader,
+} from './asset-protocol';
 import {
   installChildProcessHandlers,
   installCrashHandlers,
@@ -129,7 +135,7 @@ process.on('unhandledRejection', (reason) => {
 // Security: omnidex-asset:// allowlist
 // ---------------------------------------------------------------------------
 // The omnidex-asset:// handler is an arbitrary-file-read primitive: a renderer
-// injection could otherwise request `omnidex-asset:///etc/passwd` or a path to
+// injection could otherwise request `omnidex-asset://local/etc/passwd` or a path to
 // `~/.ssh/id_rsa` and the handler would happily stream the bytes back. We
 // contain it to an ALLOWLIST of roots:
 //   - app.getPath('userData')  (covers the thumbnails dir we cache into)
@@ -191,6 +197,16 @@ function getAllowedRoots(forceRefresh = false): string[] {
  * Never throws — callers turn `null` into a 403.
  */
 function resolveContainedAssetPath(decodedPath: string): string | null {
+  // A UNC path is judged on its text first: realpath on `\\server\x` would
+  // already connect to that server and hand it the user's NTLM credentials.
+  if (process.platform === 'win32' && isUncPath(decodedPath)) {
+    if (
+      !isUncPathPermitted(decodedPath, getAllowedRoots()) &&
+      !isUncPathPermitted(decodedPath, getAllowedRoots(true))
+    ) {
+      return null;
+    }
+  }
   let real: string;
   try {
     // realpathSync collapses `..` AND follows symlinks, so a symlink inside an
@@ -419,7 +435,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 app.whenReady().then(() => {
-  // The renderer calls `omnidex-asset://<encoded-absolute-path>` — decode
+  // The renderer calls `omnidex-asset://local/<encoded-absolute-path>` — decode
   // and stream from disk via `net.fetch`. Replaces Tauri's `convertFileSrc`
   // + its `asset:` protocol handler.
   protocol.handle('omnidex-asset', async (request) => {

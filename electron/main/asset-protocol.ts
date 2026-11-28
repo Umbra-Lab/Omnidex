@@ -1,33 +1,35 @@
-import { sep } from 'node:path';
+import { sep, win32 } from 'node:path';
 
 /**
  * Pure encode/decode logic for the custom `omnidex-asset://` scheme, factored
  * out of `index.ts` so it's unit-testable without booting Electron.
  *
- * The renderer (electron/preload/index.ts `fileUrl`) encodes an absolute path
- * by replacing backslashes with forward slashes and prefixing
- * `omnidex-asset:///` + `encodeURI(...)`. Because the scheme is registered as
- * `standard: true`, the URL parser treats it as having an authority: the bytes
- * after `://` up to the next `/` are the hostname. A macOS path like
- * `/Users/brandon/...` therefore encodes to FOUR slashes
- * (`omnidex-asset:////Users/...`) and parses to an empty hostname plus a
- * pathname that STILL carries a leading `/` (so `raw` begins `//Users/...`).
- * A Windows path `C:\...` encodes to THREE slashes (`omnidex-asset:///C:/...`)
- * and `raw` begins `/C:/...`.
+ * The scheme is registered as `standard: true`, so Chromium parses everything
+ * between `://` and the next `/` as the AUTHORITY (hostname), and it skips any
+ * run of slashes after the scheme to find it. Earlier encodings put the path
+ * straight after `omnidex-asset:///`, so the first path segment became the
+ * hostname once Chromium canonicalized the request:
  *
- * The original decoder did `raw.replace(/^\/+/, '')`, stripping EVERY leading
- * slash. On Windows that correctly removed the single `/` before the `/C:`
- * drive letter, but on macOS it ate the absolute-path root too, turning
- * `/Users/brandon/...` into the relative `Users/brandon/...` — resolved against
- * the process cwd, so every local thumbnail/audio/doc preview 404'd. Only
- * remote Orbital CDN images (which take the `http` short-circuit in `fileUrl`)
- * rendered.
+ *   - Windows `C:\Users\x`      -> host `c`, pathname `/Users/x`
+ *   - macOS   `/Users/x`         -> host `users`, pathname `/x`
+ *   - Linux   `/home/x`          -> host `home`, pathname `/x`
+ *   - UNC     `\\nas\share\x`    -> host `nas`, pathname `/share/x`
  *
- * `decodeAssetPath` is the exact inverse of the preload encode: on win32 it
- * strips only the single leading slash sitting in front of a `/X:` drive
- * letter; on every other platform it preserves the leading `/` so the absolute
- * root survives.
+ * Hosts are case-folded and IDNA-normalized, and a first segment with a space
+ * is not a valid host at all, so that form lost information. Worse, the posix
+ * decoder concatenated `host + pathname` into the RELATIVE `home/x`, which
+ * failed the allowlist: every local thumbnail and course video 403'd on macOS
+ * and Linux. Node's WHATWG parser does NOT treat `omnidex-asset` as special and
+ * keeps the empty authority, which is why round-trip tests through `new URL`
+ * never saw it.
+ *
+ * The encoding now names a fixed authority, `omnidex-asset://local/<path>`, so
+ * the whole path, with its case, lives in `pathname` under every parser. The
+ * decoder still accepts the older host-carrying forms.
  */
+
+/** The fixed authority every encoded URL carries. */
+export const ASSET_URL_HOST = 'local';
 
 /**
  * Encode an absolute filesystem path into an `omnidex-asset://` URL. Mirrors
@@ -40,9 +42,10 @@ export function encodeAssetUrl(absolutePath: string): string {
     return absolutePath;
   }
   const normalized = absolutePath.replace(/\\/g, '/');
+  const rooted = normalized.startsWith('/') ? normalized : `/${normalized}`;
   // Keep in sync with the copy in electron/preload/index.ts fileUrl; a source-parity test in asset-protocol.test.ts enforces this.
   // encodeURI leaves # and ? alone; they would start a fragment/query and truncate the path.
-  return `omnidex-asset:///${encodeURI(normalized).replace(/#/g, '%23').replace(/\?/g, '%3F')}`;
+  return `omnidex-asset://local${encodeURI(rooted).replace(/#/g, '%23').replace(/\?/g, '%3F')}`;
 }
 
 /**
@@ -61,47 +64,68 @@ export function decodeAssetPath(
   platform: NodeJS.Platform = process.platform,
 ): string {
   const url = new URL(assetUrl);
+  const host = url.hostname;
+  const pathname = decodeURIComponent(url.pathname);
 
-  if (platform === 'win32') {
-    // Chromium canonicalizes the registered standard scheme BEFORE the protocol
-    // handler sees `request.url`, collapsing `omnidex-asset:///C:/Users/x` down
-    // to a two-slash form whose authority is the drive letter. So the real
-    // request arrives as hostname `c` (hosts are case-folded, and the `:` is
-    // consumed as an empty port and dropped), pathname `/Users/x`.
-    //
-    // Concatenating hostname + pathname then yielded `c/Users/x` — no colon, no
-    // leading slash — so the drive-letter strip below never matched, the path
-    // stayed relative, and realpath/allowlist rejected every thumbnail with
-    // "outside allowlist: c\Users\...".
-    //
-    // This survived the unit tests because `omnidex-asset` is NOT a special
-    // scheme to Node's WHATWG parser: `new URL` leaves the triple slash alone
-    // and reports an empty hostname, so an encode→decode round-trip through
-    // `new URL` can never reproduce what Chromium actually delivers. Hence the
-    // hand-written two-slash cases in the tests.
-    //
-    // A single-letter authority is only ever a drive letter on win32, so
-    // restore its colon. Uppercased for a canonical result; NTFS does not care.
-    if (/^[A-Za-z]$/.test(url.hostname)) {
-      const rest = decodeURIComponent(url.pathname);
-      return `${url.hostname.toUpperCase()}:${rest}`.replace(/\//g, '\\');
-    }
-    // Empty-authority form (what Node's parser produces, and any caller that
-    // hands us a URL directly): `/C:/Users/...` -> `C:/Users/...`, then
-    // forward- to back-slashes for a native Windows path.
-    const raw = decodeURIComponent(url.hostname + url.pathname);
-    return raw.replace(/^\/(?=[A-Za-z]:\/)/, '').replace(/\//g, '\\');
+  // Current form: fixed authority, the full absolute path in `pathname`.
+  // Legacy forms: an empty authority (Node's parser, direct callers) also
+  // leaves the full path in `pathname`, possibly with a doubled leading slash.
+  // Any other host is a first path segment that Chromium promoted to the
+  // authority (see the file comment); put it back in front of the pathname.
+  let raw: string;
+  if (host === ASSET_URL_HOST) {
+    raw = pathname;
+  } else if (host === '') {
+    raw = pathname.replace(/^\/{2,}(?=[A-Za-z]:\/)/, '/');
+  } else if (platform === 'win32' && /^[A-Za-z]$/.test(host)) {
+    // `omnidex-asset://c:/Users/x`: the drive letter became the host and its
+    // colon was consumed as an empty port. Uppercase for a canonical result.
+    raw = `/${host.toUpperCase()}:${pathname}`;
+  } else if (platform === 'win32') {
+    // A UNC server Chromium promoted to the host: `\\\\nas\\share` was encoded
+    // `omnidex-asset:////nas/share` and arrives as host `nas`.
+    raw = `//${decodeURIComponent(host)}${pathname}`;
+  } else {
+    raw = `/${decodeURIComponent(host)}${pathname}`;
   }
 
-  // The standard-scheme parser puts the first path segment in `hostname` only
-  // when there's a single `//`; with our triple/quadruple slash the hostname is
-  // empty and the full path lands in `pathname` (still leading-slash-prefixed).
-  // Concatenate to be robust either way.
-  const raw = decodeURIComponent(url.hostname + url.pathname);
-  // POSIX: collapse the doubled leading slash from the empty-authority parse
-  // back to a single one, preserving the absolute root. `//Users/...` ->
-  // `/Users/...`; a lone `/Users/...` is left untouched.
+  if (platform === 'win32') {
+    // `/C:/Users/x` -> `C:\Users\x`. A UNC path keeps its two leading slashes
+    // (`//nas/share/x` -> `\\nas\share\x`).
+    return raw.replace(/^\/(?=[A-Za-z]:\/)/, '').replace(/\//g, '\\');
+  }
+  // POSIX: collapse a doubled leading slash (empty-authority legacy form) back
+  // to the single absolute root.
   return raw.replace(/^\/{2,}/, '/');
+}
+
+/**
+ * True for a Windows UNC path (`\\\\server\\share\\...`, or `//server/...`).
+ *
+ * Touching one at all (realpath, stat, open) makes Windows connect to that
+ * server and offer the user's NTLM credentials. The handler must therefore
+ * decide whether a UNC path is allowed from its text alone, before any
+ * filesystem call; see `isUncPathPermitted`.
+ */
+export function isUncPath(p: string): boolean {
+  // Two or more leading separators. Three or more is not a UNC path to Node,
+  // but treating it as one keeps the check purely lexical instead of relying
+  // on the JS realpathSync resolving it to a drive-relative path first.
+  return /^[\\/]{2,}[^\\/]/.test(p);
+}
+
+/**
+ * Lexical allowlist check for a UNC path, done before the filesystem is
+ * touched. The path is normalized (collapsing `.`/`..`) and must sit under an
+ * allowed root that is itself a UNC path, i.e. a scan location on a network
+ * share the user added. Case-insensitive, as Windows is. The realpath check
+ * still runs afterwards; this only keeps a request for
+ * `\\\\attacker.example\\x.png` from ever reaching the network.
+ */
+export function isUncPathPermitted(candidate: string, allowedRoots: readonly string[]): boolean {
+  const normalized = win32.normalize(candidate);
+  const uncRoots = allowedRoots.filter(isUncPath).map((r) => win32.normalize(r));
+  return isPathAllowed(normalized, uncRoots, '\\', true);
 }
 
 /**
