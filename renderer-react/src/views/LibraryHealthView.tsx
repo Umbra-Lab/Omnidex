@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { trpc } from '@/ipc/trpc';
 import { cn } from '@/lib/cn';
 import { formatCount } from '@/lib/format';
+import { openFolder } from '@/lib/openFolder';
 
 type DiagnosticKind =
   | 'archive-only'
@@ -73,7 +74,7 @@ const KIND_ORDER: readonly DiagnosticKind[] = [
 ];
 
 function openLocation(path: string) {
-  void window.omnidex?.shell?.openFileLocation(path);
+  void openFolder(path);
 }
 
 /**

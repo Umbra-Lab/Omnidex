@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { openFolder } from '@/lib/openFolder';
 import type { SerializedMenuItem } from '@/types/omnidex';
 
 export interface ContextMenuItem extends SerializedMenuItem {
@@ -63,7 +64,7 @@ export function buildAssetMenuItems(actions: AssetMenuActions): ContextMenuItem[
       label: 'Reveal in Finder',
       enabled: Boolean(filePath),
       onSelect: () => {
-        if (filePath) void window.omnidex?.shell?.openFileLocation(filePath);
+        if (filePath) void openFolder(filePath);
       },
     },
     { id: 'sep-1', type: 'separator' },

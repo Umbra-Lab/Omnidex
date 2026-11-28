@@ -12,6 +12,7 @@ import { useAssetSelection } from '@/features/assets/useAssetSelection';
 import { type ContextMenuItem, useNativeContextMenu } from '@/hooks/useNativeContextMenu';
 import { trpc } from '@/ipc/trpc';
 import { formatCount } from '@/lib/format';
+import { openFolder } from '@/lib/openFolder';
 import { useModals } from '@/stores/modals';
 
 export function CollectionDetail() {
@@ -79,7 +80,7 @@ export function CollectionDetail() {
         label: 'Reveal in Finder',
         enabled: Boolean(asset.file_path),
         onSelect: () => {
-          if (asset.file_path) void window.omnidex?.shell?.openFileLocation(asset.file_path);
+          if (asset.file_path) void openFolder(asset.file_path);
         },
       },
       { id: 'sep-1', type: 'separator' },
