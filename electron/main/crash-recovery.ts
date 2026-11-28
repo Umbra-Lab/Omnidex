@@ -53,8 +53,6 @@ export function startCrashReporter(): void {
 export function installCrashHandlers(win: BrowserWindow): void {
   const contents = win.webContents;
 
-  const recentCrashes: number[] = [];
-
   contents.on('render-process-gone', (_event, details) => {
     const { reason, exitCode } = details;
     logLine('error', `[omnidex] render process gone — reason=${reason} exitCode=${exitCode}`);
@@ -70,6 +68,8 @@ export function installCrashHandlers(win: BrowserWindow): void {
     const looping = recentCrashes.length >= CRASH_LOOP_COUNT;
 
     const response = dialog.showMessageBoxSync(win, crashDialogOptions(reason, looping));
+    // The next crash is measured from here, not from before the dialog.
+    recentCrashes[recentCrashes.length - 1] = Date.now();
     const choice = crashDialogChoice(response, looping);
     if (choice === 'reload') {
       logLine('info', '[omnidex] reloading window after render-process-gone');
@@ -81,9 +81,11 @@ export function installCrashHandlers(win: BrowserWindow): void {
         relaunchApp();
       }
     } else if (choice === 'logs') {
+      // Leave the window open: closing the last window quits the app on
+      // Windows/Linux, which can race the file manager opening.
       const logFile = getLogFilePath();
       if (logFile) shell.showItemInFolder(logFile);
-      win.close();
+      else void shell.openPath(app.getPath('logs'));
     } else {
       // "Close" used to do nothing, leaving a blank window with no renderer.
       win.close();
@@ -129,6 +131,13 @@ export function installChildProcessHandlers(): void {
     );
   });
 }
+
+/**
+ * Crash times across every window and reload, so closing and reopening the
+ * window (macOS) does not reset the count. Taken after the dialog closes too,
+ * so time spent reading the dialog is not counted against the renderer.
+ */
+const recentCrashes: number[] = [];
 
 /**
  * A renderer that dies this often this fast is crashing on load (a renderer
