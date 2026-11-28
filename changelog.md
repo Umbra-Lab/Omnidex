@@ -110,6 +110,11 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Library fixes: thumbnails and files under folders containing `#` or `?` now
+  load; name sorting ignores case and pages no longer repeat or skip tied rows;
+  sidebar counts no longer include packs missing from disk; `_` and `%` in
+  search and tag filters match literally; clearing the thumbnail cache no
+  longer wipes course cover paths (overnight).
 - Courses keep their state across rescans: Resume returns to the lesson you
   last played instead of an arbitrary one, a course cover found by the scan is
   no longer replaced by a stray image from the background thumbnail job, and a
