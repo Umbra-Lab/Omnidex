@@ -74,8 +74,11 @@ function AddToCollectionBody({ assetIds, onDone }: AddToCollectionBodyProps) {
     onDone();
   };
 
-  const addAssets = trpc.collections.addAssets.useMutation();
-  const create = trpc.collections.create.useMutation();
+  // handleAdd reports failures itself, naming the step that failed. An
+  // onError here keeps the app-wide mutation toast from adding a second one.
+  const quiet = { onError: () => {} };
+  const addAssets = trpc.collections.addAssets.useMutation(quiet);
+  const create = trpc.collections.create.useMutation(quiet);
 
   const pending = addAssets.isPending || create.isPending;
   // `pending` only updates on the next render, so a second Enter in the
