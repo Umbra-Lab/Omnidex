@@ -55,23 +55,42 @@ export async function enrichTags(
   const limit = options.limit && options.limit > 0 ? options.limit : Number.MAX_SAFE_INTEGER;
 
   // Read once: a pack the model skips stays NULL, and re-querying would hand it back
-  // forever.
-  const packs = aiTagsRepo.untaggedPacks(db, limit);
+  // forever. Copies of one pack (same title and size in several folders) are asked about
+  // once, and the answer is stored on every copy.
+  const all = aiTagsRepo.untaggedPacks(db, limit);
+  const copiesOf = new Map<number, number[]>();
+  const firstOf = new Map<string, number>();
+  const packs = all.filter((p) => {
+    const key = `${(p.orbital_title ?? p.name).trim().toLowerCase()}\u0000${p.file_size}`;
+    const first = firstOf.get(key);
+    if (first === undefined) {
+      firstOf.set(key, p.id);
+      copiesOf.set(p.id, [p.id]);
+      return true;
+    }
+    copiesOf.get(first)?.push(p.id);
+    return false;
+  });
+  const copies = (id: number) => copiesOf.get(id) ?? [id];
   const result: EnrichTagsResult = {
-    total: packs.length,
+    total: all.length,
     tagged: 0,
     empty: 0,
     skipped: 0,
     failedCalls: 0,
     stoppedEarly: null,
   };
-  log(`${packs.length} pack(s) to tag with ${model}, ${batchSize} per call`);
+  log(
+    `${all.length} pack(s) to tag (${packs.length} after folding copies) with ${model}, ${batchSize} per call`,
+  );
 
   let failuresInARow = 0;
   for (let i = 0; i < packs.length; i += batchSize) {
+    const countFrom = (from: number, to = packs.length) =>
+      packs.slice(from, to).reduce((n, p) => n + copies(p.id).length, 0);
     if (options.signal?.aborted) {
       result.stoppedEarly = 'Cancelled.';
-      result.skipped += packs.length - i;
+      result.skipped += countFrom(i);
       break;
     }
     const batch = packs.slice(i, i + batchSize);
@@ -81,13 +100,13 @@ export async function enrichTags(
       failuresInARow = 0;
     } catch (e) {
       result.failedCalls += 1;
-      result.skipped += batch.length;
+      result.skipped += countFrom(i, i + batch.length);
       failuresInARow += 1;
       const reason = (e as Error).message;
       log(`call failed (${i + 1}-${i + batch.length}): ${reason}`);
       if (failuresInARow >= MAX_FAILURES_IN_A_ROW || options.signal?.aborted) {
         result.stoppedEarly = reason;
-        result.skipped += packs.length - (i + batch.length);
+        result.skipped += countFrom(i + batch.length);
         break;
       }
       continue;
@@ -98,13 +117,14 @@ export async function enrichTags(
     try {
       for (const pack of batch) {
         const t = tags.get(pack.id);
+        const ids = copies(pack.id);
         if (!t) {
-          result.skipped += 1;
+          result.skipped += ids.length;
           continue;
         }
-        aiTagsRepo.setAiTags(db, pack.id, t);
-        if (t.length > 0) result.tagged += 1;
-        else result.empty += 1;
+        for (const id of ids) aiTagsRepo.setAiTags(db, id, t);
+        if (t.length > 0) result.tagged += ids.length;
+        else result.empty += ids.length;
       }
       db.exec('COMMIT');
     } catch (e) {
@@ -112,7 +132,7 @@ export async function enrichTags(
       throw e;
     }
     log(
-      `${Math.min(i + batch.length, packs.length)}/${packs.length} — ${result.tagged} tagged, ${result.skipped} skipped`,
+      `${countFrom(0, i + batch.length)}/${all.length} — ${result.tagged} tagged, ${result.skipped} skipped`,
     );
   }
   return result;

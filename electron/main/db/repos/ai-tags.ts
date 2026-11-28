@@ -12,6 +12,8 @@ import type { Database } from 'better-sqlite3';
 export interface TaggablePack {
   id: number;
   name: string;
+  file_path: string | null;
+  file_size: number;
   asset_type: string;
   display_title: string | null;
   orbital_title: string | null;
@@ -30,7 +32,7 @@ export interface TaggablePack {
 export function untaggedPacks(db: Database, limit: number): TaggablePack[] {
   return db
     .prepare(
-      `SELECT id, name, asset_type, display_title, orbital_title, orbital_seller_name,
+      `SELECT id, name, file_path, file_size, asset_type, display_title, orbital_title, orbital_seller_name,
               orbital_categories, description, orbital_description, scan_search_text
        FROM assets
        WHERE ai_tags IS NULL

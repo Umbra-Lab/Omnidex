@@ -6,7 +6,7 @@ import { aiTagsRepo } from '../../db/repos';
 import { createTestDb, seedAsset } from '../../db/repos/__tests__/fixtures/test-db';
 import { readCliJson } from '../claude-cli';
 import { enrichTags, enrichTagsExitCode } from '../enrich-tags';
-import { buildTagPrompt, cleanTag, packCard, parseTagReply } from '../prompt';
+import { buildTagPrompt, cleanTag, packCard, parentFolders, parseTagReply } from '../prompt';
 
 const migration = (name: string) =>
   readFileSync(resolve('electron/main/db/migrations', name), 'utf8');
@@ -22,6 +22,8 @@ describe('tag prompt and reply', () => {
   const pack = {
     id: 7,
     name: 'ModularSciFiCorridor',
+    file_path: 'E:\\Assets\\Sci-Fi\\Interiors\\ModularSciFiCorridor',
+    file_size: 10,
     asset_type: 'unreal_pack',
     display_title: null,
     orbital_title: 'Modular Sci-Fi Corridor',
@@ -38,6 +40,9 @@ describe('tag prompt and reply', () => {
     expect(card).toContain('title: Modular Sci-Fi Corridor');
     expect(card).toContain('about: A modular kit of corridor pieces.');
     expect(card).not.toContain('<p>');
+    expect(card).toContain('in: Sci-Fi / Interiors');
+    expect(parentFolders('C:/Brushify', 'Brushify')).toBe('');
+    expect(parentFolders('/lib/Brushify Beach/Brushify', 'Brushify')).toBe('lib / Brushify Beach');
     expect(packCard({ ...pack, orbital_seller_name: null })).not.toContain('seller');
     expect(buildTagPrompt([pack])).toMatch(/only a JSON object/);
     // A wrong marketplace match must not become the pack's keywords.
@@ -100,6 +105,22 @@ describe('enrichTags', () => {
     expect((await enrichTags(d, { run })).total).toBe(0);
     expect(aiTagsRepo.clearAiTags(d)).toBe(2);
     expect(aiTagsRepo.countUntagged(d)).toBe(2);
+  });
+
+  it('asks about copies of one pack once and tags every copy', async () => {
+    const a = seedAsset(d, { name: 'GASCompanion', file_path: '/p/a', file_size: 5 });
+    const b = seedAsset(d, { name: 'GAS Companion (5.0)', file_path: '/q/b', file_size: 5 });
+    d.prepare("UPDATE assets SET orbital_title = 'GAS Companion' WHERE id IN (?, ?)").run(a, b);
+    let asked = '';
+    const r = await enrichTags(d, {
+      run: async (p) => {
+        asked = p;
+        return JSON.stringify({ [a]: ['abilities'] });
+      },
+    });
+    expect(asked).not.toContain(`id ${b}:`);
+    expect(r).toMatchObject({ total: 2, tagged: 2, skipped: 0 });
+    expect(tagsOf(b)).toBe('abilities');
   });
 
   it('leaves packs the model skipped for the next run', async () => {

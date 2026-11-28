@@ -26,9 +26,23 @@ function clip(text: string | null, n: number): string {
   return `${space > n / 2 ? cut.slice(0, space) : cut}…`;
 }
 
+/** The two folders above a pack, or '' when the path says nothing more than the name. */
+export function parentFolders(filePath: string | null, name: string): string {
+  if (!filePath) return '';
+  const parts = filePath.split(/[\\/]+/).filter(Boolean);
+  if (parts[parts.length - 1] === name) parts.pop();
+  // A drive letter or a single root folder carries no meaning.
+  const above = parts.slice(-2).filter((seg) => !/^[A-Za-z]:$/.test(seg));
+  return above.join(' / ');
+}
+
 /** One pack as the model sees it: only fields that hold something. */
 export function packCard(p: TaggablePack): string {
   const lines = [`id ${p.id}: folder "${p.name}"`];
+  // The folders above it often say what the name does not: three packs all named
+  // "Brushify" sat under Beach, Canyons and Natural Roads.
+  const parents = parentFolders(p.file_path, p.name);
+  if (parents) lines.push(`  in: ${parents}`);
   const title = p.orbital_title ?? p.display_title;
   if (title && title !== p.name) lines.push(`  title: ${title}`);
   lines.push(`  type: ${p.asset_type}`);
@@ -54,7 +68,8 @@ export function buildTagPrompt(packs: readonly TaggablePack[]): string {
     '- what it is for (environment, vfx, animation, character, ui, audio, gameplay system)',
     '- common synonyms of the name words (corridor: hallway; dagger: knife)',
     '',
-    'The first line of each pack is its folder name on disk. The title, seller, categories',
+    'The first line of each pack is its folder name on disk, and "in" the folders above it.',
+    'The title, seller, categories',
     'and about lines come from an automatic marketplace match, which is sometimes wrong. When',
     'they describe a different product than the folder name (a folder named "Military Pack"',
     'matched to a "City Pack"), ignore them and tag from the folder name and contents only.',
