@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { openDatabase } from '../../db';
 import { scanLocationsRepo } from '../../db/repos';
-import { cancelScan } from '../../scanner/refresh-all';
+import { stopLocation } from '../../scanner/pipeline';
 import { publicProcedure, router } from '../init';
 import { idSchema, scanLocationInputSchema, scanLocationUpdateSchema } from '../schemas';
 
@@ -56,12 +56,8 @@ export const scanLocationsRouter = router({
     .query(({ input }) => scanLocationsRepo.getScanLocationRemovalImpact(openDatabase(), input)),
 
   delete: publicProcedure.input(idSchema).mutation(({ input }) => {
-    // Stop a scan of this location first. Left running, it went on to write
-    // rows for a location that no longer exists: its upserts or its
-    // diagnostics failed on the foreign key, and the person who just removed
-    // the folder got a "scan failed" error about it. Aborted, the scan writes
-    // nothing more (every later phase checks the signal) and ends as cancelled.
-    cancelScan(input);
+    // Stop this location's scan and thumbnail extraction first; see stopLocation.
+    stopLocation(input);
     scanLocationsRepo.deleteScanLocation(openDatabase(), input);
     return true;
   }),

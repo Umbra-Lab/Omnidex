@@ -187,8 +187,10 @@ vi.mock('../../scanner/refresh-all', () => ({
 }));
 
 const activeScanCount = vi.fn(() => 3);
+const stopLocation = vi.fn((_id: number) => {});
 vi.mock('../../scanner/pipeline', () => ({
   activeScanCount: () => activeScanCount(),
+  stopLocation: (id: number) => stopLocation(id),
 }));
 
 const orbitalSvc = {
@@ -548,16 +550,15 @@ describe('scanLocations router', () => {
     expect(await caller.scanLocations.get(id)).toBeNull();
   });
 
-  it('delete stops a scan of that location before removing it', async () => {
+  it('delete stops the scan and thumbnails of that location before removing it', async () => {
     const id = await caller.scanLocations.create(fullLocation);
-    scannerSvc.cancelScan.mockClear();
-    scannerSvc.cancelScan.mockImplementationOnce((locationId: number) => {
-      // The scan is cancelled while the location still exists.
+    stopLocation.mockClear();
+    stopLocation.mockImplementationOnce((locationId: number) => {
+      // Stopped while the location still exists.
       expect(db.prepare('SELECT id FROM scan_locations WHERE id = ?').get(locationId)).toBeTruthy();
-      return { locationId, cancelled: true };
     });
     await caller.scanLocations.delete(id);
-    expect(scannerSvc.cancelScan).toHaveBeenCalledWith(id);
+    expect(stopLocation).toHaveBeenCalledWith(id);
     expect(await caller.scanLocations.get(id)).toBeNull();
   });
 });

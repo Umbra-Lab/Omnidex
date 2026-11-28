@@ -48,6 +48,12 @@ export interface ScanProgressPayload {
 
 const activeScans = new Map<number, AbortController>();
 const backgroundThumbnailJobs = createBackgroundJobs();
+/**
+ * Abort handles for background thumbnail jobs still running after their scan
+ * returned (the scan's own entry in `activeScans` is gone by then), so removing
+ * a location can stop its extraction too.
+ */
+const backgroundControllers = new Map<number, AbortController>();
 
 /**
  * Resolve once every backgrounded thumbnail extraction has finished. Only the
@@ -141,6 +147,8 @@ async function scanLocation(
       emit(payload);
       return payload;
     } catch (err) {
+      if (wasRemoved(db, locationId))
+        return removedPayload(locationId, location.name, location.path);
       const payload = errorPayload(
         locationId,
         location.name,
@@ -273,7 +281,7 @@ async function scanLocation(
   // which is slow enough that holding a write lock through it would block the
   // UI's reads for the whole pass.
   if (contentFormat != null && !controller.signal.aborted) {
-    await indexCourseManifests(db, locationId, seenPaths);
+    await indexCourseManifests(db, locationId, seenPaths, controller.signal);
   }
 
   // Record what the walk could not index. Skipped on an aborted scan — a
@@ -311,9 +319,16 @@ async function scanLocation(
       thumbStmt,
       controller,
       total,
-    }).catch((err) => {
-      console.error('[scan] background thumbnail job failed:', (err as Error).message);
-    });
+    })
+      .catch((err) => {
+        console.error('[scan] background thumbnail job failed:', (err as Error).message);
+      })
+      .finally(() => {
+        if (backgroundControllers.get(locationId) === controller) {
+          backgroundControllers.delete(locationId);
+        }
+      });
+    backgroundControllers.set(locationId, controller);
     backgroundThumbnailJobs.track(job);
   }
 
@@ -324,6 +339,9 @@ async function scanLocation(
       `Thumbnails run asynchronously in background.`,
   );
 
+  if (controller.signal.aborted && wasRemoved(db, locationId)) {
+    return removedPayload(locationId, location.name, location.path);
+  }
   const summary = controller.signal.aborted
     ? errorPayload(locationId, location.name, location.path, 'Scan canceled')
     : completionPayload(
@@ -344,6 +362,20 @@ export function cancelScan(locationId: number): boolean {
   if (!controller || controller.signal.aborted) return false;
   controller.abort();
   return true;
+}
+
+/**
+ * Stop everything still running for a location that is being removed: its
+ * scan, and its background thumbnail extraction (which outlives the scan).
+ * Left running, both went on writing rows for a location that no longer
+ * exists and failed on the foreign key, and the scan reported that as a failed
+ * scan of the folder the person had just removed. A scan stopped this way
+ * reports the location as removed, not as failed or cancelled.
+ */
+export function stopLocation(locationId: number): void {
+  cancelScan(locationId);
+  backgroundControllers.get(locationId)?.abort();
+  backgroundControllers.delete(locationId);
 }
 
 export function activeScanCount(): number {
@@ -529,6 +561,26 @@ function completionPayload(
   };
 }
 
+function wasRemoved(db: Database, locationId: number): boolean {
+  return scanLocationsRepo.getScanLocation(db, locationId) == null;
+}
+
+/**
+ * The outcome of a scan whose location was removed while it ran. Counts as
+ * completed so a sweep does not report the removed folder as failed; nothing
+ * was indexed.
+ */
+function removedPayload(
+  locationId: number,
+  locationName: string | null,
+  locationPath: string | null,
+): ScanProgressPayload {
+  return {
+    ...completionPayload(locationId, locationName, locationPath, 0, 0, 0, null),
+    status: 'Removed',
+  };
+}
+
 function errorPayload(
   locationId: number,
   locationName: string,
@@ -570,12 +622,16 @@ async function indexCourseManifests(
   db: Database,
   locationId: number,
   coursePaths: readonly string[],
+  signal: AbortSignal,
 ): Promise<void> {
   const idOf = db.prepare('SELECT id FROM assets WHERE file_path = ? AND scan_location_id = ?');
   let indexed = 0;
   let cues = 0;
 
   for (const coursePath of coursePaths) {
+    // Reading MP4 headers is the slow part of a course scan; stop on cancel
+    // or when the location is removed.
+    if (signal.aborted) break;
     const row = idOf.get(coursePath, locationId) as { id: number } | undefined;
     if (!row) continue;
 
