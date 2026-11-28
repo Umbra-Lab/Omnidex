@@ -113,7 +113,7 @@ work that reached `main` through direct merges with no pull request, the commit.
 - Hardening: the app opens only media, documents and folders with their
   default app. Anything inside a scan folder could be opened before, and
   opening a program or shortcut (`.exe`, `.bat`, `.lnk`, `.command`) runs it.
-  A macOS `.app` folder is revealed instead of launched. (#PR)
+  A macOS `.app` folder is revealed instead of launched. (#61)
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
