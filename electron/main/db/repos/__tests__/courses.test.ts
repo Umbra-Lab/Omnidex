@@ -193,9 +193,9 @@ describe('transcript index', () => {
 
   it('reclaims cues when the lesson is pruned', () => {
     replaceTranscript(db, seedLesson(), [{ startMs: 0, text: 'orphan me' }]);
-    // A re-scan deletes and reinserts course_files rows, which reassigns their
-    // ids. Cues used to live in a virtual table that could not carry a foreign
-    // key, so every scan stranded the last one's cues — 60% of the live index.
+    // Cues used to live in a virtual table that could not carry a foreign key,
+    // so a lesson that left the manifest stranded its cues — once 60% of the
+    // live index. The foreign key now takes them with the lesson.
     replaceCourseManifest(db, courseId, [file('c/02 - B.mp4', 'video', 'c')]);
     expect(hits('orphan')).toEqual([]);
     expect(db.prepare('SELECT COUNT(*) AS n FROM transcript_cues').get()).toEqual({ n: 0 });
@@ -247,5 +247,66 @@ describe('replaceCourseManifest', () => {
       { rel_path: 'c/01 - A.mp4', updated_at: '2026-01-01 10:00:00' },
       { rel_path: 'c/02 - B.mp4', updated_at: '2026-01-07 10:00:00' },
     ]);
+  });
+
+  it('keeps the id of each lesson, so the player and its saves survive a scan mid-lesson', () => {
+    replaceCourseManifest(db, courseId, [file('c/01 - A.mp4', 'video', 'c')]);
+    const id = listCourseFiles(db, courseId)[0].id;
+    replaceTranscript(db, id, [{ startMs: 0, text: 'enable Nanite on the mesh' }]);
+
+    replaceCourseManifest(db, courseId, [
+      file('c/00 - Intro.mp4', 'video', 'c'),
+      file('c/01 - A.mp4', 'video', 'c'),
+    ]);
+
+    expect(listCourseFiles(db, courseId).find((f) => f.rel_path === 'c/01 - A.mp4')?.id).toBe(id);
+    // The save the player makes with the id it already holds still lands.
+    expect(() => setProgress(db, id, 30, false)).not.toThrow();
+    expect(searchTranscripts(db, 'nanite').map((h) => h.file_id)).toEqual([id]);
+  });
+
+  it('updates what changed about a lesson that stayed', () => {
+    replaceCourseManifest(db, courseId, [file('c/01 - A.mp4', 'video', 'c', 1)]);
+    replaceCourseManifest(db, courseId, [
+      {
+        ...file('c/01 - A.mp4', 'video', 'c', 5),
+        absPath: 'D:/moved/c/01 - A.mp4',
+        sizeBytes: 999,
+      },
+    ]);
+    const row = db.prepare('SELECT abs_path, order_index, size_bytes FROM course_files').get();
+    expect(row).toEqual({ abs_path: 'D:/moved/c/01 - A.mp4', order_index: 5, size_bytes: 999 });
+  });
+
+  it('drops a lesson that is gone, with its progress, and leaves other courses alone', () => {
+    const other = seedAsset(db, { name: 'Other', file_path: '/o', content_format: 'course' });
+    replaceCourseManifest(db, other, [file('c/01 - A.mp4', 'video', 'c')]);
+    replaceCourseManifest(db, courseId, [
+      file('c/01 - A.mp4', 'video', 'c'),
+      file('c/02 - B.mp4', 'video', 'c'),
+    ]);
+    const b = listCourseFiles(db, courseId).find((f) => f.rel_path === 'c/02 - B.mp4');
+    setProgress(db, b?.id ?? 0, 10, false);
+
+    replaceCourseManifest(db, courseId, [file('c/01 - A.mp4', 'video', 'c')]);
+
+    expect(listCourseFiles(db, courseId).map((f) => f.rel_path)).toEqual(['c/01 - A.mp4']);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM course_progress').get()).toEqual({ n: 0 });
+    expect(listCourseFiles(db, other)).toHaveLength(1);
+  });
+
+  it('empties the manifest when the course has no files left', () => {
+    replaceCourseManifest(db, courseId, [file('c/01 - A.mp4', 'video', 'c')]);
+    replaceCourseManifest(db, courseId, []);
+    expect(listCourseFiles(db, courseId)).toEqual([]);
+  });
+
+  it('handles a course with more files than SQLite allows bound parameters', () => {
+    const many = Array.from({ length: 33_000 }, (_, i) => file(`c/${i}.srt`, 'subtitle', 'c'));
+    replaceCourseManifest(db, courseId, many);
+    replaceCourseManifest(db, courseId, many.slice(1));
+    expect((db.prepare('SELECT COUNT(*) AS n FROM course_files').get() as { n: number }).n).toBe(
+      32_999,
+    );
   });
 });

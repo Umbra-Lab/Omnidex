@@ -56,10 +56,10 @@ assets (content_format='course')
 
 `chapter` and `order_index` are derived from the folder layout and the author's numbering, which is why lessons sort `1, 2, 10` and not `1, 10, 2`.
 
-```admonish danger title="course_files ids are not stable"
-Re-scanning a course deletes and reinserts its `course_files` rows, which reassigns their `AUTOINCREMENT` ids. Anything keyed to a file id must either cascade or be re-derived. `course_progress` survives because the scanner explicitly carries it across by `rel_path`; `transcript_cues` survives because the scanner re-parses the `.srt` sidecars on disk, which are the real source of truth.
+```admonish warning title="course_files ids last only as long as the file"
+Re-scanning a course upserts its `course_files` rows on `(asset_id, rel_path)` and deletes the files that are gone, so a lesson keeps its id across scans, and `course_progress` and `transcript_cues` stay attached. A renamed or moved file is a new row with a new id. Anything keyed to a file id must cascade. The scanner still re-parses the `.srt` sidecars on every scan, since they are the real source of truth.
 
-This is not theoretical. Before the cascade existed, every scan stranded the previous scan's cues — 2,794,345 of 4,648,463 rows (60%) belonged to file ids that no longer existed.
+This is not theoretical. Scans used to delete and reinsert every row, and before the cascade existed, every scan stranded the previous scan's cues — 2,794,345 of 4,648,463 rows (60%) belonged to file ids that no longer existed.
 ```
 
 ## Transcripts

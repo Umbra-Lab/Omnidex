@@ -55,15 +55,15 @@ One row per file inside a course. `UNIQUE (asset_id, rel_path)`.
 | `chapter`, `order_index` | Derived from folder layout and author numbering |
 | `size_bytes`, `duration_seconds` | Read during manifest building |
 
-```admonish danger title="Ids are reassigned on every scan"
-Re-scanning deletes and reinserts these rows, so `course_files.id` is not stable across scans. Anything referencing it must cascade or be re-derived.
+```admonish note title="Ids are stable across scans"
+A re-scan upserts on `(asset_id, rel_path)` and deletes only files that are gone, so a lesson keeps its `id`. Anything referencing it must still cascade, because a removed or renamed file takes its row with it.
 ```
 
 ### `course_progress`
 
 `file_id` primary key, cascading from `course_files`. Holds `position_seconds`, `completed`, `updated_at`.
 
-Carried across a re-scan by `rel_path`, since ids change.
+Survives a re-scan because the lesson keeps its id; deleted with the lesson when its file is gone.
 
 ### `transcript_cues`
 

@@ -24,40 +24,36 @@ export interface CourseFileInput {
 /**
  * Replace a course's manifest.
  *
- * Deletes by `asset_id` then re-inserts, which would normally throw playback
- * positions away with the rows they hang off. `course_progress` is therefore
- * carried across by `rel_path`: the path is what identifies a lesson, and a
- * re-scan of an unchanged course must not reset how far you got.
+ * Upserts on `(asset_id, rel_path)` and deletes only the files that are gone,
+ * so a lesson keeps its row id across re-scans. Playback position and subtitle
+ * cues hang off that id (both `ON DELETE CASCADE`), and the renderer holds it
+ * while a lesson plays.
+ *
+ * It used to delete every row and reinsert, which gave each lesson a new id on
+ * every scan. A scan during playback then made every progress save fail on the
+ * foreign key (an error toast every five seconds, and the position was lost)
+ * until the lesson was reopened, and an open transcript hit or Ask citation
+ * pointed at a lesson id that no longer existed.
  */
 export function replaceCourseManifest(
   db: Database,
   assetId: number,
   files: readonly CourseFileInput[],
 ): void {
-  const carried = db
-    .prepare(
-      `SELECT f.rel_path AS rel_path, p.position_seconds AS position_seconds,
-              p.completed AS completed, p.updated_at AS updated_at
-         FROM course_files f
-         JOIN course_progress p ON p.file_id = f.id
-        WHERE f.asset_id = ?`,
-    )
-    .all(assetId) as {
-    rel_path: string;
-    position_seconds: number;
-    completed: number;
-    updated_at: string;
-  }[];
-
-  db.prepare('DELETE FROM course_files WHERE asset_id = ?').run(assetId);
-
-  const insert = db.prepare(
+  const upsert = db.prepare(
     `INSERT INTO course_files
        (asset_id, rel_path, abs_path, kind, chapter, order_index, size_bytes, duration_seconds)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (asset_id, rel_path) DO UPDATE SET
+       abs_path = excluded.abs_path,
+       kind = excluded.kind,
+       chapter = excluded.chapter,
+       order_index = excluded.order_index,
+       size_bytes = excluded.size_bytes,
+       duration_seconds = excluded.duration_seconds`,
   );
   for (const f of files) {
-    insert.run(
+    upsert.run(
       assetId,
       f.relPath,
       f.absPath,
@@ -68,18 +64,12 @@ export function replaceCourseManifest(
       f.durationSeconds,
     );
   }
-
-  if (carried.length === 0) return;
-  // `updated_at` travels too: it is what `lastPlayed` orders by, and letting it
-  // default to now() would stamp every lesson with the scan time and make
-  // Resume pick an arbitrary one.
-  const restore = db.prepare(
-    `INSERT OR REPLACE INTO course_progress (file_id, position_seconds, completed, updated_at)
-     SELECT id, ?, ?, ? FROM course_files WHERE asset_id = ? AND rel_path = ?`,
-  );
-  for (const row of carried) {
-    restore.run(row.position_seconds, row.completed, row.updated_at, assetId, row.rel_path);
-  }
+  // One JSON parameter, not one `?` per file: a big course must not hit
+  // SQLite's bound-parameter limit.
+  db.prepare(
+    `DELETE FROM course_files
+      WHERE asset_id = ? AND rel_path NOT IN (SELECT value FROM json_each(?))`,
+  ).run(assetId, JSON.stringify(files.map((f) => f.relPath)));
 }
 
 /** Durations already on record for a course, so a re-scan can skip re-reading. */

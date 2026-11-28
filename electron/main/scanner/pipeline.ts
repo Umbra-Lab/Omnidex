@@ -625,8 +625,8 @@ async function indexCourseManifests(
     }
     indexed += 1;
 
-    // Subtitles: parse and index. Read after the manifest commit so file ids
-    // exist to attach cues to.
+    // Subtitles: parse and index. Read after the manifest commit so new files
+    // have ids to attach cues to.
     const subtitles = files.filter((f) => f.kind === 'subtitle');
     if (subtitles.length === 0) continue;
     const fileIdOf = db.prepare('SELECT id FROM course_files WHERE asset_id = ? AND rel_path = ?');
@@ -635,8 +635,9 @@ async function indexCourseManifests(
       if (!fileRow) continue;
       try {
         const text = decodeSubtitle(await readFile(sub.absPath));
+        // An empty result still replaces: lesson ids survive re-scans now, so
+        // a sidecar that no longer holds any cues must not keep its old ones.
         const parsed = parseCues(text);
-        if (parsed.length === 0) continue;
         db.exec('BEGIN');
         try {
           coursesRepo.replaceTranscript(db, fileRow.id, parsed);
