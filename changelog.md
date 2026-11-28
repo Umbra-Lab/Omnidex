@@ -113,7 +113,7 @@ work that reached `main` through direct merges with no pull request, the commit.
 - The Match screen's action row no longer clips "Not on Orbital" off the right
   edge at 1024px. The row wraps when the pane is narrow, and the key hints
   hide under 48rem while each button keeps its key in a tooltip and
-  `aria-keyshortcuts`.
+  `aria-keyshortcuts`. (#47)
 
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
