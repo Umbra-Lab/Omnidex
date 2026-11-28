@@ -72,6 +72,18 @@ const KIND_ORDER: readonly DiagnosticKind[] = [
   'unreadable-folder',
 ];
 
+/**
+ * Kinds where the scanner left something out of the library. The other two
+ * (no thumbnail, long paths) were indexed and only carry a warning, so they
+ * must not swell the "skipped" count: a library whose packs simply have no
+ * preview read as "2,000 skipped".
+ */
+const SKIPPED_KINDS: ReadonlySet<DiagnosticKind> = new Set([
+  'archive-only',
+  'depth-limit-abandoned',
+  'unreadable-folder',
+]);
+
 function openLocation(path: string) {
   void window.omnidex?.shell?.openFileLocation(path);
 }
@@ -80,8 +92,8 @@ function openLocation(path: string) {
  * Library Health — the account of what the last scan could NOT index.
  *
  * The point of this view is that a missing card and an empty folder used to
- * look identical. Every row here is something the scanner deliberately
- * skipped, paired with the reason and the fix.
+ * look identical. Every row here is something the scanner skipped or could
+ * only partly process, paired with the reason and the fix.
  */
 export function LibraryHealthView() {
   const [selected, setSelected] = useState<DiagnosticKind | null>(null);
@@ -93,6 +105,10 @@ export function LibraryHealthView() {
 
   const counts = new Map<string, number>((summary.data ?? []).map((r) => [r.kind, r.count]));
   const total = (summary.data ?? []).reduce((sum, r) => sum + r.count, 0);
+  const skipped = (summary.data ?? []).reduce(
+    (sum, r) => sum + (SKIPPED_KINDS.has(r.kind as DiagnosticKind) ? r.count : 0),
+    0,
+  );
   const selectedMeta = selected ? KINDS[selected] : null;
 
   return (
@@ -100,10 +116,10 @@ export function LibraryHealthView() {
       <PageHeader
         title="Library health"
         icon={Activity}
-        description="What the last scan could not index, and why."
+        description="What the last scan could not index or fully process, and why."
         actions={
-          <Badge variant={total > 0 ? 'outline' : 'default'} className="font-mono tabular-nums">
-            {formatCount(total)} skipped
+          <Badge variant={skipped > 0 ? 'outline' : 'default'} className="font-mono tabular-nums">
+            {formatCount(skipped)} skipped
           </Badge>
         }
       />
