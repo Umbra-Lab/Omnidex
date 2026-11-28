@@ -247,6 +247,157 @@ describe('readMp4Duration', () => {
     expect(await readMp4Duration(file)).toBeCloseTo(90, 3);
   });
 
+  it('reads a version-1 mvhd', async () => {
+    const payload = Buffer.alloc(108);
+    payload.writeUInt8(1, 0);
+    payload.writeUInt32BE(600, 20); // timescale
+    payload.writeBigUInt64BE(BigInt(600 * 3725), 24); // 1:02:05
+    const file = join(root, 'v1.mp4');
+    writeFileSync(
+      file,
+      Buffer.concat([box('ftyp', Buffer.from('isom')), box('moov', box('mvhd', payload))]),
+    );
+    expect(await readMp4Duration(file)).toBeCloseTo(3725, 3);
+  });
+
+  describe('fragmented MP4', () => {
+    /** mvhd v0 with the given duration ticks, timescale 1000. */
+    const mvhd = (ticks: number) => {
+      const p = Buffer.alloc(100);
+      p.writeUInt32BE(1000, 12);
+      p.writeUInt32BE(ticks, 16);
+      return box('mvhd', p);
+    };
+    const mehd = (ticks: number) => {
+      const p = Buffer.alloc(8);
+      p.writeUInt32BE(ticks, 4);
+      return box('mehd', p);
+    };
+    /** sidx v0, timescale 90000, one reference per duration. */
+    const sidx = (durations: number[], referenceType = 0, refSize = 1000) => {
+      const p = Buffer.alloc(24 + durations.length * 12);
+      p.writeUInt32BE(1, 4); // reference_ID
+      p.writeUInt32BE(90_000, 8); // timescale
+      p.writeUInt16BE(durations.length, 22);
+      durations.forEach((d, i) => {
+        p.writeUInt32BE(((referenceType << 31) | refSize) >>> 0, 24 + i * 12);
+        p.writeUInt32BE(d, 28 + i * 12);
+      });
+      return box('sidx', p);
+    };
+    const moof = box('moof', Buffer.alloc(16));
+    const ftyp = box('ftyp', Buffer.from('iso5'));
+    const write = (name: string, ...boxes: Buffer[]) => {
+      const file = join(root, name);
+      writeFileSync(file, Buffer.concat(boxes));
+      return file;
+    };
+
+    it('reads the length from mvex > mehd when mvhd says 0', async () => {
+      const file = write(
+        'mehd.mp4',
+        ftyp,
+        box('moov', Buffer.concat([mvhd(0), box('mvex', mehd(42_500))])),
+        moof,
+      );
+      expect(await readMp4Duration(file)).toBeCloseTo(42.5, 3);
+    });
+
+    it('sums the segment index when there is no mehd', async () => {
+      const file = write(
+        'sidx.mp4',
+        ftyp,
+        box('moov', mvhd(0)),
+        sidx([90_000 * 4, 90_000 * 6]),
+        moof,
+      );
+      expect(await readMp4Duration(file)).toBeCloseTo(10, 3);
+    });
+
+    it('reads a global index whose sizes match the fragments, with a trailing mfra', async () => {
+      // Two 24-byte moof boxes, indexed exactly, then an mfra after them.
+      const file = write(
+        'exact.mp4',
+        ftyp,
+        box('moov', mvhd(0)),
+        sidx([90_000 * 3, 90_000 * 5], 0, moof.length),
+        moof,
+        moof,
+        box('mfra', Buffer.alloc(8)),
+      );
+      expect(await readMp4Duration(file)).toBeCloseTo(8, 3);
+    });
+
+    it('returns null for one index per fragment instead of the first fragment alone', async () => {
+      // ffmpeg -movflags dash without global_sidx: sidx, moof, sidx, moof...
+      const one = sidx([90_000 * 2], 0, moof.length);
+      const file = write(
+        'per-fragment.mp4',
+        ftyp,
+        box('moov', mvhd(0)),
+        one,
+        moof,
+        one,
+        moof,
+        one,
+        moof,
+      );
+      expect(await readMp4Duration(file)).toBeNull();
+    });
+
+    it('reads a version-1 index', async () => {
+      const p = Buffer.alloc(32 + 12);
+      p.writeUInt8(1, 0);
+      p.writeUInt32BE(1000, 8); // timescale
+      p.writeUInt16BE(1, 30); // reference_count
+      p.writeUInt32BE(moof.length, 32);
+      p.writeUInt32BE(15_000, 36);
+      const file = write('sidx-v1.mp4', ftyp, box('moov', mvhd(0)), box('sidx', p), moof);
+      expect(await readMp4Duration(file)).toBeCloseTo(15, 3);
+    });
+
+    it('reads a version-1 mehd', async () => {
+      const p = Buffer.alloc(12);
+      p.writeUInt8(1, 0);
+      p.writeBigUInt64BE(BigInt(61_000), 4);
+      const file = write(
+        'mehd-v1.mp4',
+        ftyp,
+        box('moov', Buffer.concat([mvhd(0), box('mvex', box('mehd', p))])),
+        moof,
+      );
+      expect(await readMp4Duration(file)).toBeCloseTo(61, 3);
+    });
+
+    it('rejects an index whose reference count runs past its box', async () => {
+      const p = Buffer.alloc(24 + 12);
+      p.writeUInt32BE(90_000, 8);
+      p.writeUInt16BE(500, 22); // claims 500 references, holds 1
+      const file = write('hostile.mp4', ftyp, box('moov', mvhd(0)), box('sidx', p), moof);
+      expect(await readMp4Duration(file)).toBeNull();
+    });
+
+    it('treats an all-ones mvhd as unknown, not 13 hours', async () => {
+      const file = write(
+        'ones.mp4',
+        ftyp,
+        box('moov', Buffer.concat([mvhd(0xffffffff), box('mvex', mehd(7000))])),
+        moof,
+      );
+      expect(await readMp4Duration(file)).toBeCloseTo(7, 3);
+    });
+
+    it('returns null, not 0, when nothing records the length', async () => {
+      const file = write('bare.mp4', ftyp, box('moov', mvhd(0)), moof, moof);
+      expect(await readMp4Duration(file)).toBeNull();
+    });
+
+    it('does not follow a hierarchical segment index', async () => {
+      const file = write('nested.mp4', ftyp, box('moov', mvhd(0)), sidx([90_000], 1), moof);
+      expect(await readMp4Duration(file)).toBeNull();
+    });
+  });
+
   it('returns null for a file that is not an MP4 at all', async () => {
     const file = join(root, 'notmp4.mp4');
     writeFileSync(file, 'this is plainly not a container');
@@ -438,6 +589,30 @@ describe('duration caching across re-scans', () => {
       const known = new Map([['lesson.mp4', { size: mp4.length, duration: null }]]);
       const files = await buildCourseManifest(dir, { readDurations: true, knownDurations: known });
       expect(files.find((f) => f.relPath === 'lesson.mp4')?.durationSeconds).toBeCloseTo(30, 3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('re-reads a video an older scan recorded as 0 seconds', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omnidex-course-zero-'));
+    try {
+      // A fragmented MP4: mvhd says 0, mvex > mehd holds the real 12s.
+      const mvhdPayload = Buffer.alloc(100);
+      mvhdPayload.writeUInt32BE(1000, 12);
+      const mehdPayload = Buffer.alloc(8);
+      mehdPayload.writeUInt32BE(12_000, 4);
+      const mp4 = Buffer.concat([
+        box('ftyp', Buffer.from('iso5')),
+        box(
+          'moov',
+          Buffer.concat([box('mvhd', mvhdPayload), box('mvex', box('mehd', mehdPayload))]),
+        ),
+      ]);
+      writeFileSync(join(dir, 'lesson.mp4'), mp4);
+      const known = new Map([['lesson.mp4', { size: mp4.length, duration: 0 }]]);
+      const files = await buildCourseManifest(dir, { readDurations: true, knownDurations: known });
+      expect(files.find((f) => f.relPath === 'lesson.mp4')?.durationSeconds).toBeCloseTo(12, 3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
