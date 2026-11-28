@@ -928,7 +928,7 @@ function Gallery({
               type="button"
               onClick={goPrev}
               aria-label="Previous image"
-              className="absolute left-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-surface-950/70 text-surface-100 backdrop-blur transition-colors hover:bg-surface-950/90"
+              className="absolute left-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md bg-surface-950/70 text-surface-100 backdrop-blur transition-colors hover:bg-surface-950/90"
             >
               <ChevronLeft size={14} />
             </button>
@@ -936,13 +936,13 @@ function Gallery({
               type="button"
               onClick={goNext}
               aria-label="Next image"
-              className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-surface-950/70 text-surface-100 backdrop-blur transition-colors hover:bg-surface-950/90"
+              className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md bg-surface-950/70 text-surface-100 backdrop-blur transition-colors hover:bg-surface-950/90"
             >
               <ChevronRight size={14} />
             </button>
             <div
               data-testid="gallery-counter"
-              className="pointer-events-none absolute bottom-1.5 right-1.5 rounded-full bg-surface-950/70 px-2 py-0.5 font-mono cap-10 tabular-nums text-surface-200 backdrop-blur"
+              className="pointer-events-none absolute bottom-1.5 right-1.5 rounded-sm bg-surface-950/70 px-2 py-0.5 font-mono cap-10 tabular-nums text-surface-200 backdrop-blur"
             >
               {safeIndex + 1} / {images.length}
             </div>

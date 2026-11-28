@@ -330,7 +330,7 @@ function CourseDetail({
             onClick={() => setPlayingId(resumeTarget.id)}
             className="flex items-center gap-3 rounded-md border border-surface-800 bg-surface-900 px-4 py-3 text-left transition-colors hover:border-accent-500/50"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-500 text-accent-on">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent-500 text-accent-on">
               <Play size={16} />
             </span>
             <span className="min-w-0">
