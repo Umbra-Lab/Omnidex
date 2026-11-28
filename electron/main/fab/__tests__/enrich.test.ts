@@ -294,6 +294,13 @@ describe('Epic sign-in', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('a corrupt saved login asks for sign-in instead of throwing a SyntaxError', async () => {
+    writeFileSync(credsPath, '{"access_token": "tok", ');
+    const err = await enrichFab({ onProgress: () => {} }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(FabAuthRequiredError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('a first CLI sync signs in through the prompt, then fetches the library', async () => {
     seed('Pack One');
     fetchMock.mockImplementation(async (url: string) =>

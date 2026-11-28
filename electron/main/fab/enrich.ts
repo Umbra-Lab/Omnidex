@@ -1,4 +1,4 @@
-import { renameSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 import { openDatabase } from '../db';
@@ -169,8 +169,29 @@ export function parseAuthorizationCode(pasted: string): string | null {
  */
 function writeCredentials(credsPath: string, creds: EpicCredentials): void {
   const tmp = `${credsPath}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(creds, null, 2), { mode: 0o600 });
-  renameSync(tmp, credsPath);
+  try {
+    writeFileSync(tmp, JSON.stringify(creds, null, 2), { mode: 0o600 });
+    renameSync(tmp, credsPath);
+  } catch (err) {
+    // Don't leave live tokens in a stray temp file (Windows rename can fail
+    // with EPERM/EBUSY while antivirus or the indexer holds the target).
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+}
+
+/**
+ * The saved Epic login, or null when there is none or it can't be parsed. A
+ * corrupt file is treated as signed out, so the person gets the sign-in
+ * prompt instead of a raw SyntaxError on every sync.
+ */
+function readCredentials(credsPath: string): EpicCredentials | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(credsPath, 'utf8'));
+    return parsed && typeof parsed === 'object' ? (parsed as EpicCredentials) : null;
+  } catch {
+    return null;
+  }
 }
 
 export type EpicConnectResult = { ok: true; displayName?: string } | { ok: false; message: string };
@@ -281,7 +302,6 @@ export interface EnrichFabResult {
 
 export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabResult> {
   const emit = opts.onProgress ?? emitProgress;
-  const fsMod = await import('node:fs');
   const pathMod = await import('node:path');
   const credsPath = pathMod.join(app.getPath('userData'), 'epic_credentials.json');
 
@@ -294,8 +314,9 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
   const overrideAccount = opts.fabAccount;
 
   let creds: EpicCredentials;
-  if (fsMod.existsSync(credsPath)) {
-    creds = JSON.parse(fsMod.readFileSync(credsPath, 'utf8')) as EpicCredentials;
+  const saved = readCredentials(credsPath);
+  if (saved) {
+    creds = saved;
   } else if (overrideToken && overrideAccount) {
     creds = { access_token: overrideToken, account_id: overrideAccount };
   } else if (opts.promptAuthCode) {
@@ -307,7 +328,9 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
         `[fab] not signed in to Epic: ${connected ? connected.message : 'no authorization code was entered'}`,
       );
     }
-    creds = JSON.parse(fsMod.readFileSync(credsPath, 'utf8')) as EpicCredentials;
+    const fresh = readCredentials(credsPath);
+    if (!fresh) throw new Error('[fab] Epic login was saved but could not be read back');
+    creds = fresh;
   } else {
     // Never signed in. The renderer offers the same sign-in as for a stale
     // login, so this is not an error it has to explain.
@@ -413,7 +436,9 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
       });
       return false;
     }
-    creds = JSON.parse(fsMod.readFileSync(credsPath, 'utf8')) as EpicCredentials;
+    const fresh = readCredentials(credsPath);
+    if (!fresh) return false;
+    creds = fresh;
     return true;
   };
 

@@ -1,5 +1,5 @@
 import { ExternalLink, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -33,10 +33,17 @@ export function EpicSignInDialog({ redirectUrl, onClose, onConnected }: EpicSign
   const [pasted, setPasted] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  // Bumped on every close. Each attempt records the generation it started in,
+  // and a result from an older generation is dropped: the person cancelled
+  // while Epic was answering and no longer wants a sync. A ref, not
+  // `redirectUrl`, because a pending mutation keeps the callbacks from the
+  // render that started it.
+  const generation = useRef(0);
+
   const connect = trpc.fab.connect.useMutation({
-    onSuccess: (r) => {
-      // Cancelled while Epic was answering: the person no longer wants a sync.
-      if (redirectUrl == null) return;
+    onMutate: () => ({ generation: generation.current }),
+    onSuccess: (r, _vars, ctx) => {
+      if (ctx?.generation !== generation.current) return;
       if (r.ok) {
         setPasted('');
         setError(null);
@@ -45,10 +52,14 @@ export function EpicSignInDialog({ redirectUrl, onClose, onConnected }: EpicSign
         setError(r.message);
       }
     },
-    onError: (e) => setError(e.message),
+    onError: (e, _vars, ctx) => {
+      if (ctx?.generation !== generation.current) return;
+      setError(e.message);
+    },
   });
 
   const close = () => {
+    generation.current += 1;
     connect.reset();
     setPasted('');
     setError(null);
