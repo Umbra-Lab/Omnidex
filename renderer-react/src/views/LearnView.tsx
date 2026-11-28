@@ -6,7 +6,7 @@ import { AskPane } from '@/features/learn/AskPane';
 import { trpc } from '@/ipc/trpc';
 import { toAssetUrl } from '@/lib/assetUrl';
 import { cn } from '@/lib/cn';
-import { formatCount } from '@/lib/format';
+import { formatClock, formatCount, formatDuration } from '@/lib/format';
 import { subtitlePairsWith } from '@/lib/subtitleStem';
 
 /**
@@ -28,21 +28,6 @@ import { subtitlePairsWith } from '@/lib/subtitleStem';
  */
 
 type ProgressFilter = 'all' | 'in_progress' | 'not_started' | 'completed';
-
-function formatDuration(seconds: number | null | undefined): string {
-  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '—';
-  const total = Math.round(seconds);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
-}
-
-function formatClock(seconds: number): string {
-  const total = Math.max(0, Math.round(seconds));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 export function LearnView() {
   const courses = trpc.courses.list.useQuery();

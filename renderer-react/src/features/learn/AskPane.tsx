@@ -4,6 +4,7 @@ import { type AskContextInfo, useAskStream } from '@/hooks/useAskStream';
 import { trpc } from '@/ipc/trpc';
 import { splitAnswer } from '@/lib/citations';
 import { cn } from '@/lib/cn';
+import { formatClock } from '@/lib/format';
 
 /**
  * Ask this course — a question box under the player that answers from the
@@ -29,13 +30,6 @@ const FAILURE_TEXT: Record<string, string> = {
 /** The server validates history at 20 entries / 20k chars each; stay under both. */
 const HISTORY_LIMIT = 12;
 const HISTORY_CHAR_LIMIT = 20_000;
-
-function formatClock(seconds: number): string {
-  const total = Math.max(0, Math.round(seconds));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 export function AskPane({
   assetId,
@@ -186,7 +180,10 @@ export function AskPane({
 
       {thread.map((m, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: append-only thread
-        <div key={i} className={cn('cap-13', m.role === 'user' ? 'text-surface-300' : 'text-surface-100')}>
+        <div
+          key={i}
+          className={cn('cap-13', m.role === 'user' ? 'text-surface-300' : 'text-surface-100')}
+        >
           {m.role === 'user' ? (
             <span className="font-medium text-surface-200">You: {m.content}</span>
           ) : (

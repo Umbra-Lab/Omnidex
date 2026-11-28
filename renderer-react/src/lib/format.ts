@@ -96,6 +96,33 @@ export function formatTaxonomyLabel(raw: string | null | undefined): string {
     .join(' ');
 }
 
+/**
+ * A length of time for lists and totals: "2h 05m", "14m", "45s".
+ *
+ * Under a minute shows seconds. It used to floor to "0m", which read as
+ * "empty" for the short intro and outro lessons most courses have.
+ */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '—';
+  const total = Math.round(seconds);
+  if (total < 60) return `${Math.max(1, total)}s`;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+}
+
+/**
+ * A position in a video, the way players show it: "4:07", or "1:02:03" past
+ * an hour (it used to print "62:03").
+ */
+export function formatClock(seconds: number): string {
+  const total = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
 export function formatRating(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
   return n.toFixed(1);
