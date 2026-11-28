@@ -88,6 +88,8 @@ function AddToCollectionBody({ assetIds, onDone }: AddToCollectionBodyProps) {
   const handleAdd = async () => {
     if (busy.current) return;
     busy.current = true;
+    // Which call threw, so the toast names the right one.
+    let step: 'create' | 'add' = 'add';
     try {
       let id: number;
       let label: string;
@@ -97,6 +99,7 @@ function AddToCollectionBody({ assetIds, onDone }: AddToCollectionBodyProps) {
         if (created.current?.name === name) {
           id = created.current.id;
         } else {
+          step = 'create';
           id = await create.mutateAsync({
             name,
             description: null,
@@ -114,14 +117,17 @@ function AddToCollectionBody({ assetIds, onDone }: AddToCollectionBodyProps) {
         id = selectedId;
         label = collections.data?.find((c) => c.id === selectedId)?.name ?? 'collection';
       }
+      step = 'add';
       await addAssets.mutateAsync({ collection_id: id, asset_ids: assetIds });
       await onSuccess(id, label);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(
-        created.current && creating
-          ? `Created "${created.current.name}" but couldn't add to it: ${message}`
-          : `Couldn't add to collection: ${message}`,
+        step === 'create'
+          ? `Couldn't create collection: ${message}`
+          : creating && created.current
+            ? `Created "${created.current.name}" but couldn't add to it: ${message}. It's in the list to try again.`
+            : `Couldn't add to collection: ${message}`,
       );
     } finally {
       busy.current = false;

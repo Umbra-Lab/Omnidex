@@ -123,10 +123,23 @@ describe('AddToCollectionDialog', () => {
     await click('Create new collection');
     typeName('Rocks');
     await click('Add');
-    expect(api.error).toHaveBeenCalledWith('Created "Rocks" but couldn\'t add to it: busy');
+    expect(api.error).toHaveBeenCalledWith(
+      'Created "Rocks" but couldn\'t add to it: busy. It\'s in the list to try again.',
+    );
     await click('Add');
     expect(api.create).toHaveBeenCalledTimes(1);
     expect(api.add).toHaveBeenLastCalledWith({ collection_id: 5, asset_ids: [10, 11] });
     expect(api.success).toHaveBeenCalledWith('Added 2 assets to "Rocks"');
+  });
+
+  it('names the create when a second create fails', async () => {
+    api.create.mockResolvedValueOnce(5).mockRejectedValueOnce(new Error('disk full'));
+    api.add.mockRejectedValueOnce(new Error('busy'));
+    await click('Create new collection');
+    typeName('Rocks');
+    await click('Add');
+    typeName('Stones');
+    await click('Add');
+    expect(api.error).toHaveBeenLastCalledWith("Couldn't create collection: disk full");
   });
 });
