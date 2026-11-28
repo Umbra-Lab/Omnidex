@@ -261,6 +261,9 @@ importers:
       babel-plugin-react-compiler:
         specifier: ^1.0.0
         version: 1.0.0
+      cross-spawn:
+        specifier: 7.0.6
+        version: 7.0.6
       electron:
         specifier: ^45.2.1
         version: 45.2.1

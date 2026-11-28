@@ -16,9 +16,10 @@
 // run ensure-uasset.mjs and stop if it fails: the main process imports the
 // @omnidex/uasset addon at startup, and without its binary Electron raises a
 // blocking "Cannot find native binding" dialog instead of exiting.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import spawn from 'cross-spawn';
 
 const [, , cmd, ...args] = process.argv;
 if (!cmd) {
@@ -38,7 +39,15 @@ if (launchesApp) {
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 
-const child = spawn(cmd, args, { stdio: 'inherit', shell: true, env });
+// cross-spawn resolves Windows `.cmd` shims (pnpm puts node_modules/.bin on PATH)
+// and quotes each argument, so `pnpm test:electron -g "two words"` stays one arg.
+// A bare shell:true re-split arguments on spaces and broke on ( ) quotes.
+const child = spawn(cmd, args, { stdio: 'inherit', env });
+// Without a shell there is no "command not found" line, just an ENOENT stack.
+child.on('error', (err) => {
+  console.error(`run-electron: could not start ${cmd}: ${err.message}`);
+  process.exit(127);
+});
 child.on('exit', (code, signal) => {
   if (signal) process.kill(process.pid, signal);
   else process.exit(code ?? 0);
