@@ -117,6 +117,26 @@ lines.push(
 );
 lines.push('');
 
+// The trim only works on a block of text. On a flex ROW or a grid container
+// the two pseudo-elements become layout items: zero-width, but `gap` is still
+// spent on each side of them (every `flex gap-2 cap-12` row started its
+// content one gap late) and `justify-between` spreads the real content into
+// the middle (the card footer badge sat centred under each asset). A row has
+// no vertical trim to give anyway, so the pseudo-elements go. Column flex is
+// left alone: there the ::before margin does pull the first line up.
+lines.push('/* Flex rows and grids: the trim pseudo-elements are layout items there. */');
+lines.push(
+  [
+    ':is(.flex, .inline-flex):not(.flex-col, .flex-col-reverse)[class*="cap-"]::before,',
+    ':is(.flex, .inline-flex):not(.flex-col, .flex-col-reverse)[class*="cap-"]::after,',
+    ':is(.grid, .inline-grid)[class*="cap-"]::before,',
+    ':is(.grid, .inline-grid)[class*="cap-"]::after {',
+    '  content: none;',
+    '}',
+  ].join('\n'),
+);
+lines.push('');
+
 // Also emit a CSS custom property set for the trim offsets at body size (18px/27px)
 // so components can reference them directly without a class.
 const bodyObj = createStyleObject({

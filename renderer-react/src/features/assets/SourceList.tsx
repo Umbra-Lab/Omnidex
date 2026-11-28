@@ -256,7 +256,9 @@ function NodeRow({
       // toggle in a set rather than "the page you are on".
       aria-pressed={active}
       className={cn(
-        'group relative flex h-7 items-center gap-2 rounded-sm px-2 cap-12 transition-colors [transition-duration:var(--duration-micro)]',
+        // text-left: a <button> centres its text, and the flex-1 label span
+        // inherits that, so every row label sat in the middle of the sidebar.
+        'group relative flex h-7 items-center gap-2 rounded-sm px-2 text-left cap-12 transition-colors [transition-duration:var(--duration-micro)]',
         active
           ? 'bg-surface-800/80 font-medium text-surface-50'
           : 'text-surface-300 hover:bg-surface-900 hover:text-surface-100',
