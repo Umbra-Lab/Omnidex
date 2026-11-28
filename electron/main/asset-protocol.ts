@@ -1,4 +1,4 @@
-import { sep } from 'node:path';
+import { sep, win32 } from 'node:path';
 
 /**
  * Pure encode/decode logic for the custom `omnidex-asset://` scheme, factored
@@ -81,6 +81,10 @@ export function decodeAssetPath(
     // `omnidex-asset://c:/Users/x`: the drive letter became the host and its
     // colon was consumed as an empty port. Uppercase for a canonical result.
     raw = `/${host.toUpperCase()}:${pathname}`;
+  } else if (platform === 'win32') {
+    // A UNC server Chromium promoted to the host: `\\\\nas\\share` was encoded
+    // `omnidex-asset:////nas/share` and arrives as host `nas`.
+    raw = `//${decodeURIComponent(host)}${pathname}`;
   } else {
     raw = `/${decodeURIComponent(host)}${pathname}`;
   }
@@ -93,6 +97,32 @@ export function decodeAssetPath(
   // POSIX: collapse a doubled leading slash (empty-authority legacy form) back
   // to the single absolute root.
   return raw.replace(/^\/{2,}/, '/');
+}
+
+/**
+ * True for a Windows UNC path (`\\\\server\\share\\...`, or `//server/...`).
+ *
+ * Touching one at all (realpath, stat, open) makes Windows connect to that
+ * server and offer the user's NTLM credentials. The handler must therefore
+ * decide whether a UNC path is allowed from its text alone, before any
+ * filesystem call; see `isUncPathPermitted`.
+ */
+export function isUncPath(p: string): boolean {
+  return /^[\\/]{2}[^\\/]/.test(p);
+}
+
+/**
+ * Lexical allowlist check for a UNC path, done before the filesystem is
+ * touched. The path is normalized (collapsing `.`/`..`) and must sit under an
+ * allowed root that is itself a UNC path, i.e. a scan location on a network
+ * share the user added. Case-insensitive, as Windows is. The realpath check
+ * still runs afterwards; this only keeps a request for
+ * `\\\\attacker.example\\x.png` from ever reaching the network.
+ */
+export function isUncPathPermitted(candidate: string, allowedRoots: readonly string[]): boolean {
+  const normalized = win32.normalize(candidate);
+  const uncRoots = allowedRoots.filter(isUncPath).map((r) => win32.normalize(r));
+  return isPathAllowed(normalized, uncRoots, '\\', true);
 }
 
 /**

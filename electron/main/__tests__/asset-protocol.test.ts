@@ -13,6 +13,8 @@ import {
   decodeAssetPath,
   encodeAssetUrl,
   isPathAllowed,
+  isUncPath,
+  isUncPathPermitted,
   parseRangeHeader,
 } from '../asset-protocol';
 
@@ -243,6 +245,49 @@ describe('isPathAllowed — allowlist containment (pure, posix-pinned)', () => {
   it('rejects the empty path and empty roots', () => {
     expect(isPathAllowed('', roots, '/')).toBe(false);
     expect(isPathAllowed('/data/userData/x.png', [], '/')).toBe(false);
+  });
+});
+
+/**
+ * UNC paths must be judged before the filesystem is touched: on Windows,
+ * realpath on `\\\\attacker.example\\x.png` connects to that host and offers
+ * the user's NTLM hash. A thumbnail URL from Orbital can carry such a path
+ * without any script injection, so this is reachable.
+ */
+describe('UNC paths (win32)', () => {
+  it('decodes a UNC URL to a UNC path', () => {
+    expect(decodeAssetPath('omnidex-asset://local//nas/share/x.png', 'win32')).toBe(
+      '\\\\nas\\share\\x.png',
+    );
+    // Legacy form: the server became the host.
+    expect(decodeAssetPath('omnidex-asset://nas/share/x.png', 'win32')).toBe(
+      '\\\\nas\\share\\x.png',
+    );
+  });
+
+  it('recognises UNC paths in either slash style, and nothing else', () => {
+    expect(isUncPath('\\\\nas\\share')).toBe(true);
+    expect(isUncPath('//nas/share')).toBe(true);
+    expect(isUncPath('C:\\Users')).toBe(false);
+    expect(isUncPath('/home/u')).toBe(false);
+    expect(isUncPath('\\\\')).toBe(false);
+  });
+
+  it('refuses a UNC server that is not an allowed root, with no filesystem call', () => {
+    const roots = ['C:\\Users\\u\\AppData\\Roaming\\omnidex', 'D:\\Packs'];
+    expect(isUncPathPermitted('\\\\attacker.example\\share\\x.png', roots)).toBe(false);
+  });
+
+  it('allows a file on a network share the user added as a scan location', () => {
+    const roots = ['C:\\Users\\u\\AppData\\Roaming\\omnidex', '\\\\NAS\\Assets'];
+    expect(isUncPathPermitted('\\\\nas\\assets\\Pack\\thumb.png', roots)).toBe(true);
+  });
+
+  it('does not let .. climb out of an allowed share, or a sibling share prefix match', () => {
+    const roots = ['\\\\nas\\Assets\\Packs'];
+    expect(isUncPathPermitted('\\\\nas\\Assets\\Packs\\..\\Private\\x.png', roots)).toBe(false);
+    expect(isUncPathPermitted('\\\\nas\\Assets\\Packs-secret\\x.png', roots)).toBe(false);
+    expect(isUncPathPermitted('\\\\nas\\Other\\Packs\\x.png', roots)).toBe(false);
   });
 });
 
