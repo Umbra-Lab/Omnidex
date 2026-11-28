@@ -492,13 +492,34 @@ export function clearAssetsForScanLocation(db: Database, locationId: number): nu
  * deletes plus newly-stamped rows — because that is what the caller reports as
  * "pruned" and both mean "no longer on disk".
  */
-export function pruneAssetsNotIn(db: Database, locationId: number, keepPaths: string[]): number {
+export function pruneAssetsNotIn(
+  db: Database,
+  locationId: number,
+  keepPaths: string[],
+  /**
+   * Folders the walk failed to list. Every row at or under one is kept: a
+   * transient EACCES/EBUSY or a share that dropped for a second hides a
+   * subtree from the walk, and "not seen" is not "deleted".
+   */
+  unreadableDirs: readonly string[] = [],
+): number {
   if (keepPaths.length === 0) return 0;
   db.exec('CREATE TEMP TABLE IF NOT EXISTS _scan_seen (path TEXT PRIMARY KEY)');
   try {
     db.exec('DELETE FROM _scan_seen');
     const insert = db.prepare('INSERT OR IGNORE INTO _scan_seen (path) VALUES (?)');
     for (const path of keepPaths) insert.run(path);
+    if (unreadableDirs.length > 0) {
+      // Either separator: rows carry whatever the host OS's `path.join` wrote.
+      const under = (path: string, dir: string) =>
+        path === dir || path.startsWith(`${dir}/`) || path.startsWith(`${dir}\\`);
+      const indexed = db
+        .prepare('SELECT file_path FROM assets WHERE scan_location_id = ?')
+        .all(locationId) as { file_path: string }[];
+      for (const { file_path } of indexed) {
+        if (unreadableDirs.some((dir) => under(file_path, dir))) insert.run(file_path);
+      }
+    }
 
     const vanished = `
       scan_location_id = ?

@@ -110,6 +110,15 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- A folder that briefly fails to open during a scan (permissions, a busy file,
+  a network share dropping out) no longer deletes the packs under it, with
+  their favourites and enrichment. The scan keeps them and lists the folder
+  under "Could not be read" in Library Health. (overnight)
+- A pack whose only `.umap`/`.uasset` sits past the 5,000-file walk cap is
+  stored as an Unreal pack, not a plain folder, and a pack of exactly 5,000
+  files no longer shows its size as partial. (overnight)
+- Cancelling a refresh of all locations now stops the location being scanned,
+  not only the ones after it. (overnight)
 - Oracle MCP: `search_lessons` now applies every term in SQL (matches past the first 2,000 rows were lost), matches non-ASCII titles case-insensitively, `limit` is validated on every tool, and a malformed JSON line gets a `-32700` reply instead of hanging the client (overnight).
 - Library fixes: thumbnails and files under folders containing `#` or `?` now
   load; name sorting ignores case and pages no longer repeat or skip tied rows;

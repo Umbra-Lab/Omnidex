@@ -627,6 +627,34 @@ describe('mutations', () => {
     ).toBe(first);
   });
 
+  it('pruneAssetsNotIn keeps rows under a folder the walk could not read', () => {
+    const fav = seedAsset(db, {
+      name: 'Fav',
+      scan_location_id: 1,
+      file_path: '/lib/Locked/Fav',
+      is_favorite: true,
+    });
+    seedAssets(db, [
+      { name: 'Locked itself', scan_location_id: 1, file_path: '/lib/Locked' },
+      { name: 'Windows path', scan_location_id: 1, file_path: 'D:\\lib\\Busy\\Pack' },
+      // A sibling that merely shares the prefix is not under the folder.
+      { name: 'Sibling', scan_location_id: 1, file_path: '/lib/LockedOut' },
+      { name: 'Seen', scan_location_id: 1, file_path: '/lib/Seen' },
+    ]);
+
+    // A transient EACCES on /lib/Locked is not a deletion.
+    expect(pruneAssetsNotIn(db, 1, ['/lib/Seen'], ['/lib/Locked', 'D:\\lib\\Busy'])).toBe(1);
+    expect(
+      listAssets(db)
+        .map((a) => a.name)
+        .sort(),
+    ).toEqual(['Fav', 'Locked itself', 'Seen', 'Windows path']);
+    const row = db.prepare('SELECT is_favorite FROM assets WHERE id = ?').get(fav) as {
+      is_favorite: number;
+    };
+    expect(row.is_favorite).toBe(1);
+  });
+
   it('pruneAssetsNotIn can be re-run (temp table is dropped each call)', () => {
     seedAssets(db, [
       { name: 'A', scan_location_id: 1, file_path: '/y/a' },
