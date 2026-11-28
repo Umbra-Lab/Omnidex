@@ -53,7 +53,7 @@ export function listCollections(db: Database): CollectionWithCount[] {
            )
          ) AS covers
        FROM collections c
-       ORDER BY COALESCE(c.sort_order, 999), c.name ASC`,
+       ORDER BY COALESCE(c.sort_order, 999), c.name COLLATE NOCASE ASC, c.id ASC`,
     )
     .all() as Record<string, unknown>[];
   return normalizeRows<CollectionWithCount>(rows);
@@ -78,7 +78,7 @@ export function listCollectionAssetCards(db: Database, collectionId: number): As
        FROM collection_items ci
        JOIN assets a ON a.id = ci.asset_id
        WHERE ci.collection_id = ?
-       ORDER BY ci.added_at DESC, a.name ASC`,
+       ORDER BY ci.added_at DESC, a.name COLLATE NOCASE ASC, a.id ASC`,
     )
     .all(collectionId) as Record<string, unknown>[];
   return normalizeRows<AssetCardData>(rows);

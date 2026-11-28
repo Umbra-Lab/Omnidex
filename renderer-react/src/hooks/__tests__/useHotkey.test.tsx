@@ -113,4 +113,89 @@ describe('useHotkey', () => {
     press('k');
     expect(handler).toHaveBeenCalledTimes(1); // no further calls
   });
+
+  it('ignores a bare key typed into a text field, textarea, select or contenteditable', async () => {
+    const handler = vi.fn();
+    await mount({ key: 'a', handler });
+    const fields = [
+      document.createElement('input'),
+      document.createElement('textarea'),
+      document.createElement('select'),
+    ];
+    const editable = document.createElement('div');
+    editable.setAttribute('contenteditable', 'true');
+    const inner = document.createElement('span');
+    editable.append(inner);
+    for (const el of [...fields, editable, inner]) {
+      if (!el.isConnected) document.body.append(el.parentElement ?? el);
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+    }
+    expect(handler).not.toHaveBeenCalled();
+    for (const el of [...fields, editable]) el.remove();
+  });
+
+  it('ignores a modified shortcut typed into a field unless it opts in', async () => {
+    const selectAll = vi.fn();
+    const palette = vi.fn();
+    await mount({ key: 'a', meta: true, handler: selectAll });
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }));
+    expect(selectAll).not.toHaveBeenCalled();
+
+    await unmount();
+    await mount({ key: 'k', meta: true, allowInInputs: true, handler: palette });
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+    expect(palette).toHaveBeenCalledTimes(1);
+    input.remove();
+  });
+
+  it('ignores a bare-key hotkey when ctrl, meta or alt is held', async () => {
+    const handler = vi.fn();
+    await mount({ key: 'r', handler });
+    press('r', { ctrlKey: true }); // Ctrl+R is reload, not "reject"
+    press('r', { metaKey: true });
+    press('r', { altKey: true });
+    expect(handler).not.toHaveBeenCalled();
+    press('r', { shiftKey: true }); // shift only changes case
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire a meta hotkey when alt is also held', async () => {
+    const handler = vi.fn();
+    await mount({ key: 'k', meta: true, handler });
+    press('k', { ctrlKey: true, altKey: true });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('still fires from checkboxes, radios and buttons, which take no text', async () => {
+    const handler = vi.fn();
+    await mount({ key: 'a', handler });
+    const targets: HTMLElement[] = [];
+    for (const type of ['checkbox', 'radio', 'button', 'range']) {
+      const input = document.createElement('input');
+      input.type = type;
+      targets.push(input);
+    }
+    targets.push(document.createElement('button'));
+    for (const el of targets) {
+      document.body.append(el);
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+      el.remove();
+    }
+    expect(handler).toHaveBeenCalledTimes(targets.length);
+  });
+
+  it('treats text-like input types as editable', async () => {
+    const handler = vi.fn();
+    await mount({ key: 'a', handler });
+    for (const type of ['text', 'search', 'email', 'url', 'tel', 'password', 'number']) {
+      const input = document.createElement('input');
+      input.type = type;
+      document.body.append(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+      input.remove();
+    }
+    expect(handler).not.toHaveBeenCalled();
+  });
 });

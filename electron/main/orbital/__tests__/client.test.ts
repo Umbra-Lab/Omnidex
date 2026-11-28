@@ -3,6 +3,7 @@ import {
   __resetClientStateForTests,
   get,
   OrbitalNotFoundError,
+  OrbitalRequestError,
   RateLimitError,
 } from '../client';
 
@@ -175,5 +176,57 @@ describe('circuit breaker', () => {
     await vi.advanceTimersByTimeAsync(5000);
     await expect(p2).resolves.toBe('again');
     expect(fetchMock.mock.calls.length).toBeGreaterThan(callsBefore);
+  });
+});
+
+describe('non-retryable failures', () => {
+  it('does not retry a 403 (exactly one call)', async () => {
+    fetchMock.mockResolvedValue(fakeResponse(403, 'forbidden'));
+
+    const promise = get('/api/forbidden', parseJson);
+    const assertion = expect(promise).rejects.toBeInstanceOf(OrbitalRequestError);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await assertion;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry or trip the breaker on an unparseable 200 body', async () => {
+    fetchMock.mockResolvedValue(fakeResponse(200, '<html>not json</html>'));
+
+    for (let i = 0; i < 6; i += 1) {
+      const p = get(`/api/bad/${i}`, parseJson).catch((e) => e);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(await p).toBeInstanceOf(OrbitalRequestError);
+    }
+    // One call per request (no retries) and the breaker never opened.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it('reports a transport failure as a RateLimitError after retrying', async () => {
+    fetchMock.mockRejectedValue(new TypeError('fetch failed'));
+
+    const promise = get('/api/offline', parseJson);
+    const assertion = expect(promise).rejects.toBeInstanceOf(RateLimitError);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await assertion;
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports a missed overall deadline as a RateLimitError', async () => {
+    // The first attempt lands just inside the 45s deadline; by the time the
+    // backoff elapses there is no time left, so p-retry's AbortError path runs.
+    const start = Date.now();
+    fetchMock.mockImplementation(async () => {
+      vi.setSystemTime(start + 44_900);
+      return fakeResponse(503, 'slow');
+    });
+
+    const promise = get('/api/slow', parseJson).catch((e) => e);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const err = (await promise) as Error;
+    expect(err).toBeInstanceOf(RateLimitError);
+    expect(err.message).toMatch(/deadline exceeded/);
   });
 });

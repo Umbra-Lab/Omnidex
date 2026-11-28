@@ -48,7 +48,7 @@ export function UpdatesCard() {
         </div>
 
         <div className="flex items-center justify-between gap-6 border-t border-surface-800/60 pt-3">
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             <Label htmlFor="update-auto-check">Check automatically</Label>
             <p className="cap-11 text-surface-400">
               Off by default. When on, Omnidex checks at launch and every 4 hours, and once as soon

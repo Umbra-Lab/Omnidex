@@ -117,6 +117,48 @@ work that reached `main` through direct merges with no pull request, the commit.
 - Course chapters follow the sections under the course folder. A course whose
   sections each keep lessons in a `Videos/` subfolder used to show one merged
   "Videos" chapter. Existing courses regroup on their next scan. (#21)
+- Headless jobs (`pnpm refresh-scans`, `enrich-orbital`, `enrich-fab`,
+  `extract-thumbs`, `backfill:course-sources`) now exit `1` when a scan
+  location fails, the FAB library fetch fails, `enrich-orbital` gets no answer
+  at all, the job throws, the database cannot open, or Omnidex is already open
+  (they used to exit `0` without running). They no
+  longer hang on a closed stdin or an unhandled error, never show a modal
+  dialog, and `refresh-scans` waits for thumbnail extraction before it exits.
+  The window's error dialog now shows once per burst of errors. (#18)
+- Marketplace enrichment no longer gives up on packs after a bad network
+  moment: rate-limit, server and connection errors leave a pack to be retried
+  on the next run instead of marking it tried, and an unresponsive Orbital
+  Market now stops the run. Other 4xx errors are no longer retried. (#13)
+- FAB sync reports a failed or interrupted library fetch instead of finishing
+  as if the library were empty, and no longer enriches from a partial library.
+  Packs with both an asset id and a listing id now rematch, and listings
+  without a type are stored as "Asset". (#13)
+- Ask now says "Cancelled." when you stop an answer instead of blaming the model server, reports a Claude Code login failure as an error instead of showing it as the answer, keeps the last line of a streamed local answer, and rechecks for the Claude Code CLI after a slow first check (#16).
+- Removed the unused renderer-callable uasset IPC handlers, so a bad `.uasset` path can no longer abort the main process (#16).
+- A folder that briefly fails to open during a scan (permissions, a busy file,
+  a network share dropping out) no longer deletes the packs under it, with
+  their favourites and enrichment. The scan keeps them and lists the folder
+  under "Could not be read" in Library Health. (#15)
+- A pack whose only `.umap`/`.uasset` sits past the 5,000-file walk cap is
+  stored as an Unreal pack, not a plain folder, and a pack of exactly 5,000
+  files no longer shows its size as partial. (#15)
+- Cancelling a refresh of all locations now stops the location being scanned,
+  not only the ones after it. (#15)
+- Oracle MCP: `search_lessons` now applies every term in SQL (matches past the first 2,000 rows were lost), matches non-ASCII titles case-insensitively, `limit` is validated on every tool, and a malformed JSON line gets a `-32700` reply instead of hanging the client (#14).
+- Library fixes: thumbnails and files under folders containing `#` or `?` now
+  load; name sorting ignores case and pages no longer repeat or skip tied rows;
+  sidebar counts no longer include packs missing from disk; `_` and `%` in
+  search and tag filters match literally; clearing the thumbnail cache no
+  longer wipes course cover paths (#12).
+- Courses keep their state across rescans: Resume returns to the lesson you
+  last played instead of an arbitrary one, a course cover found by the scan is
+  no longer replaced by a stray image from the background thumbnail job, and a
+  lesson whose duration could not be read is retried rather than kept unknown
+  forever. (#11)
+- Subtitles: UTF-16 and Windows-1252 sidecars are decoded correctly instead of
+  giving no cues or replacement characters; a separator line holding only
+  spaces no longer merges two cues; CR-only files parse; and `Lesson.EN.srt`
+  pairs with `Lesson.mp4`. (#11)
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers
@@ -142,6 +184,24 @@ work that reached `main` through direct merges with no pull request, the commit.
   electron-trpc closed every subscription on each hash navigation while the
   renderer still believed it was subscribed; a patch now leaves same-document
   navigations alone. (#64)
+- Single-letter shortcuts fired while typing: searching for "arcade" in Match's
+  manual search accepted, dismissed and rejected the pack. Shortcuts now ignore
+  keys typed into text fields and chords with modifiers they did not ask for,
+  and Ctrl/Cmd-A in the search box selects its text instead of every asset. The
+  command palette (Ctrl/Cmd-K) still opens from anywhere. (#19)
+- The asset selection survived a facet, search or sort change, so after
+  selecting all and switching to Favorites the bulk bar still counted the
+  hidden rows and Remove, Add tags and New collection acted on them. Changing
+  what the list shows now clears the selection. Favoriting also refreshes the
+  inspector and the asset count. (#19)
+- Manage tags could open before the asset's tags had loaded, show "No tags
+  yet", and then save only the new tag, replacing the existing ones. The modal
+  now waits for the tags and blocks saving if they fail to load. (#19)
+- Learn: pausing or closing a lesson left the course percentage, chapter
+  checkmarks and Resume position stale for up to 30 seconds, so Resume reopened
+  at the old spot. Clicking a transcript hit or Ask citation in the lesson
+  already playing did not seek, and a hit's time could carry into the next
+  lesson opened with Resume. (#19)
 
 ### Removed
 

@@ -4,7 +4,7 @@ import { shell } from 'electron';
 import { z } from 'zod';
 import { openDatabase } from '../../db';
 import { dbPath, thumbnailsDir, userDataDir } from '../../db/paths';
-import { appSettingsRepo } from '../../db/repos';
+import { appSettingsRepo, assetsRepo } from '../../db/repos';
 import { getLogFilePath } from '../../logger';
 import { publicProcedure, router } from '../init';
 
@@ -90,11 +90,9 @@ export const settingsRouter = router({
     const before = dirSize(dir);
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true });
-    openDatabase()
-      .prepare(
-        'UPDATE assets SET thumbnail_path = NULL, has_local_thumbnail = 0 WHERE thumbnail_path IS NOT NULL',
-      )
-      .run();
+    // Only rows pointing into the cache we just emptied; course covers live in
+    // the user's own course folders and must keep their thumbnail_path.
+    assetsRepo.clearThumbnailsUnder(openDatabase(), dir);
     return { removed: before.files, freedBytes: before.bytes };
   }),
 

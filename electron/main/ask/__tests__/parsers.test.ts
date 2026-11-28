@@ -74,6 +74,14 @@ describe('parseClaudeLine', () => {
     expect(out.error).toContain('error_max_turns');
   });
 
+  it('treats is_error results as errors even with subtype success', () => {
+    const out = parseClaudeLine(
+      '{"type":"result","subtype":"success","is_error":true,"result":"Invalid API key · Please run /login"}',
+    );
+    expect(out.result).toBeNull();
+    expect(out.error).toContain('Invalid API key');
+  });
+
   it('ignores unknown shapes and non-JSON lines', () => {
     expect(parseClaudeLine('not json').delta).toBeNull();
     expect(parseClaudeLine('{"type":"user"}').delta).toBeNull();

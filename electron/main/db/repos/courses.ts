@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import { compareDirs } from '../../scanner/course-manifest';
-import { subtitleStem, videoStem } from '../../scanner/subtitles';
+import { subtitlePairsWith } from '../../scanner/subtitles';
 
 /**
  * Course manifest queries.
@@ -37,12 +37,17 @@ export function replaceCourseManifest(
   const carried = db
     .prepare(
       `SELECT f.rel_path AS rel_path, p.position_seconds AS position_seconds,
-              p.completed AS completed
+              p.completed AS completed, p.updated_at AS updated_at
          FROM course_files f
          JOIN course_progress p ON p.file_id = f.id
         WHERE f.asset_id = ?`,
     )
-    .all(assetId) as { rel_path: string; position_seconds: number; completed: number }[];
+    .all(assetId) as {
+    rel_path: string;
+    position_seconds: number;
+    completed: number;
+    updated_at: string;
+  }[];
 
   db.prepare('DELETE FROM course_files WHERE asset_id = ?').run(assetId);
 
@@ -65,12 +70,15 @@ export function replaceCourseManifest(
   }
 
   if (carried.length === 0) return;
+  // `updated_at` travels too: it is what `lastPlayed` orders by, and letting it
+  // default to now() would stamp every lesson with the scan time and make
+  // Resume pick an arbitrary one.
   const restore = db.prepare(
-    `INSERT OR REPLACE INTO course_progress (file_id, position_seconds, completed)
-     SELECT id, ?, ? FROM course_files WHERE asset_id = ? AND rel_path = ?`,
+    `INSERT OR REPLACE INTO course_progress (file_id, position_seconds, completed, updated_at)
+     SELECT id, ?, ?, ? FROM course_files WHERE asset_id = ? AND rel_path = ?`,
   );
   for (const row of carried) {
-    restore.run(row.position_seconds, row.completed, assetId, row.rel_path);
+    restore.run(row.position_seconds, row.completed, row.updated_at, assetId, row.rel_path);
   }
 }
 
@@ -178,16 +186,15 @@ export function listCourseFiles(db: Database, assetId: number): CourseFileRow[] 
   // "Does this lesson have subtitles?" is a stem match — `03 - Foo.mp4` pairs
   // with `03 - Foo.srt`. Expressing that in SQL means slicing extensions with
   // substr/length arithmetic, which is unreadable and easy to get subtly
-  // wrong; a Set here is one line and obviously correct.
+  // wrong; a JS check here is one line and obviously correct.
   //
   // This used to strip one extension from BOTH sides, which silently failed on
   // the `03 - Foo.mp4.srt` convention — `foo.mp4` never equals `foo`. That is
   // the shape `scripts/asr/backfill.py` writes, so every Whisper-generated
   // sidecar reported "no subtitles". Both sides now go through the shared
-  // helpers so the flag and the served track can never disagree.
-  const subtitleStems = new Set(
-    rows.filter((r) => r.kind === 'subtitle').map((r) => subtitleStem(r.rel_path)),
-  );
+  // helpers so the flag and the served track can never disagree. A course
+  // holds tens to a few hundred files, so the pairwise check is cheap.
+  const subtitles = rows.filter((r) => r.kind === 'subtitle').map((r) => r.rel_path);
 
   // Ordering happens here, not in SQL. `COLLATE NOCASE` is lexical, so a
   // course with more than nine chapters listed "1 -", "10 -", "11 -", "2 -" —
@@ -199,7 +206,8 @@ export function listCourseFiles(db: Database, assetId: number): CourseFileRow[] 
   return rows
     .map((r) => ({
       ...r,
-      has_subtitle: r.kind === 'video' && subtitleStems.has(videoStem(r.rel_path)) ? 1 : 0,
+      has_subtitle:
+        r.kind === 'video' && subtitles.some((sub) => subtitlePairsWith(sub, r.rel_path)) ? 1 : 0,
     }))
     .sort((a, b) => {
       // Root-level files first, then chapters in the author's numbering.
@@ -232,12 +240,11 @@ export function subtitlePathForVideo(db: Database, videoFileId: number): string 
     .get(videoFileId) as { asset_id: number; rel_path: string } | undefined;
   if (!video) return null;
 
-  const wanted = videoStem(video.rel_path);
   const subs = db
     .prepare("SELECT rel_path, abs_path FROM course_files WHERE asset_id = ? AND kind = 'subtitle'")
     .all(video.asset_id) as { rel_path: string; abs_path: string }[];
 
-  const matches = subs.filter((s) => subtitleStem(s.rel_path) === wanted);
+  const matches = subs.filter((s) => subtitlePairsWith(s.rel_path, video.rel_path));
   // A foreign-language lesson can carry both its native `X.srt` and the Whisper
   // `X.en.srt` translation. Prefer English explicitly — picking the first match
   // would hand back whichever row the DB happened to return.

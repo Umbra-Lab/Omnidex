@@ -106,7 +106,7 @@ export function AiTab() {
           ) : null}
 
           <div className="flex items-center justify-between border-t border-surface-800/60 pt-3">
-            <div>
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="ask-base-url">Local server URL</Label>
               <p className="cap-11 text-surface-400">OpenAI-compatible endpoint of llama-swap.</p>
             </div>
@@ -120,7 +120,7 @@ export function AiTab() {
           </div>
 
           <div className="flex items-center justify-between border-t border-surface-800/60 pt-3">
-            <div>
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="ask-model">Local model</Label>
               <p className="cap-11 text-surface-400">Model name as llama-swap knows it.</p>
             </div>
@@ -134,7 +134,7 @@ export function AiTab() {
           </div>
 
           <div className="flex items-center justify-between border-t border-surface-800/60 pt-3">
-            <div>
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="ask-budget">Context budget (tokens)</Label>
               <p className="cap-11 text-surface-400">
                 Courses over this get a question-scoped subset instead of the whole transcript.

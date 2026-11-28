@@ -19,6 +19,7 @@ import { useAssetSelection } from '@/features/assets/useAssetSelection';
 import { useHotkey } from '@/hooks/useHotkey';
 import { buildAssetMenuItems, useNativeContextMenu } from '@/hooks/useNativeContextMenu';
 import { trpc } from '@/ipc/trpc';
+import { formatCount } from '@/lib/format';
 import { useModals } from '@/stores/modals';
 
 const VIEW_KEY = 'omnidex.assetView';
@@ -128,7 +129,15 @@ export function AssetsView() {
   // Selection is plural. The ordered id list must match render order, because
   // that is what a shift-range resolves against.
   const orderedIds = useMemo(() => items.map((a) => a.id), [items]);
-  const selection = useAssetSelection(orderedIds);
+  // Changing what the list shows drops the selection, so a bulk action only
+  // ever touches rows the user can see.
+  const selectionScope = useMemo(
+    // Search ranks by relevance and ignores sort, so a sort change mid-search
+    // changes nothing on screen and must not drop the selection.
+    () => JSON.stringify({ filter, query, sort: isSearching ? null : sort }),
+    [filter, query, sort, isSearching],
+  );
+  const selection = useAssetSelection(orderedIds, selectionScope);
   const { selected, activeId, count: selectedCount, select, selectAll, clear, forget } = selection;
 
   // Publish into the status bar. Cleared on unmount so another route does not
@@ -148,7 +157,17 @@ export function AssetsView() {
       selectAll();
     },
   });
-  useHotkey({ key: 'Escape', handler: clear, enabled: selectedCount > 0 });
+  // An Escape a dialog or menu already handled (or one pressed inside a
+  // dialog, which closes it) is not also a request to drop the selection.
+  const onEscape = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.target instanceof Element && e.target.closest('[role="dialog"]')) return;
+      clear();
+    },
+    [clear],
+  );
+  useHotkey({ key: 'Escape', handler: onEscape, enabled: selectedCount > 0 });
 
   // Capture-phase scroll listener on the wrapper: scroll events don't bubble,
   // but they DO reach capturing ancestors, so we can react to the grid's own
@@ -201,8 +220,11 @@ export function AssetsView() {
       if (ctx?.prev) queryClient.setQueryData(ctx.key, ctx.prev);
     },
     onSettled: () => {
-      // Sidebar favorite tally is cheap and must stay correct.
+      // Sidebar favorite tally is cheap and must stay correct. The inspector
+      // reads `get` and a Favorites facet's total reads `count`.
       void utils.assets.favoriteCount.invalidate();
+      void utils.assets.get.invalidate();
+      void utils.assets.count.invalidate();
     },
   });
 
@@ -250,21 +272,23 @@ export function AssetsView() {
     if (favorite.isPending || selectedIdList.length === 0) return;
     // Favorite the whole selection unless it is already entirely favorited,
     // in which case the gesture means "unfavorite".
+    // Decide and act on the same rows: the selected ones on screen.
     const selectedRows = items.filter((a) => selected.has(a.id));
-    const allFavorited = selectedRows.length > 0 && selectedRows.every((a) => a.is_favorite);
-    favorite.mutate({ ids: selectedIdList, favorite: !allFavorited });
+    if (selectedRows.length === 0) return;
+    const allFavorited = selectedRows.every((a) => a.is_favorite);
+    favorite.mutate({ ids: selectedRows.map((a) => a.id), favorite: !allFavorited });
   };
 
   const onBulkRemove = () =>
     openConfirm({
-      title: `Delete ${selectedIdList.length} assets?`,
+      title: `Delete ${formatCount(selectedIdList.length)} assets?`,
       body: 'They will be removed from your library. This does not delete the files on disk.',
       confirmLabel: 'Delete',
       destructive: true,
       onConfirm: async () => {
         await remove.mutateAsync(selectedIdList);
         forget(selectedIdList);
-        toast.success(`${selectedIdList.length} assets deleted`);
+        toast.success(`${formatCount(selectedIdList.length)} assets deleted`);
       },
     });
 

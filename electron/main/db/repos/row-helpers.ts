@@ -44,3 +44,11 @@ export function toSqliteBool(value: boolean | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   return value ? 1 : 0;
 }
+
+/**
+ * Escape user text for a LIKE pattern so `%`, `_` and `\` match literally.
+ * Pair every use with `ESCAPE '\'` in the SQL.
+ */
+export function escapeLike(text: string): string {
+  return text.replace(/[\\%_]/g, '\\$&');
+}
