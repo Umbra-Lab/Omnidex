@@ -110,6 +110,8 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Ask now says "Cancelled." when you stop an answer instead of blaming the model server, reports a Claude Code login failure as an error instead of showing it as the answer, keeps the last line of a streamed local answer, and rechecks for the Claude Code CLI after a slow first check (overnight).
+- Removed the unused renderer-callable uasset IPC handlers, so a bad `.uasset` path can no longer abort the main process (overnight).
 - A folder that briefly fails to open during a scan (permissions, a busy file,
   a network share dropping out) no longer deletes the packs under it, with
   their favourites and enrichment. The scan keeps them and lists the folder
