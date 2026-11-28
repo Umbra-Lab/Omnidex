@@ -9,9 +9,10 @@ export type ResumeMode = 'resume' | 'start' | 'next' | 'again';
  * Which lesson the course's play card offers, and how to word it.
  *
  * 1. A lesson you stopped partway through: Resume it.
- * 2. Otherwise the first lesson you have not finished: Start it, or call it
- *    Up next once any lesson is done. Finishing lesson 3 now offers lesson 4,
- *    where it used to fall back to lesson 1.
+ * 2. Otherwise the first unfinished lesson after the last one you finished
+ *    (Up next), so finishing lesson 3 offers lesson 4 where it used to fall
+ *    back to lesson 1. With nothing finished, or only later lessons finished
+ *    and nothing left after them, Start the first unfinished one.
  * 3. Every lesson done: offer the first one again.
  */
 export function pickResumeTarget<T extends ResumeCandidate>(
@@ -20,10 +21,16 @@ export function pickResumeTarget<T extends ResumeCandidate>(
   if (videos.length === 0) return null;
   const partial = videos.find((v) => !v.completed && (v.position_seconds ?? 0) > 0);
   if (partial) return { video: partial, mode: 'resume' };
+  // The first unfinished lesson after the last finished one, so finishing
+  // lesson 3 offers lesson 4; else the first unfinished lesson anywhere.
+  let lastDone = -1;
+  videos.forEach((v, i) => {
+    if (v.completed) lastDone = i;
+  });
+  const after = videos.slice(lastDone + 1).find((v) => !v.completed);
+  if (after) return { video: after, mode: lastDone >= 0 ? 'next' : 'start' };
   const unfinished = videos.find((v) => !v.completed);
-  if (unfinished) {
-    return { video: unfinished, mode: videos.some((v) => v.completed) ? 'next' : 'start' };
-  }
+  if (unfinished) return { video: unfinished, mode: 'start' };
   return { video: videos[0], mode: 'again' };
 }
 

@@ -18,6 +18,16 @@ describe('pickResumeTarget', () => {
     expect(r).toEqual({ video: lesson(3, 0), mode: 'next' });
   });
 
+  it('continues after the last finished lesson, even with gaps before it', () => {
+    const r = pickResumeTarget([lesson(1, 0), lesson(2, 1, 280), lesson(3, 0)]);
+    expect(r).toEqual({ video: lesson(3, 0), mode: 'next' });
+  });
+
+  it('goes back to an earlier gap, worded as Start, once the end is finished', () => {
+    const r = pickResumeTarget([lesson(1, 0), lesson(2, 1, 280)]);
+    expect(r).toEqual({ video: lesson(1, 0), mode: 'start' });
+  });
+
   it('starts a course nobody has opened at its first lesson', () => {
     expect(pickResumeTarget([lesson(1, 0), lesson(2, 0)])).toEqual({
       video: lesson(1, 0),

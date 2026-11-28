@@ -186,7 +186,10 @@ export function AskPane({
 
       {thread.map((m, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: append-only thread
-        <div key={i} className={cn('cap-13', m.role === 'user' ? 'text-surface-300' : 'text-surface-100')}>
+        <div
+          key={i}
+          className={cn('cap-13', m.role === 'user' ? 'text-surface-300' : 'text-surface-100')}
+        >
           {m.role === 'user' ? (
             <span className="font-medium text-surface-200">You: {m.content}</span>
           ) : (
