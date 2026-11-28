@@ -135,7 +135,12 @@ test('inspect sparse assets, act on available information, and organize a missin
     const search = win.getByRole('textbox', { name: 'Search assets' });
     const inspect = async (id: number, query: string) => {
       await search.fill(query);
-      await win.locator(`[data-testid="asset-card"][data-asset-id="${id}"]`).click();
+      // The search is debounced, and a new query drops the selection. Wait for
+      // the grid to show only the match before clicking, or the late query
+      // closes the inspector that the click just opened.
+      const cards = win.locator('[data-testid="asset-card"]');
+      await expect(cards).toHaveCount(1);
+      await cards.and(win.locator(`[data-asset-id="${id}"]`)).click();
       await expect(panel).toBeVisible();
     };
 

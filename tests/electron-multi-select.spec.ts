@@ -252,7 +252,7 @@ test('an unmatched asset says so instead of stacking em-dashes', async () => {
   // meant "never looked up". Three dashes in the top block is the failure.
   const dashRuns = (text.match(/—/g) ?? []).length;
   if (text.includes('Not matched to a marketplace listing')) {
-    await expect(details.getByRole('button', { name: 'Match now' })).toBeVisible();
+    await expect(details.getByRole('button', { name: 'Find match' })).toBeVisible();
     expect(dashRuns).toBeLessThan(3);
   }
 });
