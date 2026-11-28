@@ -250,9 +250,20 @@ function callTool(name, args) {
   }
   if (name === 'search_assets') {
     const limit = Math.min(args.limit ?? 20, 100);
-    const { rows, notes, empty } = search.assets(String(args.query ?? ''), limit);
+    // Fetch extra so collapsing copies still fills the limit.
+    const { rows: found, notes, empty } = search.assets(String(args.query ?? ''), limit * 3);
     if (empty) return 'Empty query.';
-    if (rows.length === 0) return 'No owned assets matched.';
+    if (found.length === 0) return 'No owned assets matched.';
+    // One entry per pack: the same pack copied into several folders (same name and size)
+    // used to take several of the top slots. Extra paths are listed under the first.
+    const groups = new Map();
+    for (const r of found) {
+      const k = `${r.name}\u0000${r.file_size}`;
+      const g = groups.get(k);
+      if (g) g.copies.push(r.file_path);
+      else groups.set(k, { ...r, copies: [] });
+    }
+    const rows = [...groups.values()].slice(0, limit);
     const body = rows
       .map((r) => {
         const size = !r.file_size
@@ -269,7 +280,8 @@ function callTool(name, args) {
         const title =
           r.orbital_title && r.orbital_title !== r.name ? ` ("${r.orbital_title}")` : '';
         const by = r.orbital_seller_name ? ` by ${r.orbital_seller_name}` : '';
-        return `${r.name}${title}${by} — ${r.ecosystem}, ${r.asset_type}${cats ? `, ${cats}` : ''}, ${size}\n  ${r.file_path}`;
+        const copies = r.copies.map((p) => `\n  also at ${p}`).join('');
+        return `${r.name}${title}${by} — ${r.ecosystem}, ${r.asset_type}${cats ? `, ${cats}` : ''}, ${size}\n  ${r.file_path}${copies}`;
       })
       .join('\n');
     return withNotes(notes, body);

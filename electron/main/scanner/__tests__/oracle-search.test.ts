@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import type { Database } from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 // The Oracle MCP server's query builder (plain .mjs, typed by search.d.mts).
@@ -132,11 +133,12 @@ describe('Oracle staged search', () => {
     const a = createSearch(db).assets('narrat', 20);
     expect(names(a.rows)).toEqual(['Narrative Quests']);
     expect(names(createSearch(db).assets('narraitve', 20).rows)).toEqual(['Narrative Quests']);
-    // A one-edit neighbour must not crowd out the stem: both are searched.
-    seedAsset(db, { name: 'Narwal Statue', file_path: '/p/narwal', description: 'narat' });
-    const both = createSearch(db).assets('narrat', 20);
-    expect(names(both.rows)).toContain('Narrative Quests');
-    expect(both.notes[0]).toMatch(/words starting "narat" or "narr"/);
+    // A close word beats the stem fallback: "farmework" is "framework", not "farm".
+    seedAsset(db, { name: 'Ascent Combat Framework', file_path: '/p/acf' });
+    seedAsset(db, { name: 'Farm Tools', file_path: '/p/farm' });
+    expect(names(createSearch(db).assets('farmework', 20).rows)).toEqual([
+      'Ascent Combat Framework',
+    ]);
     // A partial word that hits the wrong thing ("narrator") still widens to its stem.
     seedAsset(db, { name: 'Voice Pack', file_path: '/p/voice', description: 'narrator' });
     const wide = createSearch(db).assets('narrat', 20);
@@ -220,6 +222,21 @@ describe('Oracle staged search', () => {
         encoding: 'utf8',
       });
       expect(scored.stdout).toMatch(/search_assets \/ typo\s+0\/\d+ before/);
+
+      // The same pack copied into two folders is one result, with the second path under it.
+      const copyDb = new DatabaseSync(dbFile);
+      copyDb.exec(
+        "INSERT INTO assets (name, file_path, file_size) VALUES ('Niagara Fire Effects', '/q/fire', 0)",
+      );
+      copyDb.close();
+      const call = spawnSync(process.execPath, ['scripts/oracle-mcp/server.mjs'], {
+        env: { ...process.env, ORACLE_DB: dbFile },
+        input: `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'search_assets', arguments: { query: 'niagara fire' } } })}\n`,
+        encoding: 'utf8',
+      });
+      const text = JSON.parse(call.stdout).result.content[0].text as string;
+      expect(text.match(/^Niagara Fire Effects/gm)).toHaveLength(1);
+      expect(text).toContain('also at /q/fire');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

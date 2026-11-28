@@ -79,6 +79,13 @@ const packs = db
     LIMIT 200`)
   .all();
 
+// Distinct pack names containing a word (LIKE folds ASCII case). Copies of one pack in
+// several folders share a name, so they count once.
+const sharingStmt = db.prepare(`
+  SELECT COUNT(DISTINCT lower(name)) AS n FROM assets
+  WHERE content_format IS NULL AND missing_since IS NULL
+    AND (name LIKE ?1 ESCAPE '\\' OR orbital_title LIKE ?1 ESCAPE '\\')`);
+
 const golden = [];
 const seen = new Set();
 for (const { name } of packs) {
@@ -90,11 +97,15 @@ for (const { name } of packs) {
   seen.add(key);
   const longest = ws.reduce((a, b) => (b.length > a.length ? b : a));
   const add = (kind, query) => golden.push({ tool: 'search_assets', kind, query, expect: name });
+  // A one-word query is only a fair test when that word picks out this pack. "narrative"
+  // names a dozen packs in a library that owns the whole Narrative line, so any of them is
+  // a right answer and scoring one of them would count correct results as misses.
+  const unique = sharingStmt.get(`%${longest}%`).n <= 2;
   // Only a joined-up name has a hidden word worth testing on its own.
-  if (!new RegExp(`(^|[^A-Za-z])${longest}([^A-Za-z]|$)`).test(name)) {
+  if (unique && !new RegExp(`(^|[^A-Za-z])${longest}([^A-Za-z]|$)`).test(name)) {
     add('hidden word', longest.toLowerCase());
   }
-  if (longest.length >= 6) {
+  if (unique && longest.length >= 6) {
     add('word start', longest.slice(0, Math.ceil(longest.length * 0.6)).toLowerCase());
     const i = 1 + rand(longest.length - 3);
     const typo = longest.slice(0, i) + longest[i + 1] + longest[i] + longest.slice(i + 2);

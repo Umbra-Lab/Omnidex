@@ -251,12 +251,11 @@ export function createSearch(db, { legacy = false } = {}) {
         stems.set(lower, [lower, stem]);
         return lower;
       }
-      // Both, when they differ: the nearest word by edits can be an unrelated neighbour
-      // ("narrat" is one edit from some other word), while the stem the typed word starts
-      // with ("narr") is often what was meant. ORing them lets BM25 sort it out.
-      const alts = [...new Set([nearestTerm(lower, slice), stemPrefix(lower, slice)])].filter(
-        Boolean,
-      );
+      // Nearest word by edits first; the stem the word starts with only when nothing is
+      // close. On a real library "farmework" → "framework" is right, and adding its stem
+      // "farm" as well put FarmTools first.
+      const fix = nearestTerm(lower, slice) ?? stemPrefix(lower, slice);
+      const alts = fix ? [fix] : [];
       if (alts.length === 0) return t;
       fixes.push(`"${t}" → words starting ${alts.map((a) => `"${a}"`).join(' or ')}`);
       stems.set(alts[0], alts);
