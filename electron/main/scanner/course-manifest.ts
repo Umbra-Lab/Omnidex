@@ -139,7 +139,15 @@ function classify(ext: string): CourseFileKind | null {
  * Layout: the file is a flat sequence of boxes [4-byte size][4-byte type].
  * `moov` contains `mvhd`, whose payload holds a timescale (ticks per second)
  * and a duration in ticks. Version 0 uses 32-bit fields at offsets 12/16;
- * version 1 uses 64-bit at 20/28.
+ * version 1 uses 64-bit at 20/24.
+ *
+ * A fragmented MP4 (DASH downloads, some screen recorders) puts its samples in
+ * `moof` fragments and writes 0 into `mvhd`, or all ones for "unknown". Those
+ * values are not durations: 0 showed the lesson as 0:00 and pulled the course
+ * total down, and because 0 is not null it was cached and never read again.
+ * For those files the duration comes from `moov > mvex > mehd` (the whole
+ * fragmented length), or else from a top-level `sidx` (the segment index,
+ * summed). With neither, the answer is null.
  *
  * Returns null for anything that is not a readable MP4 — MKV and AVI need
  * entirely different parsers, and a wrong number is worse than no number.
@@ -150,29 +158,40 @@ export async function readMp4Duration(path: string): Promise<number | null> {
     handle = await open(path, 'r');
     const { size } = await handle.stat();
     let offset = 0;
+    let movieTimescale = 0;
+    let sawMoov = false;
 
-    // Top-level scan for `moov`. It is usually first or last; either way we
-    // only read 16 bytes per box header, not the payloads.
+    // Top-level scan. `moov` is usually first or last; either way we only read
+    // 16 bytes per box header, not the payloads.
     while (offset < size - 8) {
       const head = Buffer.alloc(16);
       const { bytesRead } = await handle.read(head, 0, 16, offset);
-      if (bytesRead < 8) return null;
+      if (bytesRead < 8) break;
 
       let boxSize = head.readUInt32BE(0);
       const type = head.toString('latin1', 4, 8);
       let headerLen = 8;
       if (boxSize === 1) {
         // 64-bit extended size lives in the next 8 bytes.
-        if (bytesRead < 16) return null;
+        if (bytesRead < 16) break;
         boxSize = Number(head.readBigUInt64BE(8));
         headerLen = 16;
       } else if (boxSize === 0) {
         boxSize = size - offset; // box runs to EOF
       }
-      if (boxSize < headerLen) return null;
+      if (boxSize < headerLen) break;
 
       if (type === 'moov') {
-        return await readMvhdWithin(handle, offset + headerLen, offset + boxSize);
+        sawMoov = true;
+        const movie = await readMovieDuration(handle, offset + headerLen, offset + boxSize);
+        if (movie.seconds !== null) return movie.seconds;
+        movieTimescale = movie.timescale;
+      } else if (type === 'sidx' && sawMoov) {
+        return await readSidxDuration(handle, offset + headerLen, offset + boxSize);
+      } else if (type === 'moof' && sawMoov && movieTimescale > 0) {
+        // Fragments without a segment index ahead of them: there is nothing
+        // short of walking every fragment, so stop here rather than read on.
+        return null;
       }
       offset += boxSize;
     }
@@ -184,7 +203,60 @@ export async function readMp4Duration(path: string): Promise<number | null> {
   }
 }
 
-async function readMvhdWithin(
+/** True for the values `mvhd`/`mehd` use to mean "not recorded here". */
+function isUnknownTicks(ticks: number, version: number): boolean {
+  return ticks === 0 || (version === 0 ? ticks === 0xffffffff : ticks >= 2 ** 53);
+}
+
+/**
+ * Walk `moov`'s children. Returns seconds when `mvhd` (or, for a fragmented
+ * file, `mvex > mehd`) holds a real duration, and the movie timescale either
+ * way so the caller knows a `moov` was readable.
+ */
+async function readMovieDuration(
+  handle: Awaited<ReturnType<typeof open>>,
+  start: number,
+  end: number,
+): Promise<{ seconds: number | null; timescale: number }> {
+  let timescale = 0;
+  let mvhdTicks: number | null = null;
+  let mehdTicks: number | null = null;
+  let offset = start;
+  while (offset < end - 8) {
+    const head = Buffer.alloc(8);
+    const { bytesRead } = await handle.read(head, 0, 8, offset);
+    if (bytesRead < 8) break;
+    const boxSize = head.readUInt32BE(0);
+    const type = head.toString('latin1', 4, 8);
+    if (boxSize < 8) break;
+
+    if (type === 'mvhd') {
+      const payload = Buffer.alloc(Math.min(boxSize - 8, 40));
+      await handle.read(payload, 0, payload.length, offset + 8);
+      const version = payload.readUInt8(0);
+      if (version === 1) {
+        if (payload.length < 32) break;
+        timescale = payload.readUInt32BE(20);
+        const ticks = Number(payload.readBigUInt64BE(24));
+        mvhdTicks = isUnknownTicks(ticks, 1) ? null : ticks;
+      } else {
+        if (payload.length < 20) break;
+        timescale = payload.readUInt32BE(12);
+        const ticks = payload.readUInt32BE(16);
+        mvhdTicks = isUnknownTicks(ticks, 0) ? null : ticks;
+      }
+    } else if (type === 'mvex') {
+      mehdTicks = await readMehdWithin(handle, offset + 8, offset + boxSize);
+    }
+    offset += boxSize;
+  }
+  if (timescale <= 0) return { seconds: null, timescale: 0 };
+  const ticks = mvhdTicks ?? mehdTicks;
+  return { seconds: ticks === null ? null : ticks / timescale, timescale };
+}
+
+/** `mvex > mehd`: the fragment_duration of the whole movie, in movie ticks. */
+async function readMehdWithin(
   handle: Awaited<ReturnType<typeof open>>,
   start: number,
   end: number,
@@ -197,25 +269,60 @@ async function readMvhdWithin(
     const boxSize = head.readUInt32BE(0);
     const type = head.toString('latin1', 4, 8);
     if (boxSize < 8) return null;
-
-    if (type === 'mvhd') {
-      const payload = Buffer.alloc(Math.min(boxSize - 8, 40));
+    if (type === 'mehd') {
+      const payload = Buffer.alloc(Math.min(boxSize - 8, 12));
       await handle.read(payload, 0, payload.length, offset + 8);
       const version = payload.readUInt8(0);
       if (version === 1) {
-        if (payload.length < 28) return null;
-        const timescale = payload.readUInt32BE(20);
-        const duration = Number(payload.readBigUInt64BE(24));
-        return timescale > 0 ? duration / timescale : null;
+        if (payload.length < 12) return null;
+        const ticks = Number(payload.readBigUInt64BE(4));
+        return isUnknownTicks(ticks, 1) ? null : ticks;
       }
-      if (payload.length < 16) return null;
-      const timescale = payload.readUInt32BE(12);
-      const duration = payload.readUInt32BE(16);
-      return timescale > 0 ? duration / timescale : null;
+      if (payload.length < 8) return null;
+      const ticks = payload.readUInt32BE(4);
+      return isUnknownTicks(ticks, 0) ? null : ticks;
     }
     offset += boxSize;
   }
   return null;
+}
+
+/**
+ * A top-level `sidx` indexes the fragments that follow it. Its timescale is its
+ * own (usually the media track's), and each reference carries a subsegment
+ * duration. Summed, they are the file's length. An index that points at other
+ * indexes (reference_type 1) is hierarchical; rather than follow it, give up.
+ */
+const MAX_SIDX_REFERENCES = 100_000;
+
+async function readSidxDuration(
+  handle: Awaited<ReturnType<typeof open>>,
+  start: number,
+  end: number,
+): Promise<number | null> {
+  const fixed = Buffer.alloc(32);
+  const { bytesRead } = await handle.read(fixed, 0, Math.min(32, end - start), start);
+  if (bytesRead < 4) return null;
+  const version = fixed.readUInt8(0);
+  // version/flags 4, reference_ID 4, timescale 4, then earliest presentation
+  // time and first offset (4+4 in v0, 8+8 in v1), reserved 2, count 2.
+  const countAt = version === 0 ? 20 : 28;
+  if (bytesRead < countAt + 4) return null;
+  const timescale = fixed.readUInt32BE(8);
+  const count = fixed.readUInt16BE(countAt + 2);
+  if (timescale <= 0 || count === 0 || count > MAX_SIDX_REFERENCES) return null;
+
+  const refsStart = start + countAt + 4;
+  const refs = Buffer.alloc(count * 12);
+  const read = await handle.read(refs, 0, refs.length, refsStart);
+  if (read.bytesRead < refs.length || refsStart + refs.length > end) return null;
+  let ticks = 0;
+  for (let i = 0; i < count; i++) {
+    const typeAndSize = refs.readUInt32BE(i * 12);
+    if (typeAndSize >>> 31 === 1) return null; // points at another sidx
+    ticks += refs.readUInt32BE(i * 12 + 4);
+  }
+  return ticks > 0 ? ticks / timescale : null;
 }
 
 /**
@@ -283,12 +390,15 @@ export async function buildCourseManifest(
       // Reuse a duration already on record, but only while the bytes match.
       // A recorded null for a container the reader understands is a failed
       // read, not an answer: reusing it would pin the lesson at "unknown
-      // length" forever, so it is retried while duration reading is on.
+      // length" forever, so it is retried while duration reading is on. A
+      // recorded 0 is the same: older scans stored a fragmented MP4's empty
+      // `mvhd` as 0 seconds, and a real lesson is never 0 long.
       const cached = options.knownDurations?.get(relPath);
+      const known = cached?.duration != null && cached.duration > 0;
       const reuse =
         cached != null &&
         cached.size === sizeBytes &&
-        (cached.duration !== null || !options.readDurations || !DURATION_READABLE_EXT.has(ext));
+        (known || !options.readDurations || !DURATION_READABLE_EXT.has(ext));
 
       out.push({
         relPath,

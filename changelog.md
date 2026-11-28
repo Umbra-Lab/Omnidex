@@ -107,6 +107,10 @@ work that reached `main` through direct merges with no pull request, the commit.
   only ever raises a confident match. (12c2de5, f133764)
 - CI runs on `main`. The pre-commit hook passes when no staged file is one Biome
   handles. (#35)
+- Learn reads the length of fragmented MP4 lessons (DASH downloads, some screen
+  recorders). Their header says 0, so they showed as 0:00 and pulled the course
+  total down, and the 0 was kept on every later scan. The length now comes from
+  the fragment header or the segment index, or stays unknown. (#63)
 
 ### Fixed
 
