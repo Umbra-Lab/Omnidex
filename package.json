@@ -29,6 +29,8 @@
     "extract-thumbs": "node scripts/run-electron.mjs electron . --extract-missing-thumbs",
     "enrich-orbital": "node scripts/run-electron.mjs electron . --enrich-orbital",
     "enrich-fab": "node scripts/run-electron.mjs electron . --enrich-fab",
+    "enrich-tags": "node scripts/run-electron.mjs electron . --enrich-tags",
+    "clear-ai-tags": "node scripts/run-electron.mjs electron . --clear-ai-tags",
     "bench:search": "node scripts/run-electron.mjs electron scripts/bench/search/run-all.mjs",
     "postinstall": "node scripts/ensure-uasset.mjs --soft && node scripts/ensure-electron.mjs &&node scripts/run-electron.mjs electron-rebuild -f -w better-sqlite3,keytar && node scripts/apply-patches.mjs",
     "prepare": "husky",

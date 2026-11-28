@@ -18,6 +18,10 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Added
 
+- `pnpm enrich-tags` writes search keywords for each pack (what it contains,
+  setting, style, synonyms) with Claude through your own Claude Code login,
+  never an API key. They are stored apart from your tags, ranked below them,
+  and `pnpm clear-ai-tags` removes them.
 - `scripts/oracle-mcp/golden.mjs` scores Oracle searches against a list of
   real queries with known answers (hit@5), old behaviour against new.
   `golden-gen.mjs` writes a starter query list from the most-rated packs you

@@ -117,7 +117,9 @@ for (const { name } of packs) {
     const typo = longest.slice(0, i) + longest[i + 1] + longest[i] + longest.slice(i + 2);
     if (typo.toLowerCase() !== longest.toLowerCase()) add('typo', typo.toLowerCase());
   }
-  add('question', `do I have a ${ws.join(' ').toLowerCase()} pack`);
+  // "Blood_VFX_Pack" asks for a "blood pack", not a "blood pack pack".
+  const named = ws.filter((w) => !/^(packs?|assets?)$/i.test(w));
+  if (named.length > 0) add('question', `do I have a ${named.join(' ').toLowerCase()} pack`);
 }
 
 // Cues from across the corpus: rowids spread evenly, so one long course does not dominate.

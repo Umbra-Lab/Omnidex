@@ -88,14 +88,22 @@ For headless runs without stored credentials:
 pnpm enrich-fab --fab-token <bearer> --fab-account <id>
 ```
 
+## AI search keywords
+
+`pnpm enrich-tags` (`electron/main/tagging/`) asks Claude, through the user's own Claude Code CLI, for search keywords each pack's name does not say: what it contains, its setting and style, what it is for, and synonyms ("hallway" for a corridor kit). It runs `claude -p --model opus --output-format json` with the prompt on stdin, about 40 packs per call, most-rated packs first. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed from the child's environment (`claudeCliEnv` in `ask/providers.ts`), so a run uses the subscription login and never bills the API.
+
+Keywords go in `assets.ai_tags`, not the user's `tags`, and into their own `assets_fts` column ranked below every other text (weight 1.5 against the name's 10). `NULL` means never tagged and `''` means the model had nothing to add, so a rerun only asks about new packs. A pack missing from a reply stays `NULL` and is asked about again next run. `pnpm clear-ai-tags` empties the column if a run went wrong.
+
+The model sees only what the library already holds: name, marketplace title, seller, categories, the first 400 characters of the description, and the split folder or file names. It is told not to guess beyond them, and the reply is reduced to at most 12 lowercase phrases of one to three words per pack.
+
 ## Running enrichment
 
 | Where | How |
 |---|---|
 | UI | Settings → Marketplace → **Enrich now** / **Sync now** (FAB Marketplace card) |
-| CLI | `pnpm enrich-orbital` / `pnpm enrich-fab` |
+| CLI | `pnpm enrich-orbital` / `pnpm enrich-fab` / `pnpm enrich-tags` |
 
-Both call the same services and publish to the same `progressBus`.
+Orbital and FAB call the same services from both and publish to the same `progressBus`. `enrich-tags` is CLI-only for now and logs `[tags]` lines.
 
 ## Not yet wired
 

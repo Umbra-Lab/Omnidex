@@ -407,7 +407,7 @@ export function createSearch(db, { legacy = false } = {}) {
     WHERE assets_fts MATCH ?
       AND a.content_format IS NULL
       AND a.missing_since IS NULL
-    ORDER BY bm25(assets_fts, 10.0, 1.0, 5.0, 8.0, 2.0, 2.0, 1.0)
+    ORDER BY bm25(assets_fts, 10.0, 1.0, 5.0, 8.0, 2.0, 2.0, 1.0, 1.5)
     LIMIT ?`);
 
   return {

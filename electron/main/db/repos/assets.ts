@@ -395,7 +395,7 @@ export function searchAssets(
     FROM assets
     JOIN assets_fts ON assets_fts.rowid = assets.id
     WHERE assets_fts MATCH ? AND ${where.join(' AND ')}
-    ORDER BY bm25(assets_fts, 10.0, 1.0, 5.0, 8.0, 2.0, 2.0), assets.id ASC
+    ORDER BY bm25(assets_fts, 10.0, 1.0, 5.0, 8.0, 2.0, 2.0, 1.0, 1.5), assets.id ASC
     LIMIT ? OFFSET ?
   `;
   const rows = db.prepare(sql).all(ftsQuery, ...params, limit, offset) as Record<string, unknown>[];

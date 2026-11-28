@@ -1,3 +1,4 @@
+export * as aiTagsRepo from './ai-tags';
 export * as appSettingsRepo from './app-settings';
 export * as assetsRepo from './assets';
 export * as collectionsRepo from './collections';
