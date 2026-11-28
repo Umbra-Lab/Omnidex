@@ -36,7 +36,7 @@ export function PageHeader({
             {title}
           </h1>
         </div>
-        {description ? <p className="mt-1 cap-12 text-surface-400">{description}</p> : null}
+        {description ? <p className="mt-2.5 cap-12 text-surface-400">{description}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </header>

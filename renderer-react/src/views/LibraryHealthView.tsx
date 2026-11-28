@@ -152,10 +152,13 @@ export function LibraryHealthView() {
                     <Icon size={14} aria-hidden />
                     <span className="cap-11 uppercase tracking-wide">{meta.label}</span>
                   </div>
-                  <div className="mt-2 font-mono cap-23 font-semibold tabular-nums text-surface-50">
+                  {/* Capsize trims each line to cap height, so margins here are
+                      the whole gap between lines of text: mt-1 left the count
+                      touching its description. */}
+                  <div className="mt-3 font-mono cap-23 font-semibold tabular-nums text-surface-50">
                     {formatCount(count)}
                   </div>
-                  <p className="mt-1 cap-11 text-surface-500">{meta.cause}</p>
+                  <p className="mt-2.5 cap-11-prose text-surface-500">{meta.cause}</p>
                 </button>
               );
             })}
