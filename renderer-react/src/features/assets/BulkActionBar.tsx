@@ -51,14 +51,17 @@ export function BulkActionBar({
         transition={reduced ? { duration: 0 } : { duration: 0.28, ease: [0.32, 0.72, 0.24, 1] }}
         role="toolbar"
         aria-label={`${count} assets selected`}
-        // Absolute within the content column, not fixed to the viewport. Centred
-        // on the window it drifted over the inspector and covered its action
-        // footer — the buttons were visible but unclickable. The bar acts on the
-        // grid selection, so it belongs over the grid.
+        // The wrapper is absolute within the content column, not fixed to the
+        // viewport. Centred on the window the bar drifted over the inspector and
+        // covered its action footer. The bar acts on the grid selection, so it
+        // belongs over the grid.
         className="pointer-events-auto flex max-w-full items-center gap-1 whitespace-nowrap rounded-lg border border-surface-700 bg-surface-800 px-3 py-2 shadow-xl shadow-black/60"
       >
-        <span className="pr-2 font-mono tabular-nums cap-14 font-semibold text-surface-50">
-          {formatCount(count)} selected
+        {/* Under 24rem the word "selected" goes, so a four-digit count still
+            fits beside four icons; the toolbar's label keeps the full phrase. */}
+        <span className="min-w-0 truncate pr-2 font-mono tabular-nums cap-14 font-semibold text-surface-50">
+          {formatCount(count)}
+          <span className="hidden @[24rem]:inline"> selected</span>
         </span>
         <span className="h-6 w-px self-stretch bg-surface-600" />
 
@@ -80,11 +83,13 @@ export function BulkActionBar({
         <button
           type="button"
           onClick={onClear}
-          aria-label="Clear selection"
           title="Clear selection (Esc)"
-          className="flex h-8 items-center pl-2 font-mono cap-12 text-surface-400 hover:text-surface-200"
+          className="flex h-8 shrink-0 items-center pl-2 font-mono cap-12 text-surface-400 hover:text-surface-200"
         >
+          {/* No aria-label: the visible "esc to clear" must stay the accessible
+              name when it shows (WCAG 2.5.3), so the icon mode gets sr-only text. */}
           <span className="hidden @[40rem]:inline">esc to clear</span>
+          <span className="sr-only @[40rem]:hidden">Clear selection</span>
           <X size={14} className="@[40rem]:hidden" aria-hidden />
         </button>
       </motion.div>
@@ -108,7 +113,7 @@ function BulkButton({ icon, label, onClick, primary, destructive }: BulkButtonPr
       aria-label={label}
       title={label}
       className={[
-        'flex h-8 items-center gap-1.5 rounded-md px-2.5 @[40rem]:px-3 cap-14 font-medium transition-colors [transition-duration:var(--duration-micro)]',
+        'flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 @[40rem]:px-3 cap-14 font-medium transition-colors [transition-duration:var(--duration-micro)]',
         primary
           ? 'bg-accent-500 text-accent-on hover:bg-accent-400'
           : destructive
