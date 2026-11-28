@@ -110,6 +110,7 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Oracle MCP: `search_lessons` now applies every term in SQL (matches past the first 2,000 rows were lost), matches non-ASCII titles case-insensitively, `limit` is validated on every tool, and a malformed JSON line gets a `-32700` reply instead of hanging the client (overnight).
 - Library fixes: thumbnails and files under folders containing `#` or `?` now
   load; name sorting ignores case and pages no longer repeat or skip tied rows;
   sidebar counts no longer include packs missing from disk; `_` and `%` in

@@ -59,6 +59,13 @@ function asFinite(value, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Non-numeric limits fall back to the default; the rest truncate and clamp to 1..max.
+function clampLimit(value, fallback, max) {
+  // null, '' and booleans mean "not given" (Number() would make them 0 or 1).
+  if (value == null || value === '' || typeof value === 'boolean') value = fallback;
+  return Math.max(1, Math.min(Math.trunc(asFinite(value, fallback)), max));
+}
+
 // Cues key on the subtitle file; the video is the same path minus the sub extension
 // (`lesson.mp4.srt`, `lesson.srt`, and `lesson.en_US.vtt` conventions all exist).
 function videoHint(subPath) {
@@ -105,15 +112,32 @@ const contextStmt = db.prepare(`
  * Terms are ANDed as substrings against the path, so "niagara ribbon" matches a
  * lesson whose folder says Niagara and whose filename says ribbon.
  */
-const lessonsStmt = db.prepare(`
+// SQLite lower()/LIKE fold ASCII only, so a registered `fold` (NFC + JS toLowerCase) makes
+// non-ASCII titles match case-insensitively. Tradeoff: a JS call per candidate row, which is
+// fine for a few thousand lesson paths. One LIKE per term, so LIMIT applies after all terms.
+db.function('fold', { deterministic: true }, (v) =>
+  typeof v === 'string' ? v.normalize('NFC').toLowerCase() : v,
+);
+const lessonsStmts = new Map();
+function lessonsStmtFor(n) {
+  let stmt = lessonsStmts.get(n);
+  if (!stmt) {
+    const likes = Array.from({ length: n }, () => "AND fold(c.rel_path) LIKE ? ESCAPE '\\'").join(
+      ' ',
+    );
+    stmt = db.prepare(`
   SELECT c.rel_path, c.abs_path, c.duration_seconds, c.chapter,
          COALESCE(a.display_title, a.name) AS course
   FROM course_files c
   JOIN assets a ON a.id = c.asset_id
-  WHERE c.kind = 'video' AND lower(c.rel_path) LIKE ? ESCAPE '\\'
+  WHERE c.kind = 'video' ${likes}
   ORDER BY a.name, c.chapter, c.order_index, c.rel_path
   LIMIT ?
 `);
+    lessonsStmts.set(n, stmt);
+  }
+  return stmt;
+}
 
 /**
  * Asset search over the pack library — the half of Omnidex the oracle was blind
@@ -231,7 +255,7 @@ function callTool(name, args) {
   if (unity.names.has(name)) return unity.call(name, args);
   if (docsToolNames.has(name)) return callDocsTool(name, args, docsDbPath);
   if (name === 'search_transcripts') {
-    const limit = Math.max(1, Math.min(Math.trunc(asFinite(args.limit, 20)), 100));
+    const limit = clampLimit(args.limit, 20, 100);
     const match = ftsQuote(String(args.query ?? ''));
     if (!match) return 'Empty query.';
     const rows = args.course
@@ -260,22 +284,17 @@ function callTool(name, args) {
     return rows.map((r) => `@ ${stamp(r.start_ms)}  ${r.text}`).join('\n');
   }
   if (name === 'search_lessons') {
-    const limit = Math.min(args.limit ?? 30, 200);
+    const limit = clampLimit(args.limit, 30, 200);
     const terms = String(args.query ?? '')
+      .normalize('NFC')
       .toLowerCase()
       .split(/\s+/)
       .filter(Boolean);
     if (terms.length === 0) return 'Empty query.';
     // Escape LIKE wildcards so a query containing % or _ cannot match everything.
-    // First term narrows in SQL; the rest filter in JS, so one prepared
-    // statement serves any number of terms.
-    let rows = lessonsStmt.all(`%${likeEscape(terms[0])}%`, 2000);
-    for (const t of terms.slice(1)) {
-      rows = rows.filter((r) => r.rel_path.toLowerCase().includes(t));
-    }
+    const rows = lessonsStmtFor(terms.length).all(...terms.map((t) => `%${likeEscape(t)}%`), limit);
     if (rows.length === 0) return 'No lesson titles matched.';
     return rows
-      .slice(0, limit)
       .map((r) => {
         const mins = r.duration_seconds ? `${Math.round(r.duration_seconds / 60)}m` : '—';
         return `[${r.course}] ${r.rel_path}  (${mins})`;
@@ -283,7 +302,7 @@ function callTool(name, args) {
       .join('\n');
   }
   if (name === 'search_assets') {
-    const limit = Math.min(args.limit ?? 20, 100);
+    const limit = clampLimit(args.limit, 20, 100);
     const match = ftsQuote(String(args.query ?? ''));
     if (!match) return 'Empty query.';
     const rows = assetsStmt.all(match, limit);
@@ -356,9 +375,18 @@ rl.on('line', (line) => {
   try {
     msg = JSON.parse(line);
   } catch {
+    process.stdout.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } })}\n`,
+    );
     return;
   }
-  if (msg === null || typeof msg !== 'object' || Array.isArray(msg)) return;
+  if (msg === null || typeof msg !== 'object' || Array.isArray(msg)) {
+    // Batches are not supported; any non-object (including arrays) is an Invalid Request.
+    process.stdout.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } })}\n`,
+    );
+    return;
+  }
   try {
     const result = handle(msg);
     if (msg.id !== undefined && result !== undefined) {
