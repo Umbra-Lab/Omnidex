@@ -55,8 +55,14 @@ function readState(): WindowState | null {
     return {
       width: Math.max(MIN_WIDTH, Math.round(parsed.width)),
       height: Math.max(MIN_HEIGHT, Math.round(parsed.height)),
-      x: typeof parsed.x === 'number' && Number.isFinite(parsed.x) ? Math.round(parsed.x) : undefined,
-      y: typeof parsed.y === 'number' && Number.isFinite(parsed.y) ? Math.round(parsed.y) : undefined,
+      x:
+        typeof parsed.x === 'number' && Number.isFinite(parsed.x)
+          ? Math.round(parsed.x)
+          : undefined,
+      y:
+        typeof parsed.y === 'number' && Number.isFinite(parsed.y)
+          ? Math.round(parsed.y)
+          : undefined,
       isMaximized: parsed.isMaximized === true,
     };
   } catch {
@@ -65,52 +71,82 @@ function readState(): WindowState | null {
   }
 }
 
-/**
- * True if the given window rectangle is at least partially on a connected
- * display. A window restored entirely off the visible work area (monitor
- * unplugged, resolution changed) is unreachable, so we drop its saved position
- * and let Electron center the window instead.
- */
-function isRectVisible(rect: Rectangle): boolean {
-  const displays = screen.getAllDisplays();
-  return displays.some((display) => {
-    const wa = display.workArea;
-    const overlapsX = rect.x < wa.x + wa.width && rect.x + rect.width > wa.x;
-    const overlapsY = rect.y < wa.y + wa.height && rect.y + rect.height > wa.y;
-    return overlapsX && overlapsY;
-  });
-}
+/** Height of the strip that must stay reachable to drag the window. */
+const TITLE_BAR_HEIGHT = 32;
+/** How much of that strip, horizontally, must be on one display. */
+const MIN_VISIBLE_TITLE_WIDTH = 120;
 
-/**
- * Compute the BrowserWindow constructor options (width/height/x/y) to restore.
- * Position is included only when the saved rectangle is still visible on a
- * connected display; otherwise it's omitted so Electron centers the window.
- * Maximized state is applied separately by `manageWindowState` after the window
- * exists (maximize() must be called on the instance, not via the constructor).
- */
-export function getWindowBounds(): {
+export interface Bounds {
   width: number;
   height: number;
   x?: number;
   y?: number;
-} {
+}
+
+/**
+ * Fit saved bounds to the displays that exist now. Pure, so it is tested
+ * without Electron.
+ *
+ * "Partly on some display" is not enough: a window whose title bar is off
+ * screen can't be dragged back, and a 2560×1400 window saved on a desktop
+ * monitor, centred on a 1366×728 laptop work area, puts its title bar above
+ * the top of the screen. So:
+ *
+ *   - The window is kept where it was only if its title bar strip has at least
+ *     MIN_VISIBLE_TITLE_WIDTH px on one display's work area. It is then shrunk
+ *     to that work area and nudged fully inside it.
+ *   - Otherwise the position is dropped (Electron centres the window) and the
+ *     size is shrunk to the primary display's work area.
+ *
+ * Never below MIN_WIDTH × MIN_HEIGHT: the BrowserWindow enforces those anyway.
+ */
+export function fitBounds(
+  saved: Bounds,
+  workAreas: readonly Rectangle[],
+  primaryWorkArea: Rectangle,
+): Bounds {
+  const fitSize = (wa: Rectangle) => ({
+    width: Math.max(MIN_WIDTH, Math.min(saved.width, wa.width)),
+    height: Math.max(MIN_HEIGHT, Math.min(saved.height, wa.height)),
+  });
+
+  if (saved.x !== undefined && saved.y !== undefined) {
+    const { x, y } = saved;
+    const home = workAreas.find((wa) => {
+      const overlap = Math.min(x + saved.width, wa.x + wa.width) - Math.max(x, wa.x);
+      const titleOnScreen = y >= wa.y && y + TITLE_BAR_HEIGHT <= wa.y + wa.height;
+      return overlap >= MIN_VISIBLE_TITLE_WIDTH && titleOnScreen;
+    });
+    if (home) {
+      const size = fitSize(home);
+      const clamp = (v: number, lo: number, hi: number) =>
+        Math.max(lo, Math.min(v, Math.max(lo, hi)));
+      return {
+        ...size,
+        x: clamp(x, home.x, home.x + home.width - size.width),
+        y: clamp(y, home.y, home.y + home.height - size.height),
+      };
+    }
+  }
+  return fitSize(primaryWorkArea);
+}
+
+/**
+ * Compute the BrowserWindow constructor options (width/height/x/y) to restore.
+ * See `fitBounds` for how saved geometry is fitted to the current displays.
+ * Maximized state is applied separately by `manageWindowState` after the window
+ * exists (maximize() must be called on the instance, not via the constructor).
+ */
+export function getWindowBounds(): Bounds {
   const saved = readState();
   if (!saved) {
     return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
   }
-  const bounds: { width: number; height: number; x?: number; y?: number } = {
-    width: saved.width,
-    height: saved.height,
-  };
-  if (
-    saved.x !== undefined &&
-    saved.y !== undefined &&
-    isRectVisible({ x: saved.x, y: saved.y, width: saved.width, height: saved.height })
-  ) {
-    bounds.x = saved.x;
-    bounds.y = saved.y;
-  }
-  return bounds;
+  return fitBounds(
+    saved,
+    screen.getAllDisplays().map((d) => d.workArea),
+    screen.getPrimaryDisplay().workArea,
+  );
 }
 
 /** True if the saved state had the window maximized (apply post-construction). */

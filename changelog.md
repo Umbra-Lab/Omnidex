@@ -110,6 +110,13 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- A restored window is always reachable. It used to come back where it was if
+  any pixel overlapped a display, and at its saved size even on a smaller
+  screen, so a window saved on a large monitor could open with its title bar
+  above the top of a laptop screen. Now the title bar must be on a display, the
+  window is shrunk to that display and nudged inside it, and otherwise it is
+  centred on the primary display.
+
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
