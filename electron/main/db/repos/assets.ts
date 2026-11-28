@@ -2,6 +2,7 @@ import type { Asset, AssetCardData, AssetFilter, SortOption } from '@omnidex/typ
 import { DEFAULT_SORT, SORT_OPTION_SQL } from '@omnidex/types/db';
 import type { Database } from 'better-sqlite3';
 import { escapeLike, normalizeRow, normalizeRows, toSqliteBool } from './row-helpers';
+import type { ScanLocationRemovalImpact } from './scan-locations';
 
 /**
  * Query layer for the `assets` table. Mirrors behavior of
@@ -434,6 +435,46 @@ export function setFavorite(db: Database, ids: number[], favorite: boolean): voi
   const sql = `UPDATE assets SET is_favorite = ? WHERE id IN (${placeholders})`;
   const stmt = db.prepare(sql);
   stmt.run(toSqliteBool(favorite), ...ids);
+}
+
+/**
+ * Count what `deleteAssets` takes with it for these ids: the same curation
+ * `getScanLocationRemovalImpact` counts for a folder. The ids travel as one
+ * JSON array (`json_each`), so a large selection never meets SQLite's
+ * host-parameter limit.
+ */
+export function getAssetRemovalImpact(db: Database, ids: number[]): ScanLocationRemovalImpact {
+  const sel = 'SELECT value FROM json_each(?)';
+  const json = JSON.stringify(ids);
+  const row = db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM assets WHERE id IN (${sel})) AS assets,
+         (SELECT COUNT(*) FROM assets WHERE id IN (${sel}) AND is_favorite = 1) AS favorites,
+         (SELECT COUNT(*) FROM asset_notes n
+           WHERE n.asset_id IN (${sel})
+             AND (TRIM(COALESCE(n.note_text, '')) <> '' OR n.rating IS NOT NULL)) AS notes,
+         (SELECT COUNT(DISTINCT t.asset_id) FROM asset_tags t
+           WHERE t.asset_id IN (${sel})) AS taggedAssets,
+         (SELECT COUNT(*) FROM collection_items c WHERE c.asset_id IN (${sel}))
+           AS collectionEntries,
+         (SELECT COUNT(*) FROM course_progress p
+            JOIN course_files f ON f.id = p.file_id
+           WHERE f.asset_id IN (${sel})
+             AND (p.position_seconds > 0 OR p.completed = 1)) AS lessonsWithProgress,
+         (SELECT COUNT(*) FROM orbital_match_rejections r WHERE r.asset_id IN (${sel}))
+           AS matchDecisions`,
+    )
+    .get(json, json, json, json, json, json, json) as ScanLocationRemovalImpact;
+  return {
+    assets: Number(row.assets),
+    favorites: Number(row.favorites),
+    notes: Number(row.notes),
+    taggedAssets: Number(row.taggedAssets),
+    collectionEntries: Number(row.collectionEntries),
+    lessonsWithProgress: Number(row.lessonsWithProgress),
+    matchDecisions: Number(row.matchDecisions),
+  };
 }
 
 export function deleteAssets(db: Database, ids: number[]): number {
