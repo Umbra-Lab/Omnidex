@@ -40,6 +40,7 @@ import { type ActionProgress, progressBus } from './progress/bus';
 import { waitForBackgroundThumbnails } from './scanner/pipeline';
 import { refreshAllScans } from './scanner/refresh-all';
 import { findThumbnailSource } from './scanner/thumbnail-finder';
+import { sweepOrphanThumbnails } from './scanner/thumbnail-sweep';
 import { appRouter } from './trpc/router';
 import { initAutoUpdater } from './updater';
 import { getWindowBounds, manageWindowState } from './window-state';
@@ -594,6 +595,22 @@ app.whenReady().then(() => {
   });
 
   initAutoUpdater(() => mainWindow);
+
+  // Thumbnails of packs that were renamed, moved or removed are never deleted
+  // anywhere else, so the cache only grows. Sweep once per launch, a minute
+  // in so it stays off the startup path. It only touches files over a day
+  // old, so an extraction running at the same time is safe.
+  setTimeout(() => {
+    sweepOrphanThumbnails(openDatabase(), thumbnailsDir())
+      .then(({ removed, freedBytes }) => {
+        if (removed > 0) {
+          console.log(
+            `[thumbs] removed ${removed} unused thumbnail(s), ${(freedBytes / 1048576).toFixed(1)} MB`,
+          );
+        }
+      })
+      .catch((err) => console.warn('[thumbs] unused-thumbnail sweep failed:', err));
+  }, 60_000).unref();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
