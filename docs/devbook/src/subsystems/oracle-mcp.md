@@ -105,7 +105,7 @@ The tools test asserts the sorted **list of tool names**, not `tools.length`. A 
 node scripts/oracle-mcp/golden.mjs [golden.json] [path-to-omnidex.db]
 ```
 
-Runs a list of real queries with known answers through the server twice, legacy and current, and prints hit@5 per tool. The list names your own packs and courses, so it lives next to the library as `oracle-golden.json`, not in the repo; start from `scripts/oracle-mcp/golden.example.json`. Each entry is a tool, a query, and a case-insensitive substring one of the top five results must contain. Run it before and after any change to matching or ranking.
+Runs a list of real queries with known answers through the server twice, legacy and current, and prints hit@5 per tool. The list names your own packs and courses, so it lives next to the library as `oracle-golden.json`, not in the repo; start from `scripts/oracle-mcp/golden.example.json`, or generate one with `node scripts/oracle-mcp/golden-gen.mjs`. The generator picks the most-rated packs you own and writes the queries that used to fail for each (a word hidden in a joined-up name, the start of a word, a swapped-letter typo, a question), plus questions built from real transcript cues. It only tests those failure modes, so add real queries as you hit misses. Each entry is a tool, a query, and a case-insensitive substring one of the top five results must contain. Run it before and after any change to matching or ranking.
 
 ## Performance
 

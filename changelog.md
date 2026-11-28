@@ -20,6 +20,8 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 - `scripts/oracle-mcp/golden.mjs` scores Oracle searches against a list of
   real queries with known answers (hit@5), old behaviour against new.
+  `golden-gen.mjs` writes a starter query list from the most-rated packs you
+  own and from real transcript cues.
 - Multi-select in the asset grid, table and collection views: click,
   Ctrl/Cmd-click, Shift-click ranges, Ctrl/Cmd-A for the filtered set, Esc to
   clear. A floating bar applies Favorite, New collection, Add tags and Remove to

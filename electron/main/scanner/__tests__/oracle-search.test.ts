@@ -162,6 +162,26 @@ describe('Oracle staged search', () => {
       expect(run.stderr).toBe('');
       expect(run.stdout).toContain('search_assets       hit@5: 1/2 before, 2/2 after');
       expect(run.stdout).toContain('search_transcripts  hit@5: 0/1 before, 1/1 after');
+
+      // golden-gen.mjs writes a starter file from the same library, then golden.mjs scores it.
+      rmSync(join(dir, 'oracle-golden.json'));
+      const gen = spawnSync(process.execPath, ['scripts/oracle-mcp/golden-gen.mjs', dbFile], {
+        encoding: 'utf8',
+      });
+      expect(gen.status).toBe(0);
+      const generated = JSON.parse(readFileSync(join(dir, 'oracle-golden.json'), 'utf8'));
+      expect(generated).toContainEqual({
+        tool: 'search_assets',
+        kind: 'hidden word',
+        query: 'corridor',
+        expect: 'ModularSciFiCorridor',
+      });
+      expect(generated.some((g: { tool: string }) => g.tool === 'search_transcripts')).toBe(true);
+      const scored = spawnSync(process.execPath, ['scripts/oracle-mcp/golden.mjs'], {
+        env: { ...process.env, ORACLE_DB: dbFile },
+        encoding: 'utf8',
+      });
+      expect(scored.stdout).toMatch(/search_assets \/ typo\s+0\/\d+ before/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

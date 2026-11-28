@@ -15,6 +15,9 @@
  * (a pack name, a lesson path, a phrase from a cue). `args` adds tool arguments, such as
  * { "course": "Niagara" }. Works for every Oracle search tool.
  *
+ * To start from generated queries (popular packs you own, real transcript cues), run
+ * golden-gen.mjs first.
+ *
  * Starts the server twice, read-only: once with ORACLE_SEARCH_LEGACY=1 (exact words, all
  * required) and once as shipped, then prints hit@5 for each.
  */
@@ -150,5 +153,15 @@ for (const tool of [...tools, null]) {
   const rate = (hits) => idx.filter((i) => hits[i] >= 0).length;
   console.log(
     `${(tool ?? 'all').padEnd(19)} hit@${TOP}: ${rate(before)}/${idx.length} before, ${rate(after)}/${idx.length} after`,
+  );
+}
+// golden-gen.mjs tags each query with the failure mode it tests; break those out too.
+const kinds = [...new Set(golden.filter((g) => g.kind).map((g) => `${g.tool} / ${g.kind}`))];
+if (kinds.length > 0) console.log('');
+for (const k of kinds) {
+  const idx = golden.map((g, i) => (`${g.tool} / ${g.kind}` === k ? i : -1)).filter((i) => i >= 0);
+  const rate = (hits) => idx.filter((i) => hits[i] >= 0).length;
+  console.log(
+    `${k.padEnd(32)} ${rate(before)}/${idx.length} before, ${rate(after)}/${idx.length} after`,
   );
 }
