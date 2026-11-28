@@ -14,7 +14,7 @@ A course asset gets one `course_files` row per file that matters:
 | `subtitle` | An `.srt` or `.vtt` sidecar |
 | `doc` | A PDF or readme shipped with the course |
 
-`chapter` and `order_index` come from the folder layout and the author's numbering. Ordering is numeric-aware, so lessons sort `1, 2, 10` rather than `1, 10, 2`.
+`chapter` and `order_index` come from the folder layout and the author's numbering. The chapter is the section folder directly under the course root, so a section's `Videos/` and `Exercises/` subfolders share one chapter (`assignChapters`). Leading folders that hold every video are treated as a wrapper and skipped, but a course with a single section keeps it as its chapter. Inside a chapter, files sit in folder order (files directly in the section first), then by the author's numbering. Ordering is numeric-aware, so lessons sort `1, 2, 10` rather than `1, 10, 2`. Existing courses regroup on their next scan.
 
 Built by `buildCourseManifest` in `electron/main/scanner/course-manifest.ts`, walking to depth 6.
 
@@ -24,11 +24,11 @@ A subtitle belongs to a video when their **stems** match. `electron/main/scanner
 
 ```ts
 const SUB_EXT = /\.(srt|vtt)$/i;
-const LANG_TAG = /\.[a-z]{2}([-_][A-Za-z]{2,4})?$/;
+const LANG_TAG = /\.[a-z]{2}([-_][a-z]{2,4})?$/i;
 const VIDEO_EXT = /\.(mp4|mkv|webm|avi|mov|m4v)$/i;
 ```
 
-Strip the subtitle extension, then a language tag, then a video extension. That last step is what makes `lesson.mp4.srt` — the shape ASR tools write — pair with `lesson.mp4`.
+Strip the subtitle extension, then a language tag, then a video extension. That last step is what makes `lesson.mp4.srt` — the shape ASR tools write — pair with `lesson.mp4`. The tag strip cannot tell `Lesson.EN.srt` from `Intro.UE.srt`, so `subtitlePairsWith()` also accepts the stem without it.
 
 ```admonish warning title="Stem matching must not be greedy"
 `Lesson 10.srt` must not claim `Lesson 1.mp4`. Matching is on the full normalised stem, never a prefix. `electron/main/scanner/__tests__/subtitles.test.ts` pins this.
@@ -42,14 +42,16 @@ A foreign-language lesson can carry both its native `X.srt` and a translated `X.
 
 ## Serving captions
 
-`.srt` and WebVTT differ only in a header line and `,` versus `.` as the millisecond separator, so `toWebVtt()` converts on the fly. The renderer mounts the result as a real `<track>` element rather than rendering cues itself.
+`.srt` and WebVTT differ only in a header line and `,` versus `.` as the millisecond separator, so `toWebVtt()` converts on the fly.
+
+Sidecar bytes go through `decodeSubtitle()` first, for both the player and the transcript index: a UTF-16 BOM is honoured, then strict UTF-8 is tried, then Windows-1252. The renderer mounts the result as a real `<track>` element rather than rendering cues itself.
 
 ## Playback and progress
 
 `course_progress` stores `position_seconds` and `completed` per file id.
 
 ```admonish note title="Progress survives a re-scan"
-Re-scanning deletes and reinserts `course_files` rows, reassigning their ids. The scanner carries progress across by `rel_path`. This is covered by a test precisely because the id churn makes it easy to break silently.
+Re-scanning deletes and reinserts `course_files` rows, reassigning their ids. The scanner carries progress across by `rel_path`, including `updated_at`, which is what Resume orders by. This is covered by a test precisely because the id churn makes it easy to break silently.
 ```
 
 Seeking requires the `omnidex-asset://` handler to answer range requests with `206 Partial Content`. Without it Chromium reports `seekedTo: 0` and resume does not work.

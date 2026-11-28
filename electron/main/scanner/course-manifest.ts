@@ -50,6 +50,13 @@ const AMBIGUOUS_VIDEO_EXT = new Set(['.ts']);
  */
 const UNPLAYABLE_VIDEO_EXT = new Set(['.ts', '.m2ts', '.mts']);
 
+/**
+ * ISO base media containers, the only ones `readMp4Duration` can parse (it
+ * walks `moov` > `mvhd`). Every other video reads as null, so a null cached for
+ * one of those is the final answer and is never worth another file open.
+ */
+const DURATION_READABLE_EXT = new Set(['.mp4', '.m4v', '.mov']);
+
 const extLower = (p: string): string => {
   const dot = p.lastIndexOf('.');
   return dot === -1 ? '' : p.slice(dot).toLowerCase();
@@ -264,10 +271,6 @@ export async function buildCourseManifest(
       if (!kind) continue;
 
       const rel = relative(courseRoot, abs);
-      const parts = rel.split(sep);
-      // The immediate parent under the course root is the chapter. A file at
-      // the root has none.
-      const chapter = parts.length > 1 ? parts[parts.length - 2] : null;
 
       let sizeBytes = 0;
       try {
@@ -278,14 +281,21 @@ export async function buildCourseManifest(
 
       const relPath = rel.split(sep).join('/');
       // Reuse a duration already on record, but only while the bytes match.
+      // A recorded null for a container the reader understands is a failed
+      // read, not an answer: reusing it would pin the lesson at "unknown
+      // length" forever, so it is retried while duration reading is on.
       const cached = options.knownDurations?.get(relPath);
-      const reuse = cached != null && cached.size === sizeBytes;
+      const reuse =
+        cached != null &&
+        cached.size === sizeBytes &&
+        (cached.duration !== null || !options.readDurations || !DURATION_READABLE_EXT.has(ext));
 
       out.push({
         relPath,
         absPath: abs,
         kind,
-        chapter,
+        // Filled in by `assignChapters` once every file is known.
+        chapter: null,
         orderIndex: parseOrderIndex(basename(entry.name)),
         sizeBytes,
         durationSeconds: reuse
@@ -325,15 +335,99 @@ export async function buildCourseManifest(
   out.length = 0;
   out.push(...deduped);
 
-  // Chapter order first, then the author's numbering inside it. Both fall back
-  // to a locale-aware compare so unnumbered files stay stable.
+  const chaptered = assignChapters(out);
+  out.length = 0;
+  out.push(...chaptered);
+
+  // Chapter order first, then the subfolder inside the chapter (files directly
+  // in the chapter come first), then the author's numbering. All fall back to a
+  // locale-aware compare so unnumbered files stay stable.
   out.sort((a, b) => {
     const ch = (a.chapter ?? '').localeCompare(b.chapter ?? '', undefined, { numeric: true });
     if (ch !== 0) return ch;
+    const dir = compareDirs(a.relPath, b.relPath);
+    if (dir !== 0) return dir;
     if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
     return a.relPath.localeCompare(b.relPath, undefined, { numeric: true });
   });
   return out;
+}
+
+/** A section folder the author numbered: "01 - Intro", "3. Basics", "10_Extras". */
+const NUMBERED_FOLDER = /^\d/;
+
+/**
+ * Folder part of a forward-slash relative path; `''` at the course root.
+ */
+function dirOf(relPath: string): string {
+  const cut = relPath.lastIndexOf('/');
+  return cut < 0 ? '' : relPath.slice(0, cut);
+}
+
+/**
+ * Order two files of one chapter by the folder they sit in. Files directly in
+ * the chapter folder sort before its subfolders; subfolders sort numerically.
+ */
+export function compareDirs(a: string, b: string): number {
+  const da = dirOf(a);
+  const db = dirOf(b);
+  if (da === db) return 0;
+  // Segment by segment, so "Videos/Extra" stays with "Videos" rather than
+  // sorting after "Videos-old" the way a whole-string compare would.
+  const sa = da === '' ? [] : da.split('/');
+  const sb = db === '' ? [] : db.split('/');
+  for (let i = 0; i < Math.min(sa.length, sb.length); i += 1) {
+    const c = sa[i].localeCompare(sb[i], undefined, { numeric: true });
+    if (c !== 0) return c;
+  }
+  return sa.length - sb.length;
+}
+
+/**
+ * Set each file's chapter to the section folder it belongs to.
+ *
+ * A course is one root over many sections, and a section often keeps its
+ * lessons in subfolders (`01 - Intro/Videos`, `01 - Intro/Exercises`). The
+ * chapter is therefore the first folder under the course root, not the file's
+ * own parent: keying on the parent merged every section's `Videos` folder into
+ * one chapter.
+ *
+ * A wrapper is a run of leading folders above the sections
+ * (`Course/Niagara Masterclass/01 - Intro/...`), and it is skipped. A folder is
+ * part of the wrapper when every video at or below its depth sits inside it and
+ * some video sits deeper still, so a stray `Trailer.mp4` at the root or an
+ * `Intro.mp4` directly in the wrapper doesn't stop the skip; those videos get
+ * no chapter. A numbered folder (`01 - Intro`) is a section rather than a
+ * wrapper unless the folders inside it are numbered too, so a course with one
+ * numbered section keeps it as its chapter. Files outside
+ * the wrapper, such as a cover at the root, use their own first folder, or
+ * none.
+ */
+export function assignChapters(files: readonly CourseFile[]): CourseFile[] {
+  const videoDirs = files
+    .filter((f) => f.kind === 'video')
+    .map((f) => dirOf(f.relPath))
+    .map((d) => (d === '' ? [] : d.split('/')));
+  const prefix: string[] = [];
+  for (;;) {
+    const k = prefix.length;
+    // Videos that still have a folder at this depth.
+    const below = videoDirs.filter((d) => d.length > k && prefix.every((p, i) => d[i] === p));
+    const name = below[0]?.[k];
+    if (name == null || !below.every((d) => d[k] === name)) break;
+    const next = below.filter((d) => d.length > k + 1).map((d) => d[k + 1]);
+    if (next.length === 0) break;
+    // "2024 Course/01 - Intro" is a wrapper; "01 - Intro/Videos" is a section.
+    if (NUMBERED_FOLDER.test(name) && !next.every((n) => NUMBERED_FOLDER.test(n))) break;
+    prefix.push(name);
+  }
+  return files.map((f) => {
+    const dir = dirOf(f.relPath);
+    const segs = dir === '' ? [] : dir.split('/');
+    const inWrapper = prefix.every((p, i) => segs[i] === p);
+    const rest = inWrapper ? segs.slice(prefix.length) : segs;
+    return { ...f, chapter: rest[0] ?? null };
+  });
 }
 
 /**

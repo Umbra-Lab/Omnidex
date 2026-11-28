@@ -1,6 +1,7 @@
 import type { Statement } from 'better-sqlite3';
 import { openDatabase } from '../db';
 import { type ActionProgress, emitProgress } from '../progress/bus';
+import { RateLimitError } from './client';
 import { ORBITAL_CANDIDATES_SQL } from './enrich-candidates';
 import { matchAssetName } from './matcher';
 import { getProduct } from './product';
@@ -40,6 +41,8 @@ export interface EnrichResult {
   matched: number;
   unmatched: number;
   failed: number;
+  /** True when the run stopped early because the marketplace is rate-limiting or unreachable. */
+  interrupted?: boolean;
 }
 
 // Stores everything the inspector reads. Gallery is JSON-stringified array of
@@ -148,6 +151,7 @@ export async function enrichOrbital(opts: EnrichOrbitalOptions = {}): Promise<En
   let matched = 0;
   let unmatched = 0;
   let failed = 0;
+  let interrupted = false;
   const t0 = Date.now();
 
   emit({
@@ -175,7 +179,7 @@ export async function enrichOrbital(opts: EnrichOrbitalOptions = {}): Promise<En
       try {
         candidates = await matchAssetName(folderName, 5);
       } catch (e) {
-        throw new Error(`matchAssetName threw: ${(e as Error).message}`);
+        throw new Error(`matchAssetName threw: ${(e as Error).message}`, { cause: e });
       }
       const top = candidates[0];
       if (!top || top.strength === 'none') {
@@ -186,7 +190,9 @@ export async function enrichOrbital(opts: EnrichOrbitalOptions = {}): Promise<En
         try {
           detail = await getProduct(top.item.slug);
         } catch (e) {
-          throw new Error(`getProduct(${top.item.slug}) threw: ${(e as Error).message}`);
+          throw new Error(`getProduct(${top.item.slug}) threw: ${(e as Error).message}`, {
+            cause: e,
+          });
         }
         if (!detail) {
           markAttempted.run(row.id);
@@ -198,14 +204,20 @@ export async function enrichOrbital(opts: EnrichOrbitalOptions = {}): Promise<En
       }
     } catch (e) {
       failed += 1;
-      // Mark attempted on transient failure so this row stops re-qualifying as
-      // a candidate on the next run — we do not redo failed network work in a
-      // loop. (Bound = 1 attempt, gated on the existing `orbital_match_attempted`
-      // column. A graduated retry COUNT would need a new column/migration, which
-      // is out of Track 4's file scope — see the WS6 flags.) Malformed legacy
-      // rows still re-qualify via the `LIKE '{%'` clause until repaired by a
-      // successful re-fetch, which is the intended behavior.
-      markAttempted.run(row.id);
+      // Only a definitive answer (matched, or a confirmed no-match) marks a row
+      // attempted. Network trouble (429/5xx, transport failure, open breaker)
+      // says nothing about the pack, so the row stays a candidate for the next
+      // run. Other failures (a bad request or unreadable response) would repeat
+      // identically, so those still mark the row to avoid redoing them in a loop.
+      // Malformed legacy rows re-qualify via the `LIKE '{%'` clause until
+      // repaired by a successful re-fetch.
+      const cause = (e as Error).cause ?? e;
+      const networkTrouble = cause instanceof RateLimitError;
+      if (!networkTrouble) markAttempted.run(row.id);
+      // An open breaker fails every remaining request instantly, so stop the
+      // run rather than churn through the list. The run is short and re-runnable;
+      // waiting out the 60s cooldown inside a headless job would just stall it.
+      if (cause instanceof RateLimitError && cause.breakerOpen) interrupted = true;
       const err = e as Error;
       emit({
         action: 'enrich-orbital',
@@ -216,8 +228,11 @@ export async function enrichOrbital(opts: EnrichOrbitalOptions = {}): Promise<En
         matched,
         unmatched,
         failed,
-        message: `FAIL [${row.id}] ${folderName}: ${err.message}`,
+        message: interrupted
+          ? 'Orbital Market is not responding. Stopping; run enrichment again later.'
+          : `FAIL [${row.id}] ${folderName}: ${err.message}`,
       });
+      if (interrupted) break;
     }
 
     if ((i + 1) % emitEvery === 0 || i + 1 === total) {
@@ -248,10 +263,12 @@ export async function enrichOrbital(opts: EnrichOrbitalOptions = {}): Promise<En
     matched,
     unmatched,
     failed,
-    message: `complete — matched=${matched} unmatched=${unmatched} failed=${failed}`,
+    message: `${interrupted ? 'stopped early' : 'complete'} — matched=${matched} unmatched=${unmatched} failed=${failed}`,
   });
 
-  return { total, matched, unmatched, failed };
+  return interrupted
+    ? { total, matched, unmatched, failed, interrupted }
+    : { total, matched, unmatched, failed };
 }
 
 /**

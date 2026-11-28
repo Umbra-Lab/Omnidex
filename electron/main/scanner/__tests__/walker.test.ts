@@ -107,4 +107,35 @@ describe('walkRoot truncation reporting', () => {
     expect(pack?.sizeIsPartial).toBe(true);
     expect(pack?.fileSize).toBeLessThan(10 + 999);
   });
+
+  it('still finds a .umap that sits past the file cap', async () => {
+    // Files in a folder are counted before its subfolders, so the cap trips on
+    // Content's own textures and Content/Maps is never walked. The pack is
+    // still a UE pack; storing it as a plain folder hides it from every UE view.
+    const root = mkdtempSync(join(tmp, 'pack-'));
+    const content = join(root, 'BigPack', 'Content');
+    mkdirSync(join(content, 'Maps'), { recursive: true });
+    for (let i = 0; i < MAX_FILES_PER_PACK + 100; i += 1) {
+      writeFileSync(join(content, `tex_${i}.png`), 'x');
+    }
+    writeFileSync(join(content, 'Maps', 'Level.umap'), 'x');
+
+    const pack = (await walkRoot(root)).find((f) => f.name === 'BigPack');
+    expect(pack?.sizeIsPartial).toBe(true);
+    expect(pack?.hasUassetFiles).toBe(true);
+  }, 120_000);
+
+  it('does not flag a pack of exactly MAX_FILES_PER_PACK files as partial', async () => {
+    const root = mkdtempSync(join(tmp, 'pack-'));
+    const content = join(root, 'ExactPack', 'Content');
+    mkdirSync(content, { recursive: true });
+    for (let i = 0; i < MAX_FILES_PER_PACK; i += 1) {
+      writeFileSync(join(content, `tex_${i}.png`), 'x');
+    }
+
+    const pack = (await walkRoot(root)).find((f) => f.name === 'ExactPack');
+    expect(pack?.fileCount).toBe(MAX_FILES_PER_PACK);
+    // Every file was counted, so the size is exact, not a lower bound.
+    expect(pack?.sizeIsPartial).toBe(false);
+  }, 120_000);
 });

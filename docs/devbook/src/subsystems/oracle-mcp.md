@@ -93,6 +93,12 @@ node scripts/oracle-mcp/docs-tools.test.mjs
 
 The docs-tools check builds a small mirror with the real Python indexer and exercises every `docs_*` tool, including reading a long page back in full across chunks.
 
+```bash
+node scripts/oracle-mcp/server-search.test.mjs
+```
+
+The search check builds a throwaway library DB, so it needs no real library. It pins `search_lessons` (every term applied in SQL, literal `%`/`_`, case-insensitive non-ASCII titles), `limit` clamping on every tool, and the `-32700` reply to a malformed JSON line. CI runs only vitest, so run these scripts by hand.
+
 The self-check drives the real protocol against the live database: initialize, `tools/list`, a search, a `get_context` derived from that search's own result, and a set of malformed-input cases.
 
 ```admonish note title="Assert names, not counts"
@@ -117,7 +123,7 @@ After moving cues into a real indexed table it is **about 1 ms**. See [The datab
 
 **Read-only, always.** The server opens the database with `readOnly: true`. An assistant should never be able to mutate the library through it.
 
-**Clamp every input.** A negative `limit` clamps to 1 rather than becoming unlimited. FTS5 columns have no type affinity, so string ids are coerced before use.
+**Clamp every input.** A negative or zero `limit` clamps to 1 rather than becoming unlimited, a fractional one truncates, and a non-numeric one falls back to the default. FTS5 columns have no type affinity, so string ids are coerced before use.
 
 **Never crash on bad input.** A raw `null` line must not kill the process; unknown tools return a protocol error (`-32602`); a missing required argument returns a message explaining what was expected. All of these are pinned by the self-check.
 

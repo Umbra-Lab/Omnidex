@@ -138,7 +138,9 @@ export function CommandPalette() {
     [toggleOpen],
   );
 
-  useHotkey({ key: 'k', meta: true, handler: togglePalette });
+  // Opts in to firing from text fields: the palette opens from anywhere,
+  // including the search box, and its own input must be able to close it.
+  useHotkey({ key: 'k', meta: true, allowInInputs: true, handler: togglePalette });
 
   const ctx: CommandContext = useMemo(
     () => ({

@@ -40,6 +40,8 @@ The interval is a politeness budget for someone else's server, not a tuning para
 
 Responses are cached for 24 hours (`cache.ts`).
 
+Only a definitive answer marks a pack `orbital_match_attempted`: a match, or a confirmed no-match (404 or no candidate). Network trouble (429, 5xx, a transport failure, an open breaker) throws `RateLimitError` and leaves the pack for the next run. An open breaker stops the run, because every remaining request would fail instantly. Other 4xx responses and unreadable bodies throw `OrbitalRequestError`, which is never retried and never trips the breaker. The FAB sync returns `fetchError` when the library could not be fetched in full, and enriches nothing from a partial library.
+
 ### The API takes `skip`, not `offset`
 
 ```ts

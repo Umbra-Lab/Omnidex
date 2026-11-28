@@ -63,14 +63,20 @@ export async function refreshAllScans(opts: RefreshOptions = {}): Promise<Refres
     message: `${total} active filesystem location(s) queued`,
   });
 
+  // Abort cancels the location being scanned now, not only the ones queued
+  // after it; the check at the top of the loop then stops the sweep. Every
+  // startScan failure is caught inside the loop, so the listener is always
+  // removed below.
+  let inFlight: number | null = null;
+  const onAbort = () => {
+    if (inFlight != null) cancelScan(inFlight);
+  };
+  opts.signal?.addEventListener('abort', onAbort);
+
   for (let i = 0; i < rows.length; i += 1) {
     const r = rows[i];
     if (!r) continue;
-    if (opts.signal?.aborted) {
-      // Abort the in-flight location too (idempotent if none running) and stop.
-      cancelScan(r.id);
-      break;
-    }
+    if (opts.signal?.aborted) break;
 
     emit({
       action: 'refresh-scans',
@@ -82,6 +88,7 @@ export async function refreshAllScans(opts: RefreshOptions = {}): Promise<Refres
       message: `-> [${r.id}] ${r.name}: ${r.path}`,
     });
 
+    inFlight = r.id;
     try {
       const result = await startScan(r.id);
       if (!result.completed_successfully || result.error) {
@@ -129,6 +136,8 @@ export async function refreshAllScans(opts: RefreshOptions = {}): Promise<Refres
       });
     }
   }
+  inFlight = null;
+  opts.signal?.removeEventListener('abort', onAbort);
 
   emit({
     action: 'refresh-scans',

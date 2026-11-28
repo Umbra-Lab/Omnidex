@@ -1,4 +1,12 @@
-import { Activity, FileArchive, FolderTree, ImageOff, type LucideIcon, Ruler } from 'lucide-react';
+import {
+  Activity,
+  FileArchive,
+  FolderTree,
+  FolderX,
+  ImageOff,
+  type LucideIcon,
+  Ruler,
+} from 'lucide-react';
 import { useState } from 'react';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +18,8 @@ type DiagnosticKind =
   | 'archive-only'
   | 'depth-limit-abandoned'
   | 'thumbnail-failed'
-  | 'path-near-max-length';
+  | 'path-near-max-length'
+  | 'unreadable-folder';
 
 interface KindMeta {
   readonly label: string;
@@ -46,6 +55,13 @@ const KINDS: Record<DiagnosticKind, KindMeta> = {
     cause: 'These packs contain paths close to the Windows 260-character MAX_PATH limit.',
     remedy: 'Move them closer to the drive root, or shorten the folder names.',
   },
+  'unreadable-folder': {
+    label: 'Could not be read',
+    icon: FolderX,
+    cause:
+      'These folders failed to open during the last scan (permissions, a busy file, a dropped network share). Anything already indexed under them was kept as it was.',
+    remedy: 'Check the folder opens in Explorer or Finder, then scan again.',
+  },
 };
 
 const KIND_ORDER: readonly DiagnosticKind[] = [
@@ -53,6 +69,7 @@ const KIND_ORDER: readonly DiagnosticKind[] = [
   'depth-limit-abandoned',
   'thumbnail-failed',
   'path-near-max-length',
+  'unreadable-folder',
 ];
 
 function openLocation(path: string) {
@@ -92,7 +109,7 @@ export function LibraryHealthView() {
       />
 
       {summary.isError ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-danger-500/40 bg-danger-500/5 py-16 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-danger-500/40 bg-danger-500/5 py-16 text-center">
           <Activity size={32} strokeWidth={1.25} className="text-danger-500/70" />
           <p className="font-display cap-14 font-medium text-surface-200">
             Couldn't load diagnostics
@@ -100,7 +117,7 @@ export function LibraryHealthView() {
           <p className="max-w-md cap-12 text-surface-400">{summary.error.message}</p>
         </div>
       ) : total === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-surface-800 bg-surface-900/30 py-16 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-surface-800 bg-surface-900/30 py-16 text-center">
           <Activity size={32} strokeWidth={1.25} className="text-surface-600" />
           <p className="font-display cap-14 font-medium text-surface-200">Nothing skipped</p>
           <p className="max-w-md cap-12 text-surface-400">

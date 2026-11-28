@@ -7,6 +7,7 @@ import { openDatabase } from '../db';
 import { thumbnailsDir } from '../db/paths';
 import { assetsRepo, coursesRepo, scanDiagnosticsRepo, scanLocationsRepo } from '../db/repos';
 import { ASSET_UPSERT_SQL } from './asset-upsert';
+import { createBackgroundJobs } from './background-jobs';
 import {
   buildCourseManifest,
   deriveCourseTitle,
@@ -15,8 +16,10 @@ import {
 } from './course-manifest';
 import { scanDccLocation } from './dcc-index';
 import { buildSearchText } from './search-text';
+import { decodeSubtitle } from './subtitles';
 import { findThumbnailSource } from './thumbnail-finder';
 import { extractThumbnailsIsolated } from './thumbnail-pool';
+import { BACKGROUND_THUMBNAIL_SQL } from './thumbnail-sql';
 import { scanUnityLocation } from './unity';
 import type { DetectedAssetFolder } from './walker';
 import { WALK_DIAGNOSTIC_KINDS, walkRootWithDiagnostics } from './walker';
@@ -45,6 +48,16 @@ export interface ScanProgressPayload {
 }
 
 const activeScans = new Map<number, AbortController>();
+const backgroundThumbnailJobs = createBackgroundJobs();
+
+/**
+ * Resolve once every backgrounded thumbnail extraction has finished. Only the
+ * headless `--refresh-scans` run awaits this, so `app.exit` does not kill the
+ * extraction mid-run; the UI never waits on it.
+ */
+export function waitForBackgroundThumbnails(): Promise<void> {
+  return backgroundThumbnailJobs.drain();
+}
 
 function emit(payload: ScanProgressPayload): void {
   const windows = BrowserWindow.getAllWindows();
@@ -169,9 +182,7 @@ async function scanLocation(
 
   const upsert = db.prepare(ASSET_UPSERT_SQL);
   const existsStmt = db.prepare('SELECT 1 AS present FROM assets WHERE file_path = ? LIMIT 1');
-  const thumbStmt = db.prepare(
-    'UPDATE assets SET thumbnail_path = ?, has_local_thumbnail = 1 WHERE file_path = ?',
-  );
+  const thumbStmt = db.prepare(BACKGROUND_THUMBNAIL_SQL);
   const needsThumbStmt = db.prepare(
     'SELECT thumbnail_path FROM assets WHERE file_path = ? LIMIT 1',
   );
@@ -245,7 +256,12 @@ async function scanLocation(
     // safe on a COMPLETE walk — an aborted scan has a partial `seenPaths` set
     // and would wrongly delete live rows, so skip the prune when aborted.
     if (!controller.signal.aborted) {
-      pruned = assetsRepo.pruneAssetsNotIn(db, locationId, seenPaths);
+      // A folder that failed to list is not a deleted one: keep what is under it.
+      const unreadable = diagnostics
+        .filter((d) => d.kind === 'unreadable-folder')
+        .map((d) => d.path);
+      for (const dir of unreadable) console.warn(`[scan] could not list ${dir}; kept its rows`);
+      pruned = assetsRepo.pruneAssetsNotIn(db, locationId, seenPaths, unreadable);
     }
 
     db.exec('COMMIT');
@@ -286,7 +302,9 @@ async function scanLocation(
     // surface as an `unhandledRejection`. Swallow-and-log so the background job
     // can fail without crashing the process; the foreground scan already
     // returned and the grid falls back to default icons.
-    void backgroundThumbnails({
+    // Tracked so the headless `--refresh-scans` run can wait for it before
+    // exiting (`waitForBackgroundThumbnails`); the UI path ignores it.
+    const job = backgroundThumbnails({
       db,
       locationId,
       locationName: location.name,
@@ -299,6 +317,7 @@ async function scanLocation(
     }).catch((err) => {
       console.error('[scan] background thumbnail job failed:', (err as Error).message);
     });
+    backgroundThumbnailJobs.track(job);
   }
 
   const tDone = Date.now();
@@ -618,7 +637,7 @@ async function indexCourseManifests(
       const fileRow = fileIdOf.get(row.id, sub.relPath) as { id: number } | undefined;
       if (!fileRow) continue;
       try {
-        const text = await readFile(sub.absPath, 'utf8');
+        const text = decodeSubtitle(await readFile(sub.absPath));
         const parsed = parseCues(text);
         if (parsed.length === 0) continue;
         db.exec('BEGIN');
@@ -630,7 +649,7 @@ async function indexCourseManifests(
           db.exec('ROLLBACK');
         }
       } catch {
-        // Unreadable or non-UTF8 subtitle: skip this one, keep the course.
+        // Unreadable subtitle: skip this one, keep the course.
       }
     }
   }

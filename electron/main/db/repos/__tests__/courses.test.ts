@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  lastPlayed,
   listCourseFiles,
   replaceCourseManifest,
   replaceTranscript,
@@ -35,7 +36,8 @@ beforeEach(() => {
       FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE);
     CREATE TABLE course_progress (
       file_id INTEGER PRIMARY KEY, position_seconds REAL NOT NULL DEFAULT 0,
-      completed INTEGER NOT NULL DEFAULT 0, updated_at TEXT,
+      completed INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (file_id) REFERENCES course_files(id) ON DELETE CASCADE);
     CREATE TABLE transcript_cues (
       id INTEGER PRIMARY KEY,
@@ -96,6 +98,25 @@ describe('listCourseFiles ordering', () => {
     ]);
   });
 
+  it('keeps each subfolder of a chapter together, files directly in it first', () => {
+    // A chapter is the section folder, so its Videos/ and Exercises/ share it.
+    // Sorting only by the filename number would interleave them.
+    replaceCourseManifest(db, courseId, [
+      file('01 - Intro/Videos/02 - Setup.mp4', 'video', '01 - Intro', 2),
+      file('01 - Intro/Exercises/03 - Again.mp4', 'video', '01 - Intro', 3),
+      file('01 - Intro/Exercises/01 - Try.mp4', 'video', '01 - Intro', 1),
+      file('01 - Intro/Videos/01 - Hi.mp4', 'video', '01 - Intro', 1),
+      file('01 - Intro/09 - Overview.mp4', 'video', '01 - Intro', 9),
+    ]);
+    expect(listCourseFiles(db, courseId).map((f) => f.rel_path)).toEqual([
+      '01 - Intro/09 - Overview.mp4',
+      '01 - Intro/Exercises/01 - Try.mp4',
+      '01 - Intro/Exercises/03 - Again.mp4',
+      '01 - Intro/Videos/01 - Hi.mp4',
+      '01 - Intro/Videos/02 - Setup.mp4',
+    ]);
+  });
+
   it('flags a video that has a subtitle sidecar with the same stem', () => {
     replaceCourseManifest(db, courseId, [
       file('c/01 - A.mp4', 'video', 'c'),
@@ -105,6 +126,18 @@ describe('listCourseFiles ordering', () => {
     const byName = Object.fromEntries(listCourseFiles(db, courseId).map((f) => [f.rel_path, f]));
     expect(byName['c/01 - A.mp4'].has_subtitle).toBe(1);
     expect(byName['c/02 - B.mp4'].has_subtitle).toBe(0);
+  });
+});
+
+describe('subtitle pairing for names ending in a two-letter word', () => {
+  it('flags and serves Intro.UE.srt for Intro.UE.mp4', () => {
+    replaceCourseManifest(db, courseId, [
+      file('c/Intro.UE.mp4', 'video', 'c'),
+      file('c/Intro.UE.srt', 'subtitle', 'c'),
+    ]);
+    const video = listCourseFiles(db, courseId).find((f) => f.kind === 'video');
+    expect(video?.has_subtitle).toBe(1);
+    expect(subtitlePathForVideo(db, video?.id as number)).toBe('C:/c/c/Intro.UE.srt');
   });
 });
 
@@ -182,5 +215,37 @@ describe('replaceCourseManifest', () => {
     ]);
     const again = listCourseFiles(db, courseId).find((f) => f.rel_path === 'c/01 - A.mp4');
     expect(again?.position_seconds).toBe(42.5);
+  });
+
+  it('keeps when each lesson was last played, so Resume stays on the same lesson', () => {
+    replaceCourseManifest(db, courseId, [
+      file('c/01 - A.mp4', 'video', 'c'),
+      file('c/02 - B.mp4', 'video', 'c'),
+    ]);
+    const [a, b] = listCourseFiles(db, courseId);
+    setProgress(db, a.id, 10, false);
+    setProgress(db, b.id, 20, false);
+    // B was watched a day ago, A a week ago.
+    const stamp = db.prepare('UPDATE course_progress SET updated_at = ? WHERE file_id = ?');
+    stamp.run('2026-01-01 10:00:00', a.id);
+    stamp.run('2026-01-07 10:00:00', b.id);
+    expect(lastPlayed(db)?.rel_path).toBe('c/02 - B.mp4');
+
+    replaceCourseManifest(db, courseId, [
+      file('c/01 - A.mp4', 'video', 'c'),
+      file('c/02 - B.mp4', 'video', 'c'),
+    ]);
+
+    expect(lastPlayed(db)?.rel_path).toBe('c/02 - B.mp4');
+    const stamps = db
+      .prepare(
+        `SELECT f.rel_path, p.updated_at FROM course_progress p
+           JOIN course_files f ON f.id = p.file_id ORDER BY f.rel_path`,
+      )
+      .all();
+    expect(stamps).toEqual([
+      { rel_path: 'c/01 - A.mp4', updated_at: '2026-01-01 10:00:00' },
+      { rel_path: 'c/02 - B.mp4', updated_at: '2026-01-07 10:00:00' },
+    ]);
   });
 });

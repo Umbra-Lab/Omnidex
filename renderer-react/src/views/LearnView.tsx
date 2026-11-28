@@ -7,7 +7,7 @@ import { trpc } from '@/ipc/trpc';
 import { toAssetUrl } from '@/lib/assetUrl';
 import { cn } from '@/lib/cn';
 import { formatCount } from '@/lib/format';
-import { subtitleStem, videoStem } from '@/lib/subtitleStem';
+import { subtitlePairsWith } from '@/lib/subtitleStem';
 
 /**
  * Learn — an index that knows what is inside.
@@ -284,7 +284,18 @@ function CourseDetail({
 
   const videos = useMemo(() => (files.data ?? []).filter((f) => f.kind === 'video'), [files.data]);
   const [playingId, setPlayingId] = useState<number | null>(null);
-  const [seekTo, setSeekTo] = useState<number | null>(null);
+  // A seek is tied to the lesson it was asked for, so a transcript hit or Ask
+  // citation can never leak its time into another lesson opened later. The
+  // nonce makes a repeat request for the lesson already playing a new value.
+  const [seek, setSeek] = useState<{
+    readonly fileId: number;
+    readonly seconds: number;
+    readonly nonce: number;
+  } | null>(null);
+  const seekLesson = useCallback((fileId: number, seconds: number) => {
+    setPlayingId(fileId);
+    setSeek((prev) => ({ fileId, seconds, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
 
   // Resume target: the first unfinished lesson that has a saved position,
   // otherwise the first lesson.
@@ -296,10 +307,11 @@ function CourseDetail({
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the player only when the course changes
   useEffect(() => {
     setPlayingId(null);
-    setSeekTo(null);
+    setSeek(null);
   }, [assetId]);
 
   const active = videos.find((v) => v.id === playingId) ?? null;
+  const activeSeek = active && seek?.fileId === active.id ? seek : null;
   const courseHits = (hits.data ?? []).filter((h) => h.asset_id === assetId);
 
   return (
@@ -321,16 +333,20 @@ function CourseDetail({
             fileId={active.id}
             absPath={active.abs_path}
             title={active.rel_path.split('/').pop() ?? active.rel_path}
-            startAt={seekTo ?? active.position_seconds ?? 0}
+            startAt={activeSeek?.seconds ?? active.position_seconds ?? 0}
+            seekNonce={activeSeek?.nonce ?? 0}
             onEnded={() => setPlayingId(null)}
           />
         ) : resumeTarget ? (
           <button
             type="button"
-            onClick={() => setPlayingId(resumeTarget.id)}
+            onClick={() => {
+              setPlayingId(resumeTarget.id);
+              setSeek(null);
+            }}
             className="flex items-center gap-3 rounded-md border border-surface-800 bg-surface-900 px-4 py-3 text-left transition-colors hover:border-accent-500/50"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-500 text-accent-on">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent-500 text-accent-on">
               <Play size={16} />
             </span>
             <span className="min-w-0">
@@ -357,7 +373,7 @@ function CourseDetail({
               // the same stem beside it. The shared stem helpers handle the
               // `lesson.mp4.srt` shape the Whisper backfill writes — stripping
               // a single extension from both sides never pairs those.
-              const target = videos.find((v) => videoStem(v.rel_path) === subtitleStem(h.rel_path));
+              const target = videos.find((v) => subtitlePairsWith(h.rel_path, v.rel_path));
               return (
                 <button
                   key={`${h.file_id}-${h.start_ms}`}
@@ -365,8 +381,7 @@ function CourseDetail({
                   disabled={!target}
                   onClick={() => {
                     if (!target) return;
-                    setPlayingId(target.id);
-                    setSeekTo(h.start_ms / 1000);
+                    seekLesson(target.id, h.start_ms / 1000);
                   }}
                   className="text-left cap-12 text-surface-200 disabled:opacity-60"
                 >
@@ -382,21 +397,14 @@ function CourseDetail({
 
         {/* Keyed so switching courses unmounts the pane: its unmount cleanup
             cancels any in-flight answer, and no state can leak across courses. */}
-        <AskPane
-          key={assetId}
-          assetId={assetId}
-          onSeek={(videoId, seconds) => {
-            setPlayingId(videoId);
-            setSeekTo(seconds);
-          }}
-        />
+        <AskPane key={assetId} assetId={assetId} onSeek={seekLesson} />
 
         <ChapterList
           files={files.data ?? []}
           activeId={playingId}
           onPlay={(id) => {
             setPlayingId(id);
-            setSeekTo(null);
+            setSeek(null);
           }}
         />
       </div>
@@ -482,6 +490,11 @@ function ChapterList({
 
 /** Throttle for position writes — one row per lesson, but not 4x a second. */
 const SAVE_EVERY_MS = 5000;
+/**
+ * Trailing debounce for the pause save. Scrubbing the timeline fires pause
+ * repeatedly; only the last one in a burst is written.
+ */
+const PAUSE_SAVE_DELAY_MS = 1000;
 /** Past this fraction the lesson counts as watched. */
 const COMPLETE_AT = 0.95;
 
@@ -490,18 +503,47 @@ function Player({
   absPath,
   title,
   startAt,
+  seekNonce,
   onEnded,
 }: {
   readonly fileId: number;
   readonly absPath: string;
   readonly title: string;
   readonly startAt: number;
+  /** Changes when a seek to `startAt` is requested for this lesson. */
+  readonly seekNonce: number;
   readonly onEnded: () => void;
 }) {
   const utils = trpc.useUtils();
   const ref = useRef<HTMLVideoElement | null>(null);
   const lastSave = useRef(0);
+  const pauseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setProgress = trpc.courses.setProgress.useMutation();
+
+  // A save the user will look for straight away (pause, closing the lesson):
+  // once it settles, refresh what shows progress — the course %, the chapter
+  // checkmarks and the Resume target. The throttled timeupdate writes skip
+  // this so the course queries are not refetched every five seconds.
+  // Chained on the promise rather than a mutate callback so it still runs when
+  // the save was made from the unmount cleanup.
+  const saveAndRefresh = (el: HTMLVideoElement) => {
+    void setProgress
+      .mutateAsync({
+        fileId,
+        positionSeconds: el.currentTime,
+        completed: el.duration > 0 && el.currentTime / el.duration > COMPLETE_AT,
+      })
+      .catch(() => {
+        // The global mutation-cache handler surfaces the error.
+      })
+      .then(() =>
+        Promise.all([
+          utils.courses.files.invalidate(),
+          utils.courses.list.invalidate(),
+          utils.courses.get.invalidate(),
+        ]),
+      );
+  };
 
   // Captions. `<track src>` must be WebVTT, and most of the library ships .srt,
   // so main converts and hands back text; a blob URL turns that into something
@@ -542,19 +584,26 @@ function Player({
     if (ref.current && startAt > 0) ref.current.currentTime = startAt;
   }, [startAt]);
 
+  // A seek requested while this lesson is already loaded (a transcript hit or
+  // citation in the lesson that is playing): metadata will not load again, so
+  // seek now. Before metadata, onLoadedMetadata applies it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only an explicit seek request moves the playhead, not a refreshed saved position
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || seekNonce === 0 || el.readyState < 1) return;
+    el.currentTime = startAt;
+  }, [seekNonce]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: persist once on unmount, not on every mutation identity change
   useEffect(() => {
     const el = ref.current;
     // Closing the panel mid-lesson is the common case, and the throttle alone
     // would drop up to five seconds of it.
     return () => {
-      if (el && el.currentTime > 0) {
-        setProgress.mutate({
-          fileId,
-          positionSeconds: el.currentTime,
-          completed: el.duration > 0 && el.currentTime / el.duration > COMPLETE_AT,
-        });
-      }
+      // The unmount save below supersedes a pause save still waiting.
+      if (pauseTimer.current) clearTimeout(pauseTimer.current);
+      pauseTimer.current = null;
+      if (el && el.currentTime > 0) saveAndRefresh(el);
     };
   }, [fileId]);
 
@@ -605,6 +654,16 @@ function Player({
         style={{ maxHeight: '52vh' }}
         onLoadedMetadata={onLoadedMetadata}
         onError={() => setFailed(true)}
+        onPause={(e) => {
+          const el = e.currentTarget;
+          // The pause that precedes `ended` is onEnded's to save.
+          if (el.ended) return;
+          if (pauseTimer.current) clearTimeout(pauseTimer.current);
+          pauseTimer.current = setTimeout(() => {
+            pauseTimer.current = null;
+            if (!el.ended && el.currentTime > 0) saveAndRefresh(el);
+          }, PAUSE_SAVE_DELAY_MS);
+        }}
         onTimeUpdate={(e) => {
           const el = e.currentTarget;
           const now = Date.now();
