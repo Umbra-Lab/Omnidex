@@ -20,7 +20,7 @@ pnpm lint:fix        # biome check --write, same four dirs (lint + format + impo
 pnpm test:run        # vitest, once (pnpm test = watch; pnpm test:coverage = what CI runs)
 pnpm build:uasset    # build the napi addon (needs rustup); pnpm ensure:uasset copies/builds only if no .node exists
 pnpm run rebuild     # electron-rebuild for better-sqlite3 + keytar
-pnpm apply-patches   # re-apply the electron-trpc patch
+pnpm apply-patches   # re-apply any patches/ files (none today)
 ```
 
 - `pnpm lint:fix` applies safe fixes only. `pnpm lint:fix:unsafe` adds `--unsafe`, which can change behavior, so read the diff.
@@ -67,9 +67,8 @@ Helpers: `pnpm inspect-db`, `pnpm audit:dbs`, `pnpm bench:search` (Electron-as-n
 **Boundaries.** Main (`electron/main/`, ESM → `out/main/index.mjs`) owns the database, filesystem, network and every long job. Preload (`electron/preload/index.ts`, CJS) calls `exposeElectronTRPC()`, then exposes the legacy `window.omnidex` bridge. The renderer (`renderer-react/`, Vite with `@vitejs/plugin-react` and the React Compiler, TanStack Router on hash history) holds no authoritative state. Shared types are in `shared/types` (`@omnidex/types`). Overview: `docs/devbook/src/orientation/architecture.md`.
 
 **One data path.** Renderer → `electron-trpc` + superjson → `electron/main/trpc/router.ts`, which mounts 13 sub-routers from `trpc/routers/` (assets, scanLocations, collections, courses, notes, settings, scanner, orbital, fab, libraryHealth, progress, ask, updates). Routers call the repo layer in `electron/main/db/repos/`; none touches SQL. New renderer data access is a tRPC procedure (`docs/devbook/src/guides/add-a-trpc-procedure.md`). `window.omnidex` and `electron/main/ipc/` (`omnidex:*` channels) remain for shell, dialog, menu, events and platform calls; don't extend them for data.
-- `patches/electron-trpc@1.0.0-alpha.0.patch` adds superjson. Without it every call throws `reading 'serialize'`. pnpm 11 ignores `patchedDependencies`, so `scripts/apply-patches.mjs` applies it at install.
-- That patch bypasses tRPC's `errorFormatter`: custom `data` on a thrown `TRPCError` never reaches the renderer. Return the detail in the result instead.
-- `patches/electron-trpc@1.0.0-alpha.0.same-document-navigation.patch` stops electron-trpc closing a frame's subscriptions on hash-route changes. Without it `AppShell`'s once-at-mount `progress.onProgress` subscription dies at the first navigation and the scan progress panel goes silent. `apply-patches.mjs` applies each `<pkg>@<version>[.<topic>].patch` on its own, so add a new fix as a new file rather than amending an applied one.
+- `electron-trpc` 1.0 needs no patches. It applies the superjson transformer and calls tRPC 11 procedures itself, builds errors through `getTRPCErrorShape` (so the router's `errorFormatter` runs), and closes a frame's subscriptions only on a cross-document navigation, so `AppShell`'s once-at-mount `progress.onProgress` subscription survives hash-route changes.
+- pnpm 11 ignores `patchedDependencies`, so `scripts/apply-patches.mjs` applies any `patches/<pkg>@<version>[.<topic>].patch` at install. There are none today; add a new fix as a new file rather than amending an applied one.
 
 **Startup and state.** `electron/main/index.ts` pins `app.setName('omnidex')` first, so dev, test and packaged runs share one userData dir and one `omnidex.db` (`db/paths.ts`). It also holds the single-instance lock (a second launch exits) and registers the privileged `omnidex-asset://` protocol, which serves local files only under userData or an active scan root.
 
