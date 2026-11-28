@@ -81,6 +81,9 @@ export function StorageTab() {
       `Chrome        ${runtime.versions.chrome ?? 'n/a'}`,
       `Node          ${runtime.versions.node ?? 'n/a'}`,
       s ? `Database      ${s.dbPath} (${formatBytes(s.dbBytes)})` : 'Database      unavailable',
+      s && s.backupCount > 0
+        ? `DB backups    ${formatCount(s.backupCount)} files, ${formatBytes(s.backupBytes)}`
+        : '',
       s
         ? `Thumbnails    ${s.thumbnailsPath} (${formatCount(s.thumbnailCount)} files, ${formatBytes(s.thumbnailBytes)})`
         : 'Thumbnails    unavailable',
@@ -151,6 +154,15 @@ export function StorageTab() {
                 path={s?.dbPath ?? null}
                 value={formatBytes(s?.dbBytes ?? 0)}
               />
+              {s && s.backupCount > 0 ? (
+                // Written before an update migrates the database; the newest
+                // two are kept (db/backups.ts).
+                <StorageRow
+                  label="Database backups"
+                  path={s.backupPattern}
+                  value={`${formatCount(s.backupCount)} ${s.backupCount === 1 ? 'copy' : 'copies'} · ${formatBytes(s.backupBytes)}`}
+                />
+              ) : null}
               <StorageRow
                 label="Thumbnail cache"
                 path={s?.thumbnailsPath ?? null}

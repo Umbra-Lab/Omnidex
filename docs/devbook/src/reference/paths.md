@@ -13,6 +13,7 @@ Everything Omnidex writes lives under Electron's `userData` directory. Resolved 
 | Path | Contents |
 |---|---|
 | `omnidex.db` | The SQLite database, plus `-wal` and `-shm` |
+| `omnidex.db.bak-<time>` | Full copy taken before an update applies migrations. The newest two are kept; older ones are deleted after a clean upgrade (`db/backups.ts`) |
 | `thumbnails/` | Extracted PNGs |
 | `search_index/` | Reserved |
 | `logs/` | Application logs, and the Whisper backfill manifest |

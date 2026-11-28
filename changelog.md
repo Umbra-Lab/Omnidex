@@ -110,6 +110,11 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Pre-migration database backups no longer pile up. Each update that ran a
+  migration left a full copy of the catalog (gigabytes once transcripts are
+  indexed) and none were ever deleted; after a clean upgrade only the newest
+  two are kept. A backup that fails part-way (disk full) is removed instead
+  of left truncated.
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
