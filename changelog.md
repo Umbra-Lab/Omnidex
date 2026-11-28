@@ -107,6 +107,10 @@ work that reached `main` through direct merges with no pull request, the commit.
   only ever raises a confident match. (12c2de5, f133764)
 - CI runs on `main`. The pre-commit hook passes when no staged file is one Biome
   handles. (#35)
+- With the inspector open, Escape in a confirm dialog, menu or picker closes
+  that dialog, as it should. The inspector caught Escape first, closed itself
+  behind the dialog and left the dialog open. The gallery's arrow keys also
+  leave an open menu alone. (#64)
 
 ### Fixed
 
