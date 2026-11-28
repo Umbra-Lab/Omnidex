@@ -14,6 +14,17 @@ import {
 import { closeDatabase, openDatabase } from './db';
 import { thumbnailsDir } from './db/paths';
 import { enrichFab, FabAuthRequiredError } from './fab/enrich';
+import {
+  ALREADY_RUNNING_MESSAGE,
+  ANOTHER_PROCESS_MESSAGE,
+  createDialogThrottle,
+  exitCodeForFailures,
+  type HeadlessIo,
+  isHeadlessRun,
+  orbitalExitCode,
+  readLineFrom,
+  runHeadless,
+} from './headless';
 import { registerCredentialsIpc } from './ipc/credentials';
 import { registerDialogIpc } from './ipc/dialog';
 import { registerFabIpc } from './ipc/fab';
@@ -26,6 +37,7 @@ import { registerGlobalHotkeys } from './native/hotkeys';
 import { registerNotificationIpc } from './native/notifications';
 import { enrichOrbital } from './orbital/enrich';
 import { type ActionProgress, progressBus } from './progress/bus';
+import { waitForBackgroundThumbnails } from './scanner/pipeline';
 import { refreshAllScans } from './scanner/refresh-all';
 import { findThumbnailSource } from './scanner/thumbnail-finder';
 import { appRouter } from './trpc/router';
@@ -41,6 +53,9 @@ const ENRICH_FAB = process.argv.includes('--enrich-fab');
 const BACKFILL_COURSE_SOURCES = process.argv.includes('--backfill-course-sources');
 const INJECT_GALLERY_FIXTURE = process.argv.includes('--inject-gallery-fixture');
 const REVERT_GALLERY_FIXTURE = process.argv.includes('--revert-gallery-fixture');
+// Any of the above (or --check-fixture): no window, no modal dialogs, and the
+// exit code reports the outcome so a scheduled run can be trusted.
+const HEADLESS = isHeadlessRun(process.argv);
 
 // The built main bundle's directory. Not named __dirname: electron-vite 6 injects
 // that binding into ESM output itself, and a second declaration fails to load.
@@ -67,6 +82,15 @@ startCrashReporter();
 
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
+  // A CLI job that loses the lock to an open window would otherwise exit 0
+  // having done nothing, and a scheduled run would look like it succeeded.
+  if (HEADLESS) {
+    console.error(`[omnidex] ${ALREADY_RUNNING_MESSAGE}`);
+    process.exit(1);
+  }
+  // The lock may be held by a headless job rather than a window, in which case
+  // nothing comes forward; say why this launch did nothing.
+  console.error(`[omnidex] ${ANOTHER_PROCESS_MESSAGE}`);
   app.quit();
   process.exit(0);
 }
@@ -78,11 +102,14 @@ let mainWindow: BrowserWindow | null = null;
 // silently tears the process down with no diagnostics. Log it, and if a
 // window is up, show a NON-fatal error dialog so the app keeps running
 // instead of vanishing. We deliberately do not re-throw / quit here.
+// The dialog is synchronous and modal, so a burst of errors shows only the
+// first one; the rest within 10s are log-only.
+const allowErrorDialog = createDialogThrottle(10_000);
 function reportNonFatal(scope: string, err: unknown): void {
   const e =
     err instanceof Error ? err : new Error(typeof err === 'string' ? err : JSON.stringify(err));
   console.error(`[omnidex] ${scope}:`, e);
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  if (!HEADLESS && mainWindow && !mainWindow.isDestroyed() && allowErrorDialog()) {
     dialog.showErrorBox(
       'Omnidex — Unexpected error',
       `Something went wrong but Omnidex is still running.\n\n${scope}: ${e.message}`,
@@ -324,8 +351,14 @@ function createWindow(): void {
   // (and possibly maximized) geometry is in place before the window paints.
   manageWindowState(mainWindow);
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow?.show();
+  const win = mainWindow;
+  win.on('ready-to-show', () => {
+    win.show();
+  });
+  // Drop the reference once the window is gone, so the app menu, hotkeys and
+  // second-instance handler see "no window" rather than a destroyed one.
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
   });
 
   // Electron process-death recovery for this window (render-process-gone /
@@ -359,8 +392,11 @@ function createWindow(): void {
   }
 }
 
-app.on('second-instance', () => {
-  if (mainWindow) {
+app.on('second-instance', (_event, argv) => {
+  // A CLI job launched while the window is open exits on its own (it prints
+  // that Omnidex is already running); don't pull the window forward for it.
+  if (isHeadlessRun(argv)) return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   }
@@ -489,6 +525,12 @@ app.whenReady().then(() => {
       '',
       e.message,
     ];
+    if (HEADLESS) {
+      // No one is there to dismiss a modal; the message is already on stderr.
+      console.error(`[omnidex] ${detailLines.join('\n')}`);
+      app.exit(1);
+      return;
+    }
     dialog.showErrorBox(
       'Omnidex — Database error',
       `Omnidex can't start because its database failed to open.\n\n${detailLines.join('\n')}`,
@@ -506,45 +548,34 @@ app.whenReady().then(() => {
   registerMenuIpc();
   registerNotificationIpc();
 
+  // Each job returns its exit code; runHeadless exits with it, and exits 1 on
+  // a throw instead of leaving the process alive with nothing to do.
   if (REFRESH_SCANS) {
-    void runRefreshAndQuit();
+    void runHeadless('refresh', runRefreshAndQuit, headlessIo);
     return;
   }
   if (EXTRACT_THUMBS) {
-    void runExtractMissingThumbsAndQuit();
+    void runHeadless('thumbs', runExtractMissingThumbsAndQuit, headlessIo);
     return;
   }
   if (ENRICH_ORBITAL) {
-    void runEnrichOrbitalAndQuit();
+    void runHeadless('enrich', runEnrichOrbitalAndQuit, headlessIo);
     return;
   }
   if (ENRICH_FAB) {
-    void runEnrichFabAndQuit();
+    void runHeadless('fab', runEnrichFabAndQuit, headlessIo);
     return;
   }
   if (BACKFILL_COURSE_SOURCES) {
-    void runBackfillCourseSourcesAndQuit();
+    void runHeadless('backfill', runBackfillCourseSourcesAndQuit, headlessIo);
     return;
   }
   if (INJECT_GALLERY_FIXTURE || REVERT_GALLERY_FIXTURE) {
-    void runGalleryFixtureAndQuit(REVERT_GALLERY_FIXTURE);
+    void runHeadless('fixture', () => runGalleryFixtureAndQuit(REVERT_GALLERY_FIXTURE), headlessIo);
     return;
   }
   if (process.argv.includes('--check-fixture')) {
-    const db2 = openDatabase();
-    const row = db2
-      .prepare(
-        'SELECT id, name, length(orbital_gallery_images) as gl, thumbnail_path FROM assets WHERE id = 19',
-      )
-      .get();
-    console.log('[check-fixture] id=19 →', JSON.stringify(row));
-    const galleryRow = db2
-      .prepare(
-        "SELECT id FROM assets WHERE orbital_gallery_images LIKE '%__omnidex_test_fixture__%' LIMIT 1",
-      )
-      .get();
-    console.log('[check-fixture] fixture row exists:', JSON.stringify(galleryRow));
-    app.exit(0);
+    void runHeadless('check-fixture', runCheckFixture, headlessIo);
     return;
   }
 
@@ -577,11 +608,29 @@ app.on('will-quit', () => {
   closeDatabase();
 });
 
+/** Test fixture probe: report the gallery fixture state for Playwright. */
+async function runCheckFixture(): Promise<number> {
+  const db2 = openDatabase();
+  const row = db2
+    .prepare(
+      'SELECT id, name, length(orbital_gallery_images) as gl, thumbnail_path FROM assets WHERE id = 19',
+    )
+    .get();
+  console.log('[check-fixture] id=19 →', JSON.stringify(row));
+  const galleryRow = db2
+    .prepare(
+      "SELECT id FROM assets WHERE orbital_gallery_images LIKE '%__omnidex_test_fixture__%' LIMIT 1",
+    )
+    .get();
+  console.log('[check-fixture] fixture row exists:', JSON.stringify(galleryRow));
+  return 0;
+}
+
 // Test fixture: injects/clears a known multi-image orbital_gallery_images
 // value on a stable asset id so the inspector gallery-nav Playwright test
 // can run end-to-end against this DB. Production data is untouched
 // (the row picked is the lowest-id asset with a real local thumbnail).
-async function runGalleryFixtureAndQuit(revert: boolean): Promise<void> {
+async function runGalleryFixtureAndQuit(revert: boolean): Promise<number> {
   const FIXTURE_TAG = '__omnidex_test_fixture__';
   const db = openDatabase();
   if (revert) {
@@ -603,8 +652,7 @@ async function runGalleryFixtureAndQuit(revert: boolean): Promise<void> {
       .get() as { id: number; name: string } | undefined;
     if (!target) {
       console.error('[fixture] no asset has a local thumbnail — cannot inject');
-      app.exit(1);
-      return;
+      return 1;
     }
     const TEST_GALLERY = JSON.stringify(
       [1, 2, 3, 4, 5].map((i) => ({
@@ -618,7 +666,7 @@ async function runGalleryFixtureAndQuit(revert: boolean): Promise<void> {
       `[fixture] injected gallery into id=${target.id} name="${target.name}" (${r.changes} updated)`,
     );
   }
-  app.exit(0);
+  return 0;
 }
 
 // Map each action to its legacy console tag so the CLI output of
@@ -642,17 +690,28 @@ function logProgressLine(p: ActionProgress): void {
   }
 }
 
-async function runRefreshAndQuit(): Promise<void> {
+const headlessIo: HeadlessIo = {
+  exit: (code) => app.exit(code),
+  error: (...args) => console.error(...args),
+};
+
+async function runRefreshAndQuit(): Promise<number> {
   progressBus.on('progress', logProgressLine);
   try {
-    await refreshAllScans();
+    const result = await refreshAllScans();
+    // startScan backgrounds thumbnail extraction; exiting now would kill it.
+    console.log('[refresh] waiting for background thumbnail extraction to finish');
+    await waitForBackgroundThumbnails();
+    if (result.failed > 0) {
+      console.error(`[refresh] ${result.failed} of ${result.locations} location(s) failed`);
+    }
+    return exitCodeForFailures(result.failed);
   } finally {
     progressBus.off('progress', logProgressLine);
   }
-  app.exit(0);
 }
 
-async function runExtractMissingThumbsAndQuit(): Promise<void> {
+async function runExtractMissingThumbsAndQuit(): Promise<number> {
   const db = openDatabase();
   const root = thumbnailsDir();
 
@@ -753,18 +812,23 @@ async function runExtractMissingThumbsAndQuit(): Promise<void> {
   console.log(
     `[thumbs] complete in ${((Date.now() - t0) / 1000).toFixed(1)}s — extracted=${extracted} skipped=${skipped}`,
   );
-  app.exit(0);
+  return 0;
 }
 
-async function runEnrichOrbitalAndQuit(): Promise<void> {
+async function runEnrichOrbitalAndQuit(): Promise<number> {
   progressBus.on('progress', logProgressLine);
-  let interrupted = false;
   try {
-    interrupted = (await enrichOrbital()).interrupted === true;
+    const result = await enrichOrbital();
+    // An open breaker or deadline stops the run early; the packs it never
+    // reached stay unattempted, but the run did not finish.
+    if (result.interrupted) return 1;
+    if (result.failed > 0) {
+      console.error(`[enrich] ${result.failed} of ${result.total} failed`);
+    }
+    return orbitalExitCode(result);
   } finally {
     progressBus.off('progress', logProgressLine);
   }
-  app.exit(interrupted ? 1 : 0);
 }
 
 /** Read a single line (the Epic `authorizationCode`) from stdin. CLI-only. */
@@ -781,22 +845,9 @@ function readAuthCodeFromStdin(redirectUrl: string): Promise<string> {
   console.log('');
   process.stdout.write('  authorizationCode> ');
 
-  return new Promise<string>((resolve) => {
-    let buf = '';
-    process.stdin.setEncoding('utf8');
-    process.stdin.resume();
-    const onData = (chunk: string) => {
-      buf += chunk;
-      const nl = buf.indexOf('\n');
-      if (nl !== -1) {
-        const line = buf.slice(0, nl);
-        process.stdin.removeListener('data', onData);
-        process.stdin.pause();
-        resolve(line);
-      }
-    };
-    process.stdin.on('data', onData);
-  });
+  // Rejects when stdin is closed (cron, </dev/null) so the run exits 1
+  // instead of waiting forever for a code no one can type.
+  return readLineFrom(process.stdin);
 }
 
 /** Parse a `--flag <value>` pair out of argv, or undefined if absent. */
@@ -805,11 +856,19 @@ function flagValue(argv: string[], flag: string): string | undefined {
   return idx >= 0 ? argv[idx + 1] : undefined;
 }
 
-async function runEnrichFabAndQuit(): Promise<void> {
+async function runEnrichFabAndQuit(): Promise<number> {
   const argv = process.argv;
   const fabToken = flagValue(argv, '--fab-token');
   const fabAccount = flagValue(argv, '--fab-account');
-  progressBus.on('progress', logProgressLine);
+  // enrichFab reports a failed library fetch (network error, HTTP error,
+  // failed re-auth) as an `error` progress event and returns normally; count
+  // those so the run does not exit 0 having fetched nothing.
+  let fetchErrors = 0;
+  const onProgress = (p: ActionProgress): void => {
+    logProgressLine(p);
+    if (p.action === 'enrich-fab' && p.phase === 'error') fetchErrors += 1;
+  };
+  progressBus.on('progress', onProgress);
   try {
     const result = await enrichFab({
       fabToken,
@@ -817,25 +876,19 @@ async function runEnrichFabAndQuit(): Promise<void> {
       // Preserve today's CLI behavior: interactive stdin re-auth on stale creds.
       promptAuthCode: readAuthCodeFromStdin,
     });
-    if (result.fetchError) {
-      progressBus.off('progress', logProgressLine);
-      app.exit(1);
-      return;
-    }
+    if (result.fetchError) return 1;
   } catch (e) {
-    progressBus.off('progress', logProgressLine);
     if (e instanceof FabAuthRequiredError) {
       console.error(`[fab] ${e.message}`);
       console.error(`[fab] Re-authorize at: ${e.redirectUrl}`);
-      app.exit(1);
-      return;
+      return 1;
     }
     console.error('[fab]', (e as Error).message);
-    app.exit(1);
-    return;
+    return 1;
+  } finally {
+    progressBus.off('progress', onProgress);
   }
-  progressBus.off('progress', logProgressLine);
-  app.exit(0);
+  return exitCodeForFailures(fetchErrors);
 }
 
 /**
@@ -846,7 +899,7 @@ async function runEnrichFabAndQuit(): Promise<void> {
  * the course name and the paths beneath it, both already in the DB, and
  * re-reading an MP4 header per video to learn nothing new would be absurd.
  */
-async function runBackfillCourseSourcesAndQuit(): Promise<void> {
+async function runBackfillCourseSourcesAndQuit(): Promise<number> {
   try {
     const { openDatabase } = await import('./db');
     const { coursesRepo } = await import('./db/repos');
@@ -859,9 +912,9 @@ async function runBackfillCourseSourcesAndQuit(): Promise<void> {
     console.log(
       `[backfill] courses: ${result.updated} attributed, ${result.titled} retitled, of ${result.examined}`,
     );
-    app.exit(0);
+    return 0;
   } catch (err) {
     console.error('[backfill] failed:', err);
-    app.exit(1);
+    return 1;
   }
 }

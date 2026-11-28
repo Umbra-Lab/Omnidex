@@ -110,6 +110,14 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Headless jobs (`pnpm refresh-scans`, `enrich-orbital`, `enrich-fab`,
+  `extract-thumbs`, `backfill:course-sources`) now exit `1` when a scan
+  location fails, the FAB library fetch fails, `enrich-orbital` gets no answer
+  at all, the job throws, the database cannot open, or Omnidex is already open
+  (they used to exit `0` without running). They no
+  longer hang on a closed stdin or an unhandled error, never show a modal
+  dialog, and `refresh-scans` waits for thumbnail extraction before it exits.
+  The window's error dialog now shows once per burst of errors. (overnight)
 - Marketplace enrichment no longer gives up on packs after a bad network
   moment: rate-limit, server and connection errors leave a pack to be retried
   on the next run instead of marking it tried, and an unresponsive Orbital
