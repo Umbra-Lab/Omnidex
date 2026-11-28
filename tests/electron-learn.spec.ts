@@ -103,9 +103,10 @@ test('search reaches inside subtitle cues, not just folder names', async () => {
   // this is cue text and not a filename match.
   const hitPanel = win.locator('text=/Transcript hits for/').first();
   if (await hitPanel.count()) {
-    // The hits list itself. `section.last()` used to land on an empty
-    // section elsewhere in the page and read "".
-    const body = await hitPanel.locator('xpath=..').innerText();
+    // The first hit button. `section.last()` used to land on an empty section
+    // elsewhere in the page and read "", and the panel's header repeats the
+    // query, so only a hit itself proves cue text matched.
+    const body = await hitPanel.locator('xpath=..').locator('button').first().innerText();
     expect(body.toLowerCase()).toContain('niagara');
     expect(body).toMatch(/\d+:\d{2}/);
   }
