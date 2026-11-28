@@ -1,6 +1,7 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database, { type Database as BetterSqliteDatabase } from 'better-sqlite3';
+import { pruneMigrationBackups } from './backups';
 import { runMigrations } from './migrator';
 import { dbPath } from './paths';
 
@@ -50,8 +51,15 @@ function assertIntegrity(db: BetterSqliteDatabase, path: string): void {
 function backupBeforeMigrate(db: BetterSqliteDatabase, path: string): string {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backupPath = `${path}.bak-${stamp}`;
-  // Single-quote escaping for the SQL string literal.
-  db.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+  try {
+    // Single-quote escaping for the SQL string literal.
+    db.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+  } catch (err) {
+    // A disk-full VACUUM leaves a truncated file behind; it is no backup and
+    // only takes the space the next attempt needs.
+    rmSync(backupPath, { force: true });
+    throw err;
+  }
   return backupPath;
 }
 
@@ -85,7 +93,17 @@ export function openDatabase(): BetterSqliteDatabase {
   try {
     assertIntegrity(db, path);
     // Propagates MigrationError (with the backup path) if a migration throws.
-    runMigrations(db, { onBeforeApply: () => backupBeforeMigrate(db, path) });
+    let backedUp = false;
+    runMigrations(db, {
+      onBeforeApply: () => {
+        const backupPath = backupBeforeMigrate(db, path);
+        backedUp = true;
+        return backupPath;
+      },
+    });
+    // Only after a clean upgrade: when one fails, every older backup may be
+    // what the user needs.
+    if (backedUp) pruneMigrationBackups(path);
   } catch (err) {
     // Don't leak the half-open handle if boot fails; the caller decides what
     // to do (e.g. show a recovery dialog) from the typed error.
