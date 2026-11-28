@@ -5,6 +5,8 @@ import type { Database } from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createScanLocation,
+  findScanLocationAtPath,
+  folderKey,
   getScanLocation,
   listScanLocations,
   updateScanLocationFull,
@@ -113,5 +115,30 @@ describe('scan locations repo — content_format', () => {
     const after = getScanLocation(db, id);
     expect(after?.name).toBe('Renamed');
     expect(after?.content_format).toBe('course');
+  });
+});
+
+describe('folderKey', () => {
+  it('treats Windows spellings of one folder as one', () => {
+    const k = folderKey('E:\\Packs', 'win32');
+    expect(folderKey('e:/packs/', 'win32')).toBe(k);
+    expect(folderKey(' E:\\Packs\\ ', 'win32')).toBe(k);
+    expect(folderKey('E:\\Packs\\Sub\\..', 'win32')).toBe(k);
+    expect(folderKey('E:\\Packs2', 'win32')).not.toBe(k);
+  });
+
+  it('folds case on macOS but not on Linux', () => {
+    expect(folderKey('/Volumes/Lib/', 'darwin')).toBe(folderKey('/volumes/lib', 'darwin'));
+    expect(folderKey('/srv/Lib', 'linux')).not.toBe(folderKey('/srv/lib', 'linux'));
+    expect(folderKey('/srv/lib/', 'linux')).toBe(folderKey('/srv/lib', 'linux'));
+  });
+});
+
+describe('findScanLocationAtPath', () => {
+  it('finds the other location on a folder, never the one being edited', () => {
+    const id = seed({ name: 'Packs', path: '/lib/packs' });
+    expect(findScanLocationAtPath(db, '/lib/packs/')?.name).toBe('Packs');
+    expect(findScanLocationAtPath(db, '/lib/packs', id)).toBeNull();
+    expect(findScanLocationAtPath(db, '/lib/packs/inner')).toBeNull();
   });
 });

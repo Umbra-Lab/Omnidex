@@ -1,3 +1,4 @@
+import { posix, win32 } from 'node:path';
 import type { ContentFormat, ScanLocation } from '@omnidex/types/db';
 import type { Database } from 'better-sqlite3';
 import { normalizeRow, normalizeRows, toSqliteBool } from './row-helpers';
@@ -48,6 +49,37 @@ export function getScanLocation(db: Database, id: number): ScanLocation | null {
     | Record<string, unknown>
     | undefined;
   return normalizeRow<ScanLocation>(row);
+}
+
+/**
+ * A folder path in the form two spellings of one folder share: resolved
+ * (which drops trailing separators and, on Windows, turns / into \), and
+ * case-folded where the file system ignores case (Windows, and macOS by
+ * default). So `E:\Packs\` and `e:/packs` are one folder on Windows.
+ */
+export function folderKey(path: string, platform: NodeJS.Platform = process.platform): string {
+  const resolved = (platform === 'win32' ? win32 : posix).resolve(path.trim());
+  return platform === 'win32' || platform === 'darwin' ? resolved.toLowerCase() : resolved;
+}
+
+/**
+ * The scan location already at this folder, other than `exceptId`. Asset rows
+ * are unique by path, so two locations on one folder take each pack from the
+ * other on every scan, and removing either deletes the curation on all of
+ * them. Only exact matches count: a folder inside another can be deliberate
+ * (a Learn folder under a packs folder).
+ */
+export function findScanLocationAtPath(
+  db: Database,
+  path: string,
+  exceptId?: number,
+): ScanLocation | null {
+  const key = folderKey(path);
+  return (
+    listScanLocations(db).find(
+      (l) => l.id != null && l.id > 0 && l.id !== exceptId && folderKey(l.path) === key,
+    ) ?? null
+  );
 }
 
 export function createScanLocation(

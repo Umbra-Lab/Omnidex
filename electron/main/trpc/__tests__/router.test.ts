@@ -520,6 +520,31 @@ describe('scanLocations router', () => {
     ).rejects.toThrow();
   });
 
+  it('refuses a second location on the same folder, however it is spelled', async () => {
+    await caller.scanLocations.create(fullLocation);
+    await expect(
+      caller.scanLocations.create({ ...fullLocation, name: 'Again', path: '/lib/vault/' }),
+    ).rejects.toThrow('already in your library as "Vault"');
+    await expect(
+      caller.scanLocations.create({ ...fullLocation, name: 'Again', path: '/lib/./vault' }),
+    ).rejects.toThrow('already in your library');
+    // A folder inside it is allowed: a Learn folder under a packs folder is normal.
+    await expect(
+      caller.scanLocations.create({ ...fullLocation, name: 'Inner', path: '/lib/vault/courses' }),
+    ).resolves.toBeGreaterThan(0);
+  });
+
+  it('refuses moving a location onto another one, but not saving it in place', async () => {
+    await caller.scanLocations.create(fullLocation);
+    const other = await caller.scanLocations.create({ ...fullLocation, path: '/lib/other' });
+    await expect(caller.scanLocations.update({ id: other, path: '/lib/vault/' })).rejects.toThrow(
+      'already in your library',
+    );
+    await expect(
+      caller.scanLocations.update({ id: other, name: 'Kept', path: '/lib/other/' }),
+    ).resolves.toBe(true);
+  });
+
   it('update validates the id and writes ONLY the provided fields (partial PATCH)', async () => {
     const id = await caller.scanLocations.create(fullLocation);
 
