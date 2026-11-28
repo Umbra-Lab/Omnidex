@@ -224,6 +224,8 @@ describe('Oracle staged search', () => {
       scan_search_text: 'Modular Sci Fi Corridor SciFi',
     });
     seedAsset(db, { name: 'rdLODtools', file_path: '/p/rdlod' });
+    seedAsset(db, { name: 'Farm Tools', file_path: '/p/farmtools' });
+    seedAsset(db, { name: 'FPSWeapons', file_path: '/p/fpsweapons' });
     seedAsset(db, { name: 'Brushify', file_path: '/p/brushify' });
     for (let i = 0; i < 3; i++) {
       seedAsset(db, { name: `brushed_metal_${i}`, file_path: `/p/brushed${i}` });
@@ -271,6 +273,8 @@ describe('Oracle staged search', () => {
       // material: neither is a fair test of finding one pack.
       expect(queries.some((q: string) => q.includes('dtools'))).toBe(false);
       expect(queries).not.toContain('brush');
+      // An acronym split the right way ("FPS Weapons") still makes queries.
+      expect(queries).toContain('do I have a weapons pack');
       // Transcript questions use the cue's rarest words, not its first ones.
       expect(
         generated.find((g: { tool: string }) => g.tool === 'search_transcripts')?.query,

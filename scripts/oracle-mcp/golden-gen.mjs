@@ -86,11 +86,30 @@ const sharingStmt = db.prepare(`
   WHERE content_format IS NULL AND missing_since IS NULL
     AND (name LIKE ?1 ESCAPE '\\' OR orbital_title LIKE ?1 ESCAPE '\\')`);
 
+// Pack names holding a word on its own (between separators or spaces), for guessedSplit.
+const wordStmt = db.prepare(`
+  SELECT 1 FROM assets
+  WHERE ' ' || lower(replace(replace(replace(name, '_', ' '), '-', ' '), '.', ' ')) || ' '
+        LIKE '% ' || ?1 || ' %' ESCAPE '\\'
+  LIMIT 1`);
+
+/**
+ * A word split off an acronym run can be the splitter's wrong guess: "rdLODtools" splits
+ * to "LO Dtools", and nobody types "dtools". "FPSWeapons" splits right. Tell them apart
+ * by whether the word minus its first letter ("tools") is a word other packs use: then
+ * the capital most likely belonged to the acronym, and the word is left out.
+ */
+function guessedSplit(w, name) {
+  if (!new RegExp(`[A-Z]${w}`).test(name)) return false;
+  const rest = w.slice(1).toLowerCase();
+  return rest.length >= 3 && wordStmt.get(rest) !== undefined;
+}
+
 const golden = [];
 const seen = new Set();
 for (const { name } of packs) {
   if (golden.length >= PACKS * 4) break;
-  const ws = words(name).filter((w) => !new RegExp(`[A-Z]${w}`).test(name));
+  const ws = words(name).filter((w) => !guessedSplit(w, name));
   if (ws.length === 0) continue;
   const key = ws.join(' ').toLowerCase();
   if (seen.has(key)) continue;
@@ -100,10 +119,7 @@ for (const { name } of packs) {
   // A one-word query is only a fair test when that word picks out this pack. "narrative"
   // names a dozen packs in a library that owns the whole Narrative line, so any of them is
   // a right answer and scoring one of them would count correct results as misses.
-  // A word split off an acronym run is a guess: "rdLODtools" splits to "LO Dtools", and
-  // nobody types "dtools". Leave such words out rather than test the splitter's guess.
-  const guessed = new RegExp(`[A-Z]${longest}`).test(name);
-  const unique = !guessed && sharingStmt.get(`%${longest}%`).n <= 2;
+  const unique = sharingStmt.get(`%${longest}%`).n <= 2;
   // Only a joined-up name has a hidden word worth testing on its own.
   if (unique && !new RegExp(`(^|[^A-Za-z])${longest}([^A-Za-z]|$)`).test(name)) {
     add('hidden word', longest.toLowerCase());
@@ -147,9 +163,12 @@ try {
     // right one and the query measured nothing.
     const uniq = [...new Set(content)];
     if (uniq.length < 3) continue;
+    // A word no cue holds was mangled by the letters-only cleanup ("don't" → "dont",
+    // "real-time" → "realtime"); as the "rarest" word it would make the query unfindable.
+    const counted = uniq.map((w) => ({ w, n: freq(w) })).filter((x) => x.n > 0);
+    if (counted.length < 3) continue;
     const rare = new Set(
-      uniq
-        .map((w) => ({ w, n: freq(w) }))
+      counted
         .sort((a, b) => a.n - b.n)
         .slice(0, 3)
         .map((x) => x.w),

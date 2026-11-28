@@ -148,6 +148,14 @@ describe('enrichTags', () => {
     expect(enrichTagsExitCode(r)).toBe(1);
   });
 
+  it('counts a reply with no usable tags as a failed call', async () => {
+    for (let i = 0; i < 3; i++) seedAsset(d, { name: `P${i}`, file_path: `/p/${i}` });
+    const r = await enrichTags(d, { batchSize: 1, run: async () => 'Sorry, I cannot help.' });
+    expect(r).toMatchObject({ tagged: 0, skipped: 3, failedCalls: 2 });
+    expect(r.stoppedEarly).toMatch(/without usable tags/);
+    expect(enrichTagsExitCode(r)).toBe(1);
+  });
+
   it('honours the limit, most-rated packs first', async () => {
     seedAsset(d, { name: 'Plain', file_path: '/p/plain' });
     const popular = seedAsset(d, { name: 'Popular', file_path: '/p/pop' });
@@ -157,7 +165,7 @@ describe('enrichTags', () => {
       limit: 1,
       run: async (p) => {
         seen = p;
-        return '{}';
+        return JSON.stringify({ [popular]: ['x tag'] });
       },
     });
     expect(seen).toContain('Popular');

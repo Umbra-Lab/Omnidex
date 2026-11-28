@@ -43,7 +43,15 @@ export const runClaudeCli: RunClaude = (prompt, { model, signal }) => {
   // args. Every word is a fixed token or the checked model name; the prompt goes in on
   // stdin.
   const command = `claude -p --model ${model} --output-format json`;
-  const child = spawn(command, { shell: true, windowsHide: true, env: claudeCliEnv() });
+  // On POSIX the child leads its own process group, so a timeout can signal the shell
+  // and the CLI under it together.
+  const posix = process.platform !== 'win32';
+  const child = spawn(command, {
+    shell: true,
+    windowsHide: true,
+    detached: posix,
+    env: claudeCliEnv(),
+  });
   child.stdin.on('error', () => {});
   child.stdin.write(prompt);
   child.stdin.end();
@@ -64,8 +72,8 @@ export const runClaudeCli: RunClaude = (prompt, { model, signal }) => {
         // On Windows child.pid is the cmd.exe shim; /T takes the real CLI down with it.
         if (process.platform === 'win32' && child.pid) {
           spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
-        } else {
-          child.kill();
+        } else if (child.pid) {
+          process.kill(-child.pid, 'SIGTERM');
         }
       } catch {
         // already gone

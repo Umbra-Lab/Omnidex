@@ -97,7 +97,6 @@ export async function enrichTags(
     let reply: string;
     try {
       reply = await run(buildTagPrompt(batch), { model, signal: options.signal });
-      failuresInARow = 0;
     } catch (e) {
       result.failedCalls += 1;
       result.skipped += countFrom(i, i + batch.length);
@@ -113,6 +112,21 @@ export async function enrichTags(
     }
 
     const tags = parseTagReply(reply, new Set(batch.map((p) => p.id)));
+    if (tags.size === 0) {
+      // A reply with nothing usable is a failed call: counting it keeps the exit code
+      // honest, and two in a row stop a run that would re-pick the same packs forever.
+      result.failedCalls += 1;
+      result.skipped += countFrom(i, i + batch.length);
+      failuresInARow += 1;
+      log(`reply had no usable tags (${i + 1}-${i + batch.length}): ${reply.slice(0, 120)}`);
+      if (failuresInARow >= MAX_FAILURES_IN_A_ROW) {
+        result.stoppedEarly = 'The model replied twice in a row without usable tags.';
+        result.skipped += countFrom(i + batch.length);
+        break;
+      }
+      continue;
+    }
+    failuresInARow = 0;
     db.exec('BEGIN');
     try {
       for (const pack of batch) {
