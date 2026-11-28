@@ -123,6 +123,18 @@ export function formatClock(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
 }
 
+const VIDEO_EXT = /\.(mp4|m4v|mkv|webm|mov|avi|wmv|flv|ts|mpg|mpeg)$/i;
+
+/**
+ * A lesson's name from its path inside the course: the file name without
+ * folders or a video extension ("1. Modeling a crate.mp4" → "1. Modeling a
+ * crate"). The player still shows the full file name.
+ */
+export function lessonTitle(relPath: string): string {
+  const name = relPath.split(/[\\/]/).pop() || relPath;
+  return name.replace(VIDEO_EXT, '') || name;
+}
+
 export function formatRating(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
   return n.toFixed(1);

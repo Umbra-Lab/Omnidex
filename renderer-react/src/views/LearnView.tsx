@@ -6,7 +6,7 @@ import { AskPane } from '@/features/learn/AskPane';
 import { trpc } from '@/ipc/trpc';
 import { toAssetUrl } from '@/lib/assetUrl';
 import { cn } from '@/lib/cn';
-import { formatClock, formatCount, formatDuration } from '@/lib/format';
+import { formatClock, formatCount, formatDuration, lessonTitle } from '@/lib/format';
 import { subtitlePairsWith } from '@/lib/subtitleStem';
 
 /**
@@ -337,7 +337,7 @@ function CourseDetail({
             <span className="min-w-0">
               <span className="block truncate cap-14 text-surface-50">
                 {(resumeTarget.position_seconds ?? 0) > 0 ? 'Resume' : 'Start'} —{' '}
-                {resumeTarget.rel_path.split('/').pop()}
+                {lessonTitle(resumeTarget.rel_path)}
               </span>
               {(resumeTarget.position_seconds ?? 0) > 0 ? (
                 <span className="block font-mono cap-11 text-surface-400">
@@ -460,7 +460,9 @@ function ChapterList({
               ) : (
                 <Play size={12} className="shrink-0 text-surface-500" />
               )}
-              <span className="min-w-0 flex-1 truncate cap-14">{f.rel_path.split('/').pop()}</span>
+              <span className="min-w-0 flex-1 truncate cap-14" title={f.rel_path}>
+                {lessonTitle(f.rel_path)}
+              </span>
               {f.has_subtitle ? <Captions size={12} className="shrink-0 text-surface-500" /> : null}
               <span className="shrink-0 font-mono tabular-nums cap-11 text-surface-400">
                 {formatDuration(f.duration_seconds)}

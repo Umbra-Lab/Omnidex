@@ -8,6 +8,7 @@ import {
   formatRating,
   formatSupportedVersions,
   formatTaxonomyLabel,
+  lessonTitle,
 } from '../format';
 
 describe('formatBytes', () => {
@@ -188,5 +189,19 @@ describe('formatClock', () => {
   it('treats junk as zero', () => {
     expect(formatClock(-5)).toBe('0:00');
     expect(formatClock(Number.NaN)).toBe('0:00');
+  });
+});
+
+describe('lessonTitle', () => {
+  it('drops folders and the video extension', () => {
+    expect(lessonTitle('01 Intro/1. Modeling a crate.mp4')).toBe('1. Modeling a crate');
+    expect(lessonTitle('Chapter 2\\03 - Bevels.MKV')).toBe('03 - Bevels');
+  });
+  it('keeps other dots and non-video extensions', () => {
+    expect(lessonTitle('v1.2 update notes.pdf')).toBe('v1.2 update notes.pdf');
+    expect(lessonTitle('Part 1.5 - UVs.webm')).toBe('Part 1.5 - UVs');
+  });
+  it('never returns an empty name', () => {
+    expect(lessonTitle('.mp4')).toBe('.mp4');
   });
 });
