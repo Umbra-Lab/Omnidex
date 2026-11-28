@@ -13,6 +13,15 @@ let db: Database;
 
 beforeEach(() => {
   db = createTestDb();
+  db.exec(`
+    CREATE TABLE course_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id INTEGER NOT NULL, rel_path TEXT NOT NULL,
+      FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE);
+    CREATE TABLE course_progress (
+      file_id INTEGER PRIMARY KEY, position_seconds REAL NOT NULL DEFAULT 0,
+      completed INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (file_id) REFERENCES course_files(id) ON DELETE CASCADE);
+  `);
   db.prepare("INSERT INTO scan_locations (id, path) VALUES (1, 'E:/a'), (2, 'E:/b')").run();
   db.prepare("INSERT INTO collections (id, name) VALUES (1, 'Kit'), (2, 'Other')").run();
 });
@@ -43,12 +52,37 @@ describe('getScanLocationRemovalImpact', () => {
     );
     db.prepare('INSERT INTO collection_items (collection_id, asset_id) VALUES (1, ?)').run(other);
 
+    // Watch progress on two lessons of a course here, one elsewhere.
+    const course = seedAsset(db, { name: 'Course', scan_location_id: 1 });
+    const courseElsewhere = seedAsset(db, { name: 'Course 2', scan_location_id: 2 });
+    for (const [assetId, rel] of [
+      [course, 'a.mp4'],
+      [course, 'b.mp4'],
+      [course, 'c.mp4'],
+      [courseElsewhere, 'a.mp4'],
+    ] as const) {
+      db.prepare('INSERT INTO course_files (asset_id, rel_path) VALUES (?, ?)').run(assetId, rel);
+    }
+    db.prepare(
+      'INSERT INTO course_progress (file_id, position_seconds, completed) VALUES (1, 30, 0), (2, 0, 1), (4, 10, 0)',
+    ).run();
+
+    // Match decisions: one here, one elsewhere.
+    db.prepare("INSERT INTO orbital_match_rejections (asset_id, product_slug) VALUES (?, 'x')").run(
+      b,
+    );
+    db.prepare("INSERT INTO orbital_match_rejections (asset_id, product_slug) VALUES (?, 'y')").run(
+      other,
+    );
+
     expect(getScanLocationRemovalImpact(db, 1)).toEqual({
-      assets: 3,
+      assets: 4,
       favorites: 1,
       notes: 2,
       taggedAssets: 2,
       collectionEntries: 2,
+      lessonsWithProgress: 2,
+      matchDecisions: 1,
     });
   });
 
@@ -59,6 +93,8 @@ describe('getScanLocationRemovalImpact', () => {
       notes: 0,
       taggedAssets: 0,
       collectionEntries: 0,
+      lessonsWithProgress: 0,
+      matchDecisions: 0,
     });
   });
 });

@@ -150,6 +150,52 @@ describe('buildCourseManifest', () => {
     }
   });
 
+  it('does not let a video beside the sections collapse them into one chapter', async () => {
+    const course = mkdtempSync(join(tmpdir(), 'omnidex-course-trailer-'));
+    try {
+      mkdirSync(join(course, 'Course', '01 - A'), { recursive: true });
+      mkdirSync(join(course, 'Course', '02 - B'), { recursive: true });
+      writeFileSync(join(course, 'Trailer.mp4'), 'x');
+      writeFileSync(join(course, 'Course', 'Intro.mp4'), 'x');
+      writeFileSync(join(course, 'Course', '01 - A', 'x.mp4'), 'x');
+      writeFileSync(join(course, 'Course', '02 - B', 'y.mp4'), 'x');
+      const files = await buildCourseManifest(course);
+      const chapterOf = (rel: string) => files.find((f) => f.relPath === rel)?.chapter;
+      expect(chapterOf('Course/01 - A/x.mp4')).toBe('01 - A');
+      expect(chapterOf('Course/02 - B/y.mp4')).toBe('02 - B');
+      expect(chapterOf('Course/Intro.mp4')).toBeNull();
+      expect(chapterOf('Trailer.mp4')).toBeNull();
+    } finally {
+      rmSync(course, { recursive: true, force: true });
+    }
+  });
+
+  it('treats a numbered folder as a section even when it is the only one', async () => {
+    const course = mkdtempSync(join(tmpdir(), 'omnidex-course-numbered-'));
+    try {
+      mkdirSync(join(course, '01 - Intro', 'Videos'), { recursive: true });
+      writeFileSync(join(course, '01 - Intro', 'Videos', 'a.mp4'), 'x');
+      const files = await buildCourseManifest(course);
+      expect(files[0]?.chapter).toBe('01 - Intro');
+    } finally {
+      rmSync(course, { recursive: true, force: true });
+    }
+  });
+
+  it('still sees through a numbered wrapper over numbered sections', async () => {
+    const course = mkdtempSync(join(tmpdir(), 'omnidex-course-dated-'));
+    try {
+      mkdirSync(join(course, '2024 Course', '01 - A'), { recursive: true });
+      mkdirSync(join(course, '2024 Course', '02 - B'), { recursive: true });
+      writeFileSync(join(course, '2024 Course', '01 - A', 'x.mp4'), 'x');
+      writeFileSync(join(course, '2024 Course', '02 - B', 'y.mp4'), 'x');
+      const chapters = (await buildCourseManifest(course)).map((f) => f.chapter);
+      expect(chapters).toEqual(['01 - A', '02 - B']);
+    } finally {
+      rmSync(course, { recursive: true, force: true });
+    }
+  });
+
   it('keeps a single section as its own chapter', async () => {
     const course = mkdtempSync(join(tmpdir(), 'omnidex-course-single-'));
     try {

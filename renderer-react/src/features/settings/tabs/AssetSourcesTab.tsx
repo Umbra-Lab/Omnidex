@@ -1,6 +1,6 @@
 import type { ScanLocation } from '@omnidex/types/db';
 import { Folder, FolderPlus, MoreVertical, Pencil, RefreshCw, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -18,7 +18,7 @@ import { trpc } from '@/ipc/trpc';
 import { formatBytes, formatCount } from '@/lib/format';
 import { useModals } from '@/stores/modals';
 import { LibrarySummary } from './LibrarySummary';
-import { summarizeRemoval } from './removalSummary';
+import { type CountPhrase, separatorBefore, summarizeRemoval } from './removalSummary';
 
 export function AssetSourcesTab() {
   const [addOpen, setAddOpen] = useState(false);
@@ -108,7 +108,8 @@ export function AssetSourcesTab() {
         summary == null ? (
           <>
             Removing {name} also removes its assets from the library, with any notes, tags,
-            favorites and collection entries on them. Files on disk aren&apos;t touched.
+            favorites, collection entries, watch progress and match decisions on them. Files on disk
+            aren&apos;t touched.
           </>
         ) : summary.assets == null ? (
           <>
@@ -118,15 +119,19 @@ export function AssetSourcesTab() {
         ) : (
           <span className="flex flex-col gap-2">
             <span>
-              Removing {name} also removes its{' '}
-              <span className="font-mono tabular-nums">{summary.assets}</span> from the library.
+              Removing {name} also removes its <Counted phrase={summary.assets} /> from the library.
               Files on disk aren&apos;t touched.
             </span>
-            {summary.curation ? (
+            {summary.curation.length > 0 ? (
               <span>
                 This deletes{' '}
-                <span className="font-medium text-surface-100">{summary.curation}</span>. Adding the
-                folder again brings the assets back, but not these.
+                {summary.curation.map((p, i) => (
+                  <Fragment key={p.label}>
+                    {separatorBefore(i, summary.curation.length)}
+                    <Counted phrase={p} />
+                  </Fragment>
+                ))}
+                . Adding the folder again brings the assets back, but not these.
               </span>
             ) : null}
           </span>
@@ -336,4 +341,14 @@ function formatScannedAt(iso: string | null): string {
   if (elapsed < DAY) return `Scanned ${ago('hour', HOUR)}`;
   if (elapsed < 7 * DAY) return `Scanned ${ago('day', DAY)}`;
   return `Scanned ${new Date(then).toLocaleDateString()}`;
+}
+
+/** A counted phrase from the remove-folder summary, with only the number in mono. */
+function Counted({ phrase }: { phrase: CountPhrase }) {
+  return (
+    <span className="text-surface-100">
+      {phrase.before}
+      <span className="font-mono tabular-nums">{phrase.count}</span> {phrase.label}
+    </span>
+  );
 }

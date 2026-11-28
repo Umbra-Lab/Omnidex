@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3';
+import { compareDirs } from '../scanner/course-manifest';
 import { subtitleStem } from '../scanner/subtitles';
 
 /**
@@ -214,6 +215,9 @@ export function assembleCourseContext(
     if ((a.sortChapter === '') !== (b.sortChapter === '')) return a.sortChapter === '' ? -1 : 1;
     const ch = byNumber(a.sortChapter, b.sortChapter);
     if (ch !== 0) return ch;
+    // Same order as the Learn list: a chapter's subfolders stay together.
+    const dir = compareDirs(a.sortPath, b.sortPath);
+    if (dir !== 0) return dir;
     if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
     return byNumber(a.sortPath, b.sortPath);
   });

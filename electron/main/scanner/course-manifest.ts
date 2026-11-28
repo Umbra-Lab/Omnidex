@@ -340,6 +340,9 @@ export async function buildCourseManifest(
   return out;
 }
 
+/** A section folder the author numbered: "01 - Intro", "3. Basics", "10_Extras". */
+const NUMBERED_FOLDER = /^\d/;
+
 /**
  * Folder part of a forward-slash relative path; `''` at the course root.
  */
@@ -356,9 +359,15 @@ export function compareDirs(a: string, b: string): number {
   const da = dirOf(a);
   const db = dirOf(b);
   if (da === db) return 0;
-  if (da.startsWith(`${db}/`)) return 1;
-  if (db.startsWith(`${da}/`)) return -1;
-  return da.localeCompare(db, undefined, { numeric: true });
+  // Segment by segment, so "Videos/Extra" stays with "Videos" rather than
+  // sorting after "Videos-old" the way a whole-string compare would.
+  const sa = da === '' ? [] : da.split('/');
+  const sb = db === '' ? [] : db.split('/');
+  for (let i = 0; i < Math.min(sa.length, sb.length); i += 1) {
+    const c = sa[i].localeCompare(sb[i], undefined, { numeric: true });
+    if (c !== 0) return c;
+  }
+  return sa.length - sb.length;
 }
 
 /**
@@ -370,24 +379,35 @@ export function compareDirs(a: string, b: string): number {
  * own parent: keying on the parent merged every section's `Videos` folder into
  * one chapter.
  *
- * Leading folders that every video shares are a wrapper, not a section
- * (`Course/Niagara Masterclass/01 - Intro/...`), so they are skipped, but never
- * so far that a video would be left with no folder: a course with one section
- * keeps that section as its chapter. Files outside the wrapper, such as a cover
- * at the root, use their own first folder, or none.
+ * A wrapper is a run of leading folders above the sections
+ * (`Course/Niagara Masterclass/01 - Intro/...`), and it is skipped. A folder is
+ * part of the wrapper when every video at or below its depth sits inside it and
+ * some video sits deeper still, so a stray `Trailer.mp4` at the root or an
+ * `Intro.mp4` directly in the wrapper doesn't stop the skip; those videos get
+ * no chapter. A numbered folder (`01 - Intro`) is a section rather than a
+ * wrapper unless the folders inside it are numbered too, so a course with one
+ * numbered section keeps it as its chapter. Files outside
+ * the wrapper, such as a cover at the root, use their own first folder, or
+ * none.
  */
 export function assignChapters(files: readonly CourseFile[]): CourseFile[] {
   const videoDirs = files
     .filter((f) => f.kind === 'video')
     .map((f) => dirOf(f.relPath))
     .map((d) => (d === '' ? [] : d.split('/')));
-  let wrapper = 0;
-  if (videoDirs.length > 0) {
-    const first = videoDirs[0];
-    const limit = Math.min(...videoDirs.map((d) => d.length - 1));
-    while (wrapper < limit && videoDirs.every((d) => d[wrapper] === first[wrapper])) wrapper += 1;
+  const prefix: string[] = [];
+  for (;;) {
+    const k = prefix.length;
+    // Videos that still have a folder at this depth.
+    const below = videoDirs.filter((d) => d.length > k && prefix.every((p, i) => d[i] === p));
+    const name = below[0]?.[k];
+    if (name == null || !below.every((d) => d[k] === name)) break;
+    const next = below.filter((d) => d.length > k + 1).map((d) => d[k + 1]);
+    if (next.length === 0) break;
+    // "2024 Course/01 - Intro" is a wrapper; "01 - Intro/Videos" is a section.
+    if (NUMBERED_FOLDER.test(name) && !next.every((n) => NUMBERED_FOLDER.test(n))) break;
+    prefix.push(name);
   }
-  const prefix = videoDirs[0]?.slice(0, wrapper) ?? [];
   return files.map((f) => {
     const dir = dirOf(f.relPath);
     const segs = dir === '' ? [] : dir.split('/');

@@ -91,12 +91,17 @@ export interface ScanLocationRemovalImpact {
   notes: number;
   taggedAssets: number;
   collectionEntries: number;
+  /** Course lessons with a resume position or a completed mark. */
+  lessonsWithProgress: number;
+  /** Orbital matches the user dismissed. */
+  matchDecisions: number;
 }
 
 /**
  * Count what `deleteScanLocation` will delete. `assets.scan_location_id` is
- * `ON DELETE CASCADE`, and notes, tags and collection entries cascade from
- * `assets`, so the user's curation goes with the folder. The confirm dialog
+ * `ON DELETE CASCADE`, and notes, tags, collection entries, match decisions and
+ * (through `course_files`) course progress cascade from `assets`, so the user's
+ * curation goes with the folder. The confirm dialog
  * shows these numbers so the user can see that before agreeing.
  */
 export function getScanLocationRemovalImpact(db: Database, id: number): ScanLocationRemovalImpact {
@@ -112,15 +117,24 @@ export function getScanLocationRemovalImpact(db: Database, id: number): ScanLoca
          (SELECT COUNT(DISTINCT t.asset_id) FROM asset_tags t JOIN assets a ON a.id = t.asset_id
            WHERE a.scan_location_id = ?) AS taggedAssets,
          (SELECT COUNT(*) FROM collection_items c JOIN assets a ON a.id = c.asset_id
-           WHERE a.scan_location_id = ?) AS collectionEntries`,
+           WHERE a.scan_location_id = ?) AS collectionEntries,
+         (SELECT COUNT(*) FROM course_progress p
+            JOIN course_files f ON f.id = p.file_id
+            JOIN assets a ON a.id = f.asset_id
+           WHERE a.scan_location_id = ?
+             AND (p.position_seconds > 0 OR p.completed = 1)) AS lessonsWithProgress,
+         (SELECT COUNT(*) FROM orbital_match_rejections r JOIN assets a ON a.id = r.asset_id
+           WHERE a.scan_location_id = ?) AS matchDecisions`,
     )
-    .get(id, id, id, id, id) as ScanLocationRemovalImpact;
+    .get(id, id, id, id, id, id, id) as ScanLocationRemovalImpact;
   return {
     assets: Number(row.assets),
     favorites: Number(row.favorites),
     notes: Number(row.notes),
     taggedAssets: Number(row.taggedAssets),
     collectionEntries: Number(row.collectionEntries),
+    lessonsWithProgress: Number(row.lessonsWithProgress),
+    matchDecisions: Number(row.matchDecisions),
   };
 }
 
