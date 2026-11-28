@@ -25,6 +25,7 @@ vi.mock('../../db', () => ({
 
 vi.mock('../pipeline', () => ({
   isScanRunning: () => false,
+  joinScan: () => null,
   startScan: (id: number) => {
     h.started.push(id);
     return new Promise((resolve) => {

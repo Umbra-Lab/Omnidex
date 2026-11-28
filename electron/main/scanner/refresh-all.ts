@@ -1,6 +1,6 @@
 import { openDatabase } from '../db';
 import { type ActionProgress, emitProgress } from '../progress/bus';
-import { cancelScan, isScanRunning, startScan } from './pipeline';
+import { cancelScan, isScanRunning, joinScan, startScan } from './pipeline';
 
 /**
  * Refresh-all-scans service.
@@ -42,7 +42,27 @@ export interface RefreshResult {
   perLocation: RefreshPerLocation[];
 }
 
-export async function refreshAllScans(opts: RefreshOptions = {}): Promise<RefreshResult> {
+let currentSweep: Promise<RefreshResult> | null = null;
+
+/**
+ * Sweep every active location, one at a time. Single-flight: a call while a
+ * sweep runs joins it (and gets its result) rather than starting a second one.
+ * Two sweeps used to race each other — "Scan all" in Settings plus "Refresh
+ * library" in the palette — and each reported the folders the other was
+ * scanning as failed, and emitted its own start and done to the progress panel.
+ * A joining caller's `signal` and `onProgress` are not attached; only the CLI
+ * passes them, and it runs in its own process.
+ */
+export function refreshAllScans(opts: RefreshOptions = {}): Promise<RefreshResult> {
+  if (currentSweep) return currentSweep;
+  const sweep = runSweep(opts).finally(() => {
+    currentSweep = null;
+  });
+  currentSweep = sweep;
+  return sweep;
+}
+
+async function runSweep(opts: RefreshOptions): Promise<RefreshResult> {
   const emit = opts.onProgress ?? emitProgress;
   const db = openDatabase();
   const rows = db
@@ -90,7 +110,10 @@ export async function refreshAllScans(opts: RefreshOptions = {}): Promise<Refres
 
     inFlight = r.id;
     try {
-      const result = await startScan(r.id);
+      // A folder already being scanned (a "Scan now" on it, say) is waited
+      // on for its real result; startScan would answer "already running" at
+      // once, which the check below counted as a failure.
+      const result = await (joinScan(r.id) ?? startScan(r.id));
       if (!result.completed_successfully || result.error) {
         throw new Error(result.error ?? 'Scan did not complete');
       }
