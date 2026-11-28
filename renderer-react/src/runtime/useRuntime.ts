@@ -32,12 +32,14 @@ export function useRuntime(): RuntimeInfo {
 }
 
 /**
- * The menu label for showing a file in the system file manager, in each
- * platform's own words. "Reveal in Finder" on Windows names an app that isn't
- * there.
+ * The menu label for opening an asset's folder in the system file manager, in
+ * each platform's own words. "Reveal in Finder" on Windows named an app that
+ * isn't there. It says "Open" because that is what happens: an asset's path is
+ * its pack folder, and `shell:open-file-location` opens a folder itself rather
+ * than selecting it in its parent.
  */
 export function revealLabel(platform: string = snapshot.platform): string {
-  if (platform === 'darwin') return 'Reveal in Finder';
-  if (platform === 'win32') return 'Reveal in File Explorer';
-  return 'Open Containing Folder';
+  if (platform === 'darwin') return 'Open in Finder';
+  if (platform === 'win32') return 'Open in File Explorer';
+  return 'Open Folder';
 }
