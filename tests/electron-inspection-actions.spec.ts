@@ -135,6 +135,12 @@ test('inspect sparse assets, act on available information, and organize a missin
     const search = win.getByRole('textbox', { name: 'Search assets' });
     const inspect = async (id: number, query: string) => {
       await search.fill(query);
+      // The search box debounces into the URL, and a new query drops the
+      // selection. Clicking before it lands opens the Inspector and then
+      // closes it again under the click, so wait for the query to commit.
+      await expect
+        .poll(() => new URLSearchParams(new URL(win.url()).hash.split('?')[1]).get('q'))
+        .toBe(query);
       await win.locator(`[data-testid="asset-card"][data-asset-id="${id}"]`).click();
       await expect(panel).toBeVisible();
     };
