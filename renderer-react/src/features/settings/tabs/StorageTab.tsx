@@ -43,7 +43,8 @@ export function StorageTab() {
         { description: 'They regenerate the next time these folders are scanned.' },
       );
     },
-    onError: (err) => toast.error(err.message),
+    // No onError: it runs inside a confirm, and the app-wide toast already
+    // shows err.message once (a handler here made it twice).
   });
 
   const openLogFolder = trpc.settings.openLogFolder.useMutation({

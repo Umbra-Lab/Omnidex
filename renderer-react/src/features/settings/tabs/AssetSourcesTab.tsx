@@ -64,7 +64,8 @@ export function AssetSourcesTab() {
       utils.assets.invalidate();
       toast.success('Folder removed');
     },
-    onError: (err) => toast.error(err.message),
+    // No onError: it runs inside a confirm, and the app-wide toast already
+    // shows err.message once (a handler here made it twice).
   });
 
   const data = locations.data ?? [];
