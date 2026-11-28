@@ -1,5 +1,5 @@
 import { Check, FolderPlus, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -78,27 +78,54 @@ function AddToCollectionBody({ assetIds, onDone }: AddToCollectionBodyProps) {
   const create = trpc.collections.create.useMutation();
 
   const pending = addAssets.isPending || create.isPending;
+  // `pending` only updates on the next render, so a second Enter in the
+  // same tick would create the collection twice. The ref closes that gap.
+  const busy = useRef(false);
+  // A collection this dialog already created. If the add after it fails, a
+  // retry adds to that one instead of leaving an empty twin behind.
+  const created = useRef<{ id: number; name: string } | null>(null);
 
   const handleAdd = async () => {
-    if (creating) {
-      const name = newName.trim();
-      if (!name) return;
-      const id = await create.mutateAsync({
-        name,
-        description: null,
-        color: null,
-        icon: null,
-        is_smart: null,
-        smart_filter: null,
-      });
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      let id: number;
+      let label: string;
+      if (creating) {
+        const name = newName.trim();
+        if (!name) return;
+        if (created.current?.name === name) {
+          id = created.current.id;
+        } else {
+          id = await create.mutateAsync({
+            name,
+            description: null,
+            color: null,
+            icon: null,
+            is_smart: null,
+            smart_filter: null,
+          });
+          created.current = { id, name };
+          void utils.collections.list.invalidate();
+        }
+        label = name;
+      } else {
+        if (selectedId == null) return;
+        id = selectedId;
+        label = collections.data?.find((c) => c.id === selectedId)?.name ?? 'collection';
+      }
       await addAssets.mutateAsync({ collection_id: id, asset_ids: assetIds });
-      await onSuccess(id, name);
-      return;
+      await onSuccess(id, label);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(
+        created.current && creating
+          ? `Created "${created.current.name}" but couldn't add to it: ${message}`
+          : `Couldn't add to collection: ${message}`,
+      );
+    } finally {
+      busy.current = false;
     }
-    if (selectedId == null) return;
-    const label = collections.data?.find((c) => c.id === selectedId)?.name ?? 'collection';
-    await addAssets.mutateAsync({ collection_id: selectedId, asset_ids: assetIds });
-    await onSuccess(selectedId, label);
   };
 
   const canSubmit = creating ? newName.trim().length > 0 : selectedId != null;
