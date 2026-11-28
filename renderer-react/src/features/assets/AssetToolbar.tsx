@@ -74,12 +74,17 @@ export function AssetToolbar({
   const [query, setQuery] = useState(search.q ?? '');
   // Follow `q` when something else changes it (the command palette, back and
   // forward). Without this the debounce below saw the stale box text differ
-  // from the URL and wrote it back, wiping the new query. Our own commits
-  // match the trimmed box text, so they never reset what is being typed.
+  // from the URL and wrote it back, wiping the new query. A change that is our
+  // own commit arriving is skipped: comparing it with the live box text would
+  // drop a keystroke typed between the commit and the router updating.
   const [lastUrlQ, setLastUrlQ] = useState(search.q);
+  // null = no commit in flight. Cleared once it lands, so a later outside
+  // change to the same text (back, then the palette) still reaches the box.
+  const [committedQ, setCommittedQ] = useState<string | undefined | null>(null);
   if (search.q !== lastUrlQ) {
     setLastUrlQ(search.q);
-    if ((search.q ?? '') !== query.trim()) setQuery(search.q ?? '');
+    if (search.q === committedQ) setCommittedQ(null);
+    else if ((search.q ?? '') !== query.trim()) setQuery(search.q ?? '');
   }
   // The grid reads the committed URL `q` (not the typing buffer), so the
   // ordering indicator tracks that: active search → BM25 relevance order.
@@ -93,6 +98,7 @@ export function AssetToolbar({
       const next = query.trim();
       const current = search.q ?? '';
       if (next === current) return;
+      setCommittedQ(next || undefined);
       void navigate({
         to: '/assets',
         search: (prev) => ({ ...prev, q: next || undefined }),

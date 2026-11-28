@@ -16,6 +16,7 @@ import { useRuntime } from '@/runtime/useRuntime';
 import { useUiStore } from '@/stores/ui';
 import {
   CommandDialog,
+  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -186,6 +187,25 @@ export function CommandPalette() {
     void routerNavigate({ to: '/assets', search: { q: query } });
   };
 
+  // cmdk's fuzzy filter matches many asset words against command labels
+  // ("fire" scores on "Show favorites"), and cmdk preselects the first item, so
+  // Enter ran that command instead of searching. The search goes first unless
+  // a command label really contains the text ("settings", "collect"), in which
+  // case Enter keeps running the command and the search sits below it.
+  const lowered = query.toLowerCase();
+  const commandFits =
+    lowered.length > 0 && COMMANDS.some((c) => c.label.toLowerCase().includes(lowered));
+  const libraryGroup = query ? (
+    <CommandGroup heading="Library" forceMount>
+      {/* Always shown: cmdk's filter would hide it for most text. */}
+      <CommandItem forceMount value={`search-library ${query}`} onSelect={searchLibrary}>
+        <Search />
+        <span className="min-w-0 truncate">Search the library for “{query}”</span>
+      </CommandItem>
+    </CommandGroup>
+  ) : null;
+  const libraryFirst = libraryGroup !== null && !commandFits;
+
   return (
     <CommandDialog
       open={open}
@@ -200,9 +220,12 @@ export function CommandPalette() {
         onValueChange={setSearch}
       />
       <CommandList>
+        {/* Whitespace-only input has no library search to offer. */}
+        {query ? null : <CommandEmpty>No matches.</CommandEmpty>}
+        {libraryFirst ? libraryGroup : null}
         {Array.from(groups.entries()).map(([group, items], idx) => (
           <div key={group}>
-            {idx > 0 ? <CommandSeparator /> : null}
+            {idx > 0 || libraryFirst ? <CommandSeparator /> : null}
             <CommandGroup heading={group}>
               {items.map((cmd) => {
                 const Icon = cmd.icon;
@@ -223,14 +246,11 @@ export function CommandPalette() {
             </CommandGroup>
           </div>
         ))}
-        {query ? (
-          <CommandGroup heading="Library" forceMount>
-            {/* Always shown: cmdk's filter would hide it for most text. */}
-            <CommandItem forceMount value={`search-library ${query}`} onSelect={searchLibrary}>
-              <Search />
-              <span className="min-w-0 truncate">Search the library for “{query}”</span>
-            </CommandItem>
-          </CommandGroup>
+        {libraryGroup && !libraryFirst ? (
+          <>
+            <CommandSeparator />
+            {libraryGroup}
+          </>
         ) : null}
       </CommandList>
     </CommandDialog>

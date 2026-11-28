@@ -153,3 +153,29 @@ test('text that matches no command searches the library instead', async () => {
   expect(await win.evaluate(() => window.location.hash)).toBe('#/assets?q=qzxv');
   await expect(win.getByRole('textbox', { name: 'Search assets' })).toHaveValue('qzxv');
 });
+
+test('Enter on a word that fuzzily matches a command still searches the library', async () => {
+  await openPalette();
+  // cmdk's fuzzy filter scores "fire" on "Show favorites"; Enter used to run it.
+  await win.getByPlaceholder(/Type a command/).fill('fire');
+  await expect(win.getByRole('option', { name: /Search the library for “fire”/ })).toBeVisible();
+  await win.keyboard.press('Enter');
+
+  await expect(palette()).toBeHidden({ timeout: 3000 });
+  await expect
+    .poll(async () => await win.evaluate(() => window.location.hash), { timeout: 3000 })
+    .toBe('#/assets?q=fire');
+});
+
+test('Enter on text a command label contains still runs the command', async () => {
+  await openPalette();
+  await win.getByPlaceholder(/Type a command/).fill('collect');
+  // The library search is still offered, below the command.
+  await expect(win.getByRole('option', { name: /Search the library for “collect”/ })).toBeVisible();
+  await win.keyboard.press('Enter');
+
+  await expect(palette()).toBeHidden({ timeout: 3000 });
+  await expect
+    .poll(async () => await win.evaluate(() => window.location.hash), { timeout: 3000 })
+    .toBe('#/collections');
+});
