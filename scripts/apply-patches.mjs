@@ -44,15 +44,8 @@ const nodeModules = join(repoRoot, 'node_modules');
 // Per-patch "applied" markers: a substring the patch introduces into a file
 // inside the target package. If the substring is present we consider the patch
 // applied (idempotent no-op). Keyed by patch filename.
-const MARKERS = {
-  'electron-trpc@1.0.0-alpha.0.patch': [
-    { file: 'dist/main.mjs', marker: '__omnidexTransformerOutputSerialize' },
-    { file: 'dist/renderer.mjs', marker: '__omnidexGetTransformer' },
-  ],
-  'electron-trpc@1.0.0-alpha.0.same-document-navigation.patch': [
-    { file: 'dist/main.mjs', marker: '__omnidexSameDocumentNavigation' },
-  ],
-};
+// Example entry: 'pkg@1.2.3.topic.patch': [{ file: 'dist/main.mjs', marker: '__omnidexFix' }]
+const MARKERS = {};
 
 function log(msg) {
   console.log(`[apply-patches] ${msg}`);
