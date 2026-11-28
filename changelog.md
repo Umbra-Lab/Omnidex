@@ -113,7 +113,7 @@ work that reached `main` through direct merges with no pull request, the commit.
 - Learn: a library scan while a lesson was playing gave every lesson a new
   id, so each progress save after it failed (an error toast every five
   seconds) and the position was lost until the lesson was reopened. Lessons
-  now keep their id across scans, with their progress and transcript. (#PR)
+  now keep their id across scans, with their progress and transcript. (#59)
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
