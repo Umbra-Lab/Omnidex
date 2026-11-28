@@ -438,12 +438,21 @@ export function setFavorite(db: Database, ids: number[], favorite: boolean): voi
 }
 
 /**
- * Count what `deleteAssets` takes with it for these ids: the same curation
- * `getScanLocationRemovalImpact` counts for a folder. The ids travel as one
+ * What removing assets takes with it: the curation `getScanLocationRemovalImpact`
+ * counts for a folder, plus `notRescanned`, the selected rows no scan writes
+ * again. Those are the legacy FAB vault rows (`scan_location_id = -1`, and
+ * anything else not under a real scan location): removing one is permanent.
+ */
+export interface AssetRemovalImpact extends ScanLocationRemovalImpact {
+  readonly notRescanned: number;
+}
+
+/**
+ * Count what `deleteAssets` takes with it for these ids. The ids travel as one
  * JSON array (`json_each`), so a large selection never meets SQLite's
  * host-parameter limit.
  */
-export function getAssetRemovalImpact(db: Database, ids: number[]): ScanLocationRemovalImpact {
+export function getAssetRemovalImpact(db: Database, ids: number[]): AssetRemovalImpact {
   const sel = 'SELECT value FROM json_each(?)';
   const json = JSON.stringify(ids);
   const row = db
@@ -463,9 +472,11 @@ export function getAssetRemovalImpact(db: Database, ids: number[]): ScanLocation
            WHERE f.asset_id IN (${sel})
              AND (p.position_seconds > 0 OR p.completed = 1)) AS lessonsWithProgress,
          (SELECT COUNT(*) FROM orbital_match_rejections r WHERE r.asset_id IN (${sel}))
-           AS matchDecisions`,
+           AS matchDecisions,
+         (SELECT COUNT(*) FROM assets WHERE id IN (${sel}) AND scan_location_id <= 0)
+           AS notRescanned`,
     )
-    .get(json, json, json, json, json, json, json) as ScanLocationRemovalImpact;
+    .get(json, json, json, json, json, json, json, json) as AssetRemovalImpact;
   return {
     assets: Number(row.assets),
     favorites: Number(row.favorites),
@@ -474,15 +485,16 @@ export function getAssetRemovalImpact(db: Database, ids: number[]): ScanLocation
     collectionEntries: Number(row.collectionEntries),
     lessonsWithProgress: Number(row.lessonsWithProgress),
     matchDecisions: Number(row.matchDecisions),
+    notRescanned: Number(row.notRescanned),
   };
 }
 
+/** One JSON array parameter, like `getAssetRemovalImpact`, so any selection size works. */
 export function deleteAssets(db: Database, ids: number[]): number {
   if (ids.length === 0) return 0;
-  const placeholders = ids.map(() => '?').join(',');
-  const stmt = db.prepare(`DELETE FROM assets WHERE id IN (${placeholders})`);
-  const result = stmt.run(...ids);
-  return result.changes;
+  return db
+    .prepare('DELETE FROM assets WHERE id IN (SELECT value FROM json_each(?))')
+    .run(JSON.stringify(ids)).changes;
 }
 
 /** Clear every asset row from the database (keeps schema). */

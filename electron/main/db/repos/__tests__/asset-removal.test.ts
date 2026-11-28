@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getAssetRemovalImpact } from '../assets';
+import { deleteAssets, getAssetRemovalImpact } from '../assets';
 import { createTestDb, seedAsset } from './fixtures/test-db';
 
 /**
@@ -27,6 +27,23 @@ beforeEach(() => {
 });
 afterEach(() => {
   (db as unknown as { close(): void }).close();
+});
+
+describe('deleteAssets', () => {
+  it('deletes a selection larger than the SQLite parameter limit', () => {
+    const only = seedAsset(db, { name: 'Only', scan_location_id: 1 });
+    const kept = seedAsset(db, { name: 'Kept', scan_location_id: 1 });
+    const ids = Array.from({ length: 40_000 }, (_, i) => i + 3);
+    ids.push(only);
+    expect(deleteAssets(db, ids)).toBe(1);
+    const left = db.prepare('SELECT id FROM assets').all() as { id: number }[];
+    expect(left.map((r) => r.id)).toEqual([kept]);
+  });
+
+  it('deletes nothing for an empty selection', () => {
+    seedAsset(db, { name: 'Kept', scan_location_id: 1 });
+    expect(deleteAssets(db, [])).toBe(0);
+  });
 });
 
 describe('getAssetRemovalImpact', () => {
@@ -64,7 +81,16 @@ describe('getAssetRemovalImpact', () => {
       collectionEntries: 2,
       lessonsWithProgress: 1,
       matchDecisions: 1,
+      notRescanned: 0,
     });
+  });
+
+  it('flags legacy FAB vault rows, which no scan adds back', () => {
+    db.prepare("INSERT INTO scan_locations (id, path) VALUES (-1, 'FAB')").run();
+    const fab = seedAsset(db, { name: 'Vault', scan_location_id: -1 });
+    const scanned = seedAsset(db, { name: 'Disk', scan_location_id: 1 });
+    expect(getAssetRemovalImpact(db, [fab, scanned]).notRescanned).toBe(1);
+    expect(getAssetRemovalImpact(db, [scanned]).notRescanned).toBe(0);
   });
 
   it('handles a selection larger than the SQLite parameter limit', () => {

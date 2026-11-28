@@ -1,6 +1,7 @@
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { Counted } from '@/features/settings/tabs/Counted';
 import { separatorBefore, type summarizeRemoval } from '@/features/settings/tabs/removalSummary';
+import { formatCount } from '@/lib/format';
 
 /**
  * Confirm body for removing assets from the library.
@@ -14,18 +15,38 @@ import { separatorBefore, type summarizeRemoval } from '@/features/settings/tabs
 export function RemoveAssetsBody({
   count,
   summary,
+  notRescanned = 0,
 }: {
   readonly count: number;
   /** Null when the counts could not be read. */
   readonly summary: ReturnType<typeof summarizeRemoval> | null;
+  /**
+   * How many of them no scan writes again (legacy FAB vault rows). Removing
+   * those is permanent, so the dialog must not promise they come back.
+   */
+  readonly notRescanned?: number;
 }) {
   const them = count === 1 ? 'it' : 'them';
-  const comesBack = (
-    <>
-      The next scan of {count === 1 ? 'its' : 'their'} folder adds {them} back as new{' '}
-      {count === 1 ? 'asset' : 'assets'}. Files on disk aren&apos;t touched.
-    </>
-  );
+  const kept = Math.min(Math.max(notRescanned, 0), count);
+  let comesBack: ReactNode;
+  if (kept === count) {
+    comesBack = <>No scan adds {them} back. Files on disk aren&apos;t touched.</>;
+  } else if (kept > 0) {
+    comesBack = (
+      <>
+        The next scan of their folders adds back all but{' '}
+        <span className="font-mono tabular-nums">{formatCount(kept)}</span> of them, as new assets.
+        Files on disk aren&apos;t touched.
+      </>
+    );
+  } else {
+    comesBack = (
+      <>
+        The next scan of {count === 1 ? 'its' : 'their'} folder adds {them} back as new{' '}
+        {count === 1 ? 'asset' : 'assets'}. Files on disk aren&apos;t touched.
+      </>
+    );
+  }
 
   if (summary == null) {
     return (

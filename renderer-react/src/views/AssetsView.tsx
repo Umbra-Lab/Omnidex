@@ -240,18 +240,27 @@ export function AssetsView() {
   // next scan re-adds the folders as new assets, so the confirm counts what
   // is lost for good. If the count can't be read, say so in general terms
   // rather than show a reassuring zero.
+  // One count fetch at a time: a second click while the first is loading
+  // would otherwise open the dialog twice.
+  const removeLoading = useRef(false);
   const confirmRemove = async (ids: number[], name?: string) => {
-    if (ids.length === 0) return;
+    if (ids.length === 0 || removeLoading.current) return;
+    removeLoading.current = true;
     let summary: ReturnType<typeof summarizeRemoval> | null = null;
+    let notRescanned = 0;
     try {
-      summary = summarizeRemoval(await utils.assets.removalImpact.fetch(ids, { staleTime: 0 }));
+      const impact = await utils.assets.removalImpact.fetch(ids, { staleTime: 0 });
+      summary = summarizeRemoval(impact);
+      notRescanned = impact.notRescanned;
     } catch {
       summary = null;
+    } finally {
+      removeLoading.current = false;
     }
     const one = ids.length === 1;
     openConfirm({
       title: one && name ? `Remove “${name}”?` : `Remove ${formatCount(ids.length)} assets?`,
-      body: <RemoveAssetsBody count={ids.length} summary={summary} />,
+      body: <RemoveAssetsBody count={ids.length} summary={summary} notRescanned={notRescanned} />,
       confirmLabel: 'Remove',
       destructive: true,
       onConfirm: async () => {
