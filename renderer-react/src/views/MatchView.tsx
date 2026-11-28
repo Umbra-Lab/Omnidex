@@ -5,6 +5,7 @@ import {
   HardDrive,
   Image as ImageIcon,
   Loader2,
+  RotateCw,
   Search,
   X,
 } from 'lucide-react';
@@ -104,8 +105,16 @@ export function MatchView() {
 
   const candidates = trpc.orbital.candidates.useQuery(
     { folderName: manualOpen && manualQuery ? manualQuery : (current?.name ?? ''), limit: 8 },
-    { enabled: Boolean(current) },
+    // The pane says so itself when Orbital can't be reached; see `unreachable`.
+    { enabled: Boolean(current), meta: { errorToast: false } },
   );
+  // A failed search is not "no candidate". Saying it was invited "Not on
+  // Orbital", which drops the pack from the queue for good on the strength of
+  // a network error.
+  const unreachable = candidates.isError && !candidates.isFetching;
+  // Dismissing is only safe on a finished, successful search: not while a
+  // first fetch or a "Try again" is in flight, and not after a failure.
+  const searched = candidates.isSuccess && !candidates.isFetching;
 
   const match = trpc.orbital.match.useMutation({
     onSuccess: () => {
@@ -158,9 +167,9 @@ export function MatchView() {
 
   /** "Nothing on Orbital is this pack." Takes it out of the queue. */
   const onDismiss = useCallback(() => {
-    if (!current || dismiss.isPending) return;
+    if (!current || !searched || dismiss.isPending) return;
     dismiss.mutate(current.id);
-  }, [current, dismiss]);
+  }, [current, searched, dismiss]);
 
   useHotkey({ key: 'a', handler: onAccept, enabled: Boolean(current && best) });
   // preventDefault: otherwise the "s" lands in the search box this autofocuses.
@@ -170,7 +179,7 @@ export function MatchView() {
   }, []);
   useHotkey({ key: 's', handler: openManual, enabled: Boolean(current) });
   useHotkey({ key: 'r', handler: onReject, enabled: Boolean(current && best) });
-  useHotkey({ key: 'd', handler: onDismiss, enabled: Boolean(current) });
+  useHotkey({ key: 'd', handler: onDismiss, enabled: Boolean(current) && searched });
 
   if (queue.isPending) {
     return <Centered>Loading the queue…</Centered>;
@@ -245,6 +254,8 @@ export function MatchView() {
             >
               {Math.round(best.score * 100)}% · {best.strength}
             </span>
+          ) : unreachable ? (
+            <span className="shrink-0 font-mono cap-11 text-warning-300">search failed</span>
           ) : (
             <span className="shrink-0 font-mono cap-11 text-surface-400">no candidate</span>
           )}
@@ -304,6 +315,19 @@ export function MatchView() {
                   </p>
                 ) : null}
               </>
+            ) : unreachable ? (
+              <div className="flex flex-col items-start gap-3 py-8">
+                <p className="cap-12 text-surface-300">
+                  The Orbital Market search failed, so this pack hasn't been searched.
+                </p>
+                {candidates.error?.message ? (
+                  <p className="font-mono cap-11 text-surface-500">{candidates.error.message}</p>
+                ) : null}
+                <Button variant="secondary" size="sm" onClick={() => void candidates.refetch()}>
+                  <RotateCw size={12} />
+                  Try again
+                </Button>
+              </div>
             ) : (
               <p className="py-8 cap-12 text-surface-400">
                 No candidate found. Search manually, or skip.
@@ -324,30 +348,52 @@ export function MatchView() {
           />
         ) : null}
 
-        <footer className="flex shrink-0 items-center gap-3 border-t border-surface-800/60 bg-surface-925 px-5 py-3">
+        {/* @container + flex-wrap: at the 1024px minimum window the pane is
+            ~640px wide and "Not on Orbital" ran off the edge. The key hints
+            go first (the shortcuts still work), then the row wraps. */}
+        <footer className="@container flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-surface-800/60 bg-surface-925 px-5 py-3">
           <Button
             variant="primary"
             size="md"
             onClick={onAccept}
             disabled={!best || match.isPending}
+            aria-keyshortcuts="A"
           >
             <Check size={14} />
             Accept match
           </Button>
           <Key>A</Key>
-          <Button variant="outline" size="md" onClick={() => setManualOpen((v) => !v)}>
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => setManualOpen((v) => !v)}
+            aria-keyshortcuts="S"
+          >
             <Search size={14} />
             Search manually
           </Button>
           <Key>S</Key>
           {/* Two verbs, not one. "Skip" used to mean both and remembered
               neither past a reload. */}
-          <Button variant="ghost" size="md" onClick={onReject} disabled={!best}>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={onReject}
+            disabled={!best}
+            aria-keyshortcuts="R"
+          >
             <X size={14} />
             Not this one
           </Button>
           <Key>R</Key>
-          <Button variant="ghost" size="md" onClick={onDismiss}>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={onDismiss}
+            disabled={!searched}
+            aria-keyshortcuts="D"
+            title={unreachable ? 'Orbital was not searched for this pack' : undefined}
+          >
             <CircleSlash size={14} />
             Not on Orbital
           </Button>
@@ -385,7 +431,7 @@ function ManualSearch({
 
   const results = trpc.orbital.search.useQuery(
     { query: query || initial, limit: 8 },
-    { enabled: (query || initial).length > 0 },
+    { enabled: (query || initial).length > 0, meta: { errorToast: false } },
   );
 
   return (
@@ -405,6 +451,10 @@ function ManualSearch({
       </div>
       {results.isFetching ? (
         <p className="cap-12 text-surface-400">Searching…</p>
+      ) : results.isError ? (
+        <p className="cap-12 text-surface-300">
+          Couldn't reach Orbital Market. Check your connection and search again.
+        </p>
       ) : (
         <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto">
           {(results.data ?? []).map((item) => (
@@ -497,7 +547,14 @@ function Field({
 }
 
 function Key({ children }: { readonly children: React.ReactNode }) {
-  return <span className="-ml-1 mr-2 font-mono cap-11 text-surface-500">{children}</span>;
+  return (
+    <span
+      aria-hidden="true"
+      className="-ml-1 mr-2 hidden font-mono cap-11 text-surface-500 @3xl:inline"
+    >
+      {children}
+    </span>
+  );
 }
 
 function Centered({ children }: { readonly children: React.ReactNode }) {

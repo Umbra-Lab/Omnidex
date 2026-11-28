@@ -24,8 +24,13 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
         // is the safety net — feature mutations may still add a specific
         // `onError` for tailored copy, in which case the global stays silent to
         // avoid a duplicate toast.
+        //
+        // A query that shows its own failure in place opts out with
+        // `meta: { errorToast: false }`, so the user doesn't also get a raw
+        // message floating over whatever screen they moved on to.
         queryCache: new QueryCache({
-          onError: (error) => {
+          onError: (error, query) => {
+            if (query.meta?.errorToast === false) return;
             toast.error(errorMessage(error));
           },
         }),
