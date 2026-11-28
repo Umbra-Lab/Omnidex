@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { openDatabase } from '../../db';
 import { scanLocationsRepo } from '../../db/repos';
+import { stopLocation } from '../../scanner/pipeline';
 import { publicProcedure, router } from '../init';
 import { idSchema, scanLocationInputSchema, scanLocationUpdateSchema } from '../schemas';
 
@@ -55,6 +56,8 @@ export const scanLocationsRouter = router({
     .query(({ input }) => scanLocationsRepo.getScanLocationRemovalImpact(openDatabase(), input)),
 
   delete: publicProcedure.input(idSchema).mutation(({ input }) => {
+    // Stop this location's scan and thumbnail extraction first; see stopLocation.
+    stopLocation(input);
     scanLocationsRepo.deleteScanLocation(openDatabase(), input);
     return true;
   }),
