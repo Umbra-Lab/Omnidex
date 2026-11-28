@@ -47,6 +47,8 @@ export interface ScanProgressPayload {
 }
 
 const activeScans = new Map<number, AbortController>();
+/** The in-flight scan per location, so a sweep can wait on one it didn't start. */
+const activeRuns = new Map<number, Promise<ScanProgressPayload>>();
 const backgroundThumbnailJobs = createBackgroundJobs();
 
 /**
@@ -80,11 +82,25 @@ export async function startScan(locationId: number): Promise<ScanProgressPayload
 
   const controller = new AbortController();
   activeScans.set(locationId, controller);
-  try {
-    return await scanLocation(locationId, controller);
-  } finally {
-    activeScans.delete(locationId);
-  }
+  const run = (async () => {
+    try {
+      return await scanLocation(locationId, controller);
+    } finally {
+      activeScans.delete(locationId);
+      activeRuns.delete(locationId);
+    }
+  })();
+  activeRuns.set(locationId, run);
+  return run;
+}
+
+/**
+ * The scan already running for this location, or null. `startScan` answers a
+ * second request at once with an "already running" note, which is right for a
+ * button press but not for a sweep that needs the folder's real outcome.
+ */
+export function joinScan(locationId: number): Promise<ScanProgressPayload> | null {
+  return activeRuns.get(locationId) ?? null;
 }
 
 async function scanLocation(

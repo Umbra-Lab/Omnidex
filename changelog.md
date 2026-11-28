@@ -110,6 +110,14 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- A library sweep no longer reports folders as failed that scanned fine.
+  Starting "Refresh library" from the command palette while "Scan all" was
+  running ran a second sweep against the first. Each listed the other's
+  folders as "already running" failures, and the progress panel got two
+  starts and two finishes. A second request now joins the running sweep. A
+  sweep that reaches a folder whose own "Scan now" is still going waits for
+  that scan's result instead of failing it.
+
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
