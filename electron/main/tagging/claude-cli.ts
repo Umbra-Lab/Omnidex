@@ -38,10 +38,12 @@ export function readCliJson(stdout: string): string {
 
 export const runClaudeCli: RunClaude = (prompt, { model, signal }) => {
   if (!MODEL_SHAPE.test(model)) return Promise.reject(new Error(`Not a model name: ${model}`));
-  const args = ['-p', '--model', model, '--output-format', 'json'];
-  // shell:true so Windows resolves the `claude.cmd` shim; every arg is a fixed token or
-  // a checked model name. The prompt goes in on stdin.
-  const child = spawn('claude', args, { shell: true, windowsHide: true, env: claudeCliEnv() });
+  // shell:true so Windows resolves the `claude.cmd` shim. One command string rather than
+  // an args array: Node 24+ warns (DEP0190) on every call that pairs shell:true with
+  // args. Every word is a fixed token or the checked model name; the prompt goes in on
+  // stdin.
+  const command = `claude -p --model ${model} --output-format json`;
+  const child = spawn(command, { shell: true, windowsHide: true, env: claudeCliEnv() });
   child.stdin.on('error', () => {});
   child.stdin.write(prompt);
   child.stdin.end();

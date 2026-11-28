@@ -34,12 +34,14 @@ describe('tag prompt and reply', () => {
 
   it('shows only filled fields, with markup stripped', () => {
     const card = packCard(pack);
-    expect(card).toContain('id 7: ModularSciFiCorridor');
+    expect(card).toContain('id 7: folder "ModularSciFiCorridor"');
     expect(card).toContain('title: Modular Sci-Fi Corridor');
     expect(card).toContain('about: A modular kit of corridor pieces.');
     expect(card).not.toContain('<p>');
     expect(packCard({ ...pack, orbital_seller_name: null })).not.toContain('seller');
     expect(buildTagPrompt([pack])).toMatch(/only a JSON object/);
+    // A wrong marketplace match must not become the pack's keywords.
+    expect(buildTagPrompt([pack])).toMatch(/sometimes wrong/);
   });
 
   it('keeps short lowercase phrases for ids that were asked about', () => {

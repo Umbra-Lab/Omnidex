@@ -28,7 +28,7 @@ function clip(text: string | null, n: number): string {
 
 /** One pack as the model sees it: only fields that hold something. */
 export function packCard(p: TaggablePack): string {
-  const lines = [`id ${p.id}: ${p.name}`];
+  const lines = [`id ${p.id}: folder "${p.name}"`];
   const title = p.orbital_title ?? p.display_title;
   if (title && title !== p.name) lines.push(`  title: ${title}`);
   lines.push(`  type: ${p.asset_type}`);
@@ -53,6 +53,11 @@ export function buildTagPrompt(packs: readonly TaggablePack[]): string {
     '- art style (stylized, realistic, low poly, pixel art, anime)',
     '- what it is for (environment, vfx, animation, character, ui, audio, gameplay system)',
     '- common synonyms of the name words (corridor: hallway; dagger: knife)',
+    '',
+    'The first line of each pack is its folder name on disk. The title, seller, categories',
+    'and about lines come from an automatic marketplace match, which is sometimes wrong. When',
+    'they describe a different product than the folder name (a folder named "Military Pack"',
+    'matched to a "City Pack"), ignore them and tag from the folder name and contents only.',
     '',
     'Rules: lowercase; one to three words each; no marketing words (ultimate, pro, awesome,',
     'high quality); no engine names or version numbers; do not guess what the data does not',
