@@ -127,7 +127,9 @@ export function LibraryHealthView() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Five kinds: 3 + 2 at 1024px, one row from 1280px. Four columns left
+              "Could not be read" alone on a second row. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {KIND_ORDER.map((kind) => {
               const meta = KINDS[kind];
               const Icon = meta.icon;
@@ -152,10 +154,10 @@ export function LibraryHealthView() {
                     <Icon size={14} aria-hidden />
                     <span className="cap-11 uppercase tracking-wide">{meta.label}</span>
                   </div>
-                  <div className="mt-2 font-mono cap-23 font-semibold tabular-nums text-surface-50">
+                  <div className="mt-3 font-mono cap-23 font-semibold tabular-nums text-surface-50">
                     {formatCount(count)}
                   </div>
-                  <p className="mt-1 cap-11 text-surface-500">{meta.cause}</p>
+                  <p className="mt-2.5 cap-11 text-surface-500">{meta.cause}</p>
                 </button>
               );
             })}
