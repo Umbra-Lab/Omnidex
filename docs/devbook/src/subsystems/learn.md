@@ -51,7 +51,7 @@ Sidecar bytes go through `decodeSubtitle()` first, for both the player and the t
 `course_progress` stores `position_seconds` and `completed` per file id.
 
 ```admonish note title="Progress survives a re-scan"
-Re-scanning deletes and reinserts `course_files` rows, reassigning their ids. The scanner carries progress across by `rel_path`, including `updated_at`, which is what Resume orders by. This is covered by a test precisely because the id churn makes it easy to break silently.
+Re-scanning upserts `course_files` rows on `(asset_id, rel_path)`, so a lesson keeps its id and its progress row, `updated_at` included, which is what Resume orders by. The player holds that id while a lesson plays, so a scan mid-lesson must not change it: it used to, and every progress save then failed on the foreign key. Both are covered by tests in `courses.test.ts`.
 ```
 
 Seeking requires the `omnidex-asset://` handler to answer range requests with `206 Partial Content`. Without it Chromium reports `seekedTo: 0` and resume does not work.
