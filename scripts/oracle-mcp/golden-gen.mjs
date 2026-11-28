@@ -13,7 +13,7 @@
  *   - a typo (two letters swapped: "corirdor")
  *   - a question ("do I have a sci fi corridor pack")
  *
- * plus questions built from real transcript cues ("how do I" + three words of the cue).
+ * plus questions built from real transcript cues ("how do I" + the cue's three rarest words).
  * Every expected answer is something the library holds, because a popular marketplace pack
  * you do not own can never be a correct result.
  *
@@ -90,7 +90,7 @@ const golden = [];
 const seen = new Set();
 for (const { name } of packs) {
   if (golden.length >= PACKS * 4) break;
-  const ws = words(name);
+  const ws = words(name).filter((w) => !new RegExp(`[A-Z]${w}`).test(name));
   if (ws.length === 0) continue;
   const key = ws.join(' ').toLowerCase();
   if (seen.has(key)) continue;
@@ -100,13 +100,19 @@ for (const { name } of packs) {
   // A one-word query is only a fair test when that word picks out this pack. "narrative"
   // names a dozen packs in a library that owns the whole Narrative line, so any of them is
   // a right answer and scoring one of them would count correct results as misses.
-  const unique = sharingStmt.get(`%${longest}%`).n <= 2;
+  // A word split off an acronym run is a guess: "rdLODtools" splits to "LO Dtools", and
+  // nobody types "dtools". Leave such words out rather than test the splitter's guess.
+  const guessed = new RegExp(`[A-Z]${longest}`).test(name);
+  const unique = !guessed && sharingStmt.get(`%${longest}%`).n <= 2;
   // Only a joined-up name has a hidden word worth testing on its own.
   if (unique && !new RegExp(`(^|[^A-Za-z])${longest}([^A-Za-z]|$)`).test(name)) {
     add('hidden word', longest.toLowerCase());
   }
   if (unique && longest.length >= 6) {
-    add('word start', longest.slice(0, Math.ceil(longest.length * 0.6)).toLowerCase());
+    // The start must pick out the pack too: "brush" (for Brushify) names a hundred
+    // brushed materials, so any of them is a right answer.
+    const start = longest.slice(0, Math.ceil(longest.length * 0.6)).toLowerCase();
+    if (sharingStmt.get(`%${start}%`).n <= 2) add('word start', start);
     const i = 1 + rand(longest.length - 3);
     const typo = longest.slice(0, i) + longest[i + 1] + longest[i] + longest.slice(i + 2);
     if (typo.toLowerCase() !== longest.toLowerCase()) add('typo', typo.toLowerCase());
@@ -121,6 +127,11 @@ try {
     .prepare('SELECT COUNT(*) AS n, MIN(id) AS lo, MAX(id) AS hi FROM transcript_cues')
     .get();
   const cueStmt = db.prepare('SELECT text FROM transcript_cues WHERE id >= ? LIMIT 1');
+  // How many cues hold a word, counted up to a cap so a common word stays cheap.
+  const freqStmt = db.prepare(
+    'SELECT COUNT(*) AS n FROM (SELECT 1 FROM transcript_fts WHERE transcript_fts MATCH ? LIMIT 20000)',
+  );
+  const freq = (w) => freqStmt.get(`"${w}"`).n;
   for (let k = 0; n > 0 && k < CUES * 4 && cueCount < CUES; k++) {
     const row = cueStmt.get(lo + Math.floor(((hi - lo) * (k + 0.5)) / (CUES * 4)));
     if (!row) continue;
@@ -129,8 +140,19 @@ try {
       .map((w) => w.replaceAll(/[^A-Za-z]/g, '').toLowerCase())
       .filter((w) => w.length >= 4 && !STOP.has(w));
     if (content.length < 3) continue;
-    const pick = [...new Set(content)].slice(0, 3);
-    if (pick.length < 3) continue;
+    // The three rarest words, kept in spoken order. The first three were often filler
+    // ("need", "want", "okay") that a thousand cues share, so no search could pick the
+    // right one and the query measured nothing.
+    const uniq = [...new Set(content)];
+    if (uniq.length < 3) continue;
+    const rare = new Set(
+      uniq
+        .map((w) => ({ w, n: freq(w) }))
+        .sort((a, b) => a.n - b.n)
+        .slice(0, 3)
+        .map((x) => x.w),
+    );
+    const pick = uniq.filter((w) => rare.has(w));
     golden.push({
       tool: 'search_transcripts',
       kind: 'question',

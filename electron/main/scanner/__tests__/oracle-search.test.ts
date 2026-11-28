@@ -223,6 +223,11 @@ describe('Oracle staged search', () => {
       file_path: '/p/corridor',
       scan_search_text: 'Modular Sci Fi Corridor SciFi',
     });
+    seedAsset(db, { name: 'rdLODtools', file_path: '/p/rdlod' });
+    seedAsset(db, { name: 'Brushify', file_path: '/p/brushify' });
+    for (let i = 0; i < 3; i++) {
+      seedAsset(db, { name: `brushed_metal_${i}`, file_path: `/p/brushed${i}` });
+    }
     const dir = mkdtempSync(join(tmpdir(), 'omnidex-oracle-golden-'));
     try {
       const dbFile = join(dir, 'omnidex.db');
@@ -261,6 +266,15 @@ describe('Oracle staged search', () => {
         expect: 'ModularSciFiCorridor',
       });
       expect(generated.some((g: { tool: string }) => g.tool === 'search_transcripts')).toBe(true);
+      const queries = generated.map((g: { query: string }) => g.query);
+      // "dtools" is the splitter's guess at rdLODtools, and "brush" names every brushed
+      // material: neither is a fair test of finding one pack.
+      expect(queries.some((q: string) => q.includes('dtools'))).toBe(false);
+      expect(queries).not.toContain('brush');
+      // Transcript questions use the cue's rarest words, not its first ones.
+      expect(
+        generated.find((g: { tool: string }) => g.tool === 'search_transcripts')?.query,
+      ).toMatch(/^how do I /);
       const scored = spawnSync(process.execPath, ['scripts/oracle-mcp/golden.mjs'], {
         env: { ...process.env, ORACLE_DB: dbFile },
         encoding: 'utf8',
@@ -281,6 +295,21 @@ describe('Oracle staged search', () => {
       const text = JSON.parse(call.stdout).result.content[0].text as string;
       expect(text.match(/^Niagara Fire Effects/gm)).toHaveLength(1);
       expect(text).toContain('also at /q/fire');
+
+      // A copy under a short folder name folds in when its marketplace title and size match.
+      const titled = new DatabaseSync(dbFile);
+      titled.exec(`INSERT INTO assets (name, orbital_title, file_path, file_size) VALUES
+        ('Cinemotion 3 Camera Kit', NULL, '/q/cine-full', 235),
+        ('Cinemotion', 'Cinemotion 3 Camera Kit', '/q/cine', 235)`);
+      titled.close();
+      const cine = spawnSync(process.execPath, ['scripts/oracle-mcp/server.mjs'], {
+        env: { ...process.env, ORACLE_DB: dbFile },
+        input: `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'search_assets', arguments: { query: 'cinemotion' } } })}\n`,
+        encoding: 'utf8',
+      });
+      const cineText = JSON.parse(cine.stdout).result.content[0].text as string;
+      expect(cineText.match(/^Cinemotion/gm)).toHaveLength(1);
+      expect(cineText).toMatch(/also at \/q\/cine/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

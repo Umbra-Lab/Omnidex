@@ -276,11 +276,16 @@ function callTool(name, args) {
     const { rows: found, notes, empty } = search.assets(String(args.query ?? ''), limit * 3);
     if (empty) return 'Empty query.';
     if (found.length === 0) return 'No owned assets matched.';
-    // One entry per pack: the same pack copied into several folders (same name and size)
-    // used to take several of the top slots. Extra paths are listed under the first.
+    // One entry per pack: the same pack copied into several folders (same title and size)
+    // used to take several of the top slots. Extra paths are listed under the first. The
+    // title is the marketplace one when known, so a copy kept under a short folder name
+    // ("Cinemotion") folds into the one named in full.
     const groups = new Map();
     for (const r of found) {
-      const k = `${r.name}\u0000${r.file_size}`;
+      const title = String(r.orbital_title ?? r.name)
+        .trim()
+        .toLowerCase();
+      const k = `${title}\u0000${r.file_size}`;
       const g = groups.get(k);
       if (g) g.copies.push(r.file_path);
       else groups.set(k, { ...r, copies: [] });
