@@ -115,7 +115,7 @@ work that reached `main` through direct merges with no pull request, the commit.
   stopped matching; editing its tags afterwards dropped the FAB categories
   instead. FAB categories are now stored as tags next to yours, and a one-time
   repair restores both on libraries synced before. Removing an AI or FAB tag
-  in Manage tags now removes it; before, it came straight back. (#PR)
+  in Manage tags now removes it; before, it came straight back. (#58)
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
