@@ -116,7 +116,7 @@ work that reached `main` through direct merges with no pull request, the commit.
   Reopening an asset within 30 seconds shows the saved text, not the old one,
   and merely focusing the field no longer writes an empty note. Editing text or
   stars also no longer erases the tested-version and reminder lists that the
-  Unity ownership merge carries over.
+  Unity ownership merge carries over. (#49)
 
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
