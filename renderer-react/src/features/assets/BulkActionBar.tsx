@@ -58,8 +58,11 @@ export function BulkActionBar({
       // right and wraps every label.
       className="-translate-x-1/2 absolute bottom-4 left-1/2 z-40 flex w-max max-w-[calc(100%-2rem)] items-center gap-1 rounded-lg border border-surface-700 bg-surface-800 px-3 py-2 shadow-xl shadow-black/60"
     >
-      <span className="shrink-0 whitespace-nowrap pr-2 font-mono tabular-nums cap-14 font-semibold text-surface-50">
-        {formatCount(count)} selected
+      {/* Under 24rem the word "selected" goes, so a four-digit count still
+          fits beside the icons; the toolbar's label keeps the full phrase. */}
+      <span className="min-w-0 truncate whitespace-nowrap pr-2 font-mono tabular-nums cap-14 font-semibold text-surface-50">
+        {formatCount(count)}
+        <span className="hidden @[24rem]:inline"> selected</span>
       </span>
       <span className="h-6 w-px self-stretch bg-surface-600" />
 
@@ -81,11 +84,13 @@ export function BulkActionBar({
       <button
         type="button"
         onClick={onClear}
-        aria-label="Clear selection (Esc)"
         title="Clear selection (Esc)"
         className="flex shrink-0 items-center whitespace-nowrap pl-2 font-mono cap-12 text-surface-400 hover:text-surface-200"
       >
+        {/* No aria-label: when "esc to clear" shows it must stay the accessible
+            name (WCAG 2.5.3, label in name), so the icon mode gets sr-only text. */}
         <span className="hidden @2xl:inline">esc to clear</span>
+        <span className="sr-only @2xl:hidden">Clear selection</span>
         <X size={14} className="@2xl:hidden" aria-hidden />
       </button>
     </motion.div>
