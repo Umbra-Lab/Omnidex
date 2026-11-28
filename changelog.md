@@ -18,6 +18,9 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Added
 
+- Rename a collection from its page header. Enter or clicking away saves,
+  Esc cancels, and the assets inside stay put. Before, fixing a typo meant
+  deleting the collection and rebuilding it. (#PR)
 - Multi-select in the asset grid, table and collection views: click,
   Ctrl/Cmd-click, Shift-click ranges, Ctrl/Cmd-A for the filtered set, Esc to
   clear. A floating bar applies Favorite, New collection, Add tags and Remove to

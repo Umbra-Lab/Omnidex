@@ -127,6 +127,11 @@ export const createCollectionSchema = z.object({
   smart_filter: z.string().nullable(),
 });
 
+export const renameCollectionSchema = z.object({
+  id: idSchema,
+  name: z.string().trim().min(1).max(200),
+});
+
 // Matches `NoteRequest` exactly.
 export const noteRequestSchema = z.object({
   asset_id: idSchema,
