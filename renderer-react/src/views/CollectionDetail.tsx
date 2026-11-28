@@ -1,8 +1,9 @@
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import { ArrowLeft, Boxes, Trash2 } from 'lucide-react';
-import { useMemo } from 'react';
+import { ArrowLeft, Boxes, Pencil, Trash2 } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
 import { GridErrorState } from '@/components/GridErrorState';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toaster';
 import type { AssetCardShape } from '@/features/assets/AssetCard';
@@ -44,6 +45,26 @@ export function CollectionDetail() {
 
   const removeCollection = trpc.collections.delete.useMutation({
     onSuccess: () => {
+      void utils.collections.list.invalidate();
+    },
+  });
+
+  // The header shows the new name at once; a failed save puts the old one back.
+  const rename = trpc.collections.rename.useMutation({
+    onMutate: ({ name: next }) => {
+      const before = utils.collections.get.getData(id);
+      if (before) utils.collections.get.setData(id, { ...before, name: next });
+      return { before };
+    },
+    onSuccess: (found) => {
+      if (!found) toast.error('That collection no longer exists');
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.before) utils.collections.get.setData(id, ctx.before);
+      toast.error(`Couldn't rename collection: ${err.message}`);
+    },
+    onSettled: () => {
+      void utils.collections.get.invalidate(id);
       void utils.collections.list.invalidate();
     },
   });
@@ -156,7 +177,13 @@ export function CollectionDetail() {
   return (
     <div className="flex h-full w-full min-w-0 flex-row">
       <div className="flex min-w-0 flex-1 flex-col">
-        <DetailHeader title={title} subtitle={subtitle} onDelete={deleteCollection} />
+        <DetailHeader
+          title={title}
+          subtitle={subtitle}
+          onDelete={deleteCollection}
+          name={collection.data?.name ?? null}
+          onRename={(next) => rename.mutate({ id, name: next })}
+        />
         <div className="min-h-0 flex-1">
           {assets.isError ? (
             <GridErrorState message={assets.error.message} onRetry={() => void assets.refetch()} />
@@ -182,9 +209,31 @@ interface DetailHeaderProps {
   readonly title: React.ReactNode;
   readonly subtitle: string | null;
   readonly onDelete: (() => void) | null;
+  /** The current name, once loaded. Rename is offered only with it. */
+  readonly name?: string | null;
+  readonly onRename?: (name: string) => void;
 }
 
-function DetailHeader({ title, subtitle, onDelete }: DetailHeaderProps) {
+function DetailHeader({ title, subtitle, onDelete, name, onRename }: DetailHeaderProps) {
+  const [draft, setDraft] = useState<string | null>(null);
+  // Enter and Escape both end editing, and the blur that follows must not
+  // commit a second time (or commit what Escape just threw away).
+  const done = useRef(false);
+  const canRename = onRename != null && name != null;
+
+  const startEditing = () => {
+    if (!canRename) return;
+    done.current = false;
+    setDraft(name);
+  };
+  const finish = (commit: boolean) => {
+    if (done.current || draft == null) return;
+    done.current = true;
+    const next = draft.trim();
+    setDraft(null);
+    if (commit && next !== '' && next !== name) onRename?.(next);
+  };
+
   return (
     <header className="flex h-10 items-center gap-3 border-b border-surface-800/60 px-3">
       <Link
@@ -195,25 +244,65 @@ function DetailHeader({ title, subtitle, onDelete }: DetailHeaderProps) {
         Collections
       </Link>
       <Boxes size={14} className="text-accent-400" />
-      <span className="min-w-0 truncate font-display cap-14 font-semibold text-surface-50">
-        {title}
-      </span>
+      {draft != null ? (
+        <Input
+          aria-label="Collection name"
+          autoFocus
+          maxLength={200}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              finish(true);
+            } else if (e.key === 'Escape') {
+              // Escape here only cancels the edit; keep it from any page handler.
+              e.stopPropagation();
+              finish(false);
+            }
+          }}
+          // Switching to another window blurs the input too. That is not
+          // "done", so a half-typed name stays in the editor instead of saving.
+          onBlur={() => {
+            if (document.hasFocus()) finish(true);
+          }}
+          className="h-7 w-64 min-w-0 font-display font-semibold"
+        />
+      ) : (
+        <span className="min-w-0 truncate font-display cap-14 font-semibold text-surface-50">
+          {title}
+        </span>
+      )}
       {subtitle ? (
         <span className="font-mono cap-10 uppercase tracking-[0.18em] text-surface-500">
           {subtitle}
         </span>
       ) : null}
-      {onDelete ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto text-surface-400 hover:text-danger-400"
-          onClick={onDelete}
-        >
-          <Trash2 size={13} />
-          Delete
-        </Button>
-      ) : null}
+      <div className="ml-auto flex items-center gap-1">
+        {canRename && draft == null ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-surface-400 hover:text-surface-100"
+            onClick={startEditing}
+          >
+            <Pencil size={13} />
+            Rename
+          </Button>
+        ) : null}
+        {onDelete ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-surface-400 hover:text-danger-400"
+            onClick={onDelete}
+          >
+            <Trash2 size={13} />
+            Delete
+          </Button>
+        ) : null}
+      </div>
     </header>
   );
 }

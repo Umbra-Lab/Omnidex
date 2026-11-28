@@ -758,3 +758,32 @@ describe('updates router', () => {
     expect(await caller.updates.install()).toEqual({ ok: false });
   });
 });
+
+// ---------------------------------------------------------------------------
+// collections.rename — trimmed, validated, and honest about a missing id.
+// ---------------------------------------------------------------------------
+
+describe('collections.rename', () => {
+  beforeEach(() => {
+    db.exec(`CREATE TABLE collections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT,
+      color TEXT, icon TEXT, is_smart INTEGER, smart_filter TEXT, sort_order INTEGER,
+      created_at TEXT, updated_at TEXT)`);
+    db.prepare("INSERT INTO collections (id, name) VALUES (1, 'Rokcs')").run();
+  });
+
+  it('stores the trimmed name', async () => {
+    await expect(caller.collections.rename({ id: 1, name: '  Rocks ' })).resolves.toBe(true);
+    expect((await caller.collections.get(1))?.name).toBe('Rocks');
+  });
+
+  it('answers false for a collection that is gone', async () => {
+    await expect(caller.collections.rename({ id: 99, name: 'Rocks' })).resolves.toBe(false);
+  });
+
+  it('rejects a blank or overlong name before any write', async () => {
+    await expect(caller.collections.rename({ id: 1, name: '   ' })).rejects.toThrow();
+    await expect(caller.collections.rename({ id: 1, name: 'x'.repeat(201) })).rejects.toThrow();
+    expect((await caller.collections.get(1))?.name).toBe('Rokcs');
+  });
+});

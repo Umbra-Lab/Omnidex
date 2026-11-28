@@ -61,6 +61,7 @@ The largest surface. Browsing, filtering, faceting, and curation.
 |---|---|---|
 | `list`, `get`, `assets` | query | Collections and membership |
 | `create`, `delete` | mutation | Manage collections |
+| `rename` | mutation | New name, trimmed; members stay. `false` when the id is gone |
 | `addAssets`, `removeAssets` | mutation | Membership |
 
 ## orbital

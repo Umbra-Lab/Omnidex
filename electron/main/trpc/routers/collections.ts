@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { openDatabase } from '../../db';
 import { collectionsRepo } from '../../db/repos';
 import { publicProcedure, router } from '../init';
-import { createCollectionSchema, idSchema, idsSchema } from '../schemas';
+import { createCollectionSchema, idSchema, idsSchema, renameCollectionSchema } from '../schemas';
 
 export const collectionsRouter = router({
   list: publicProcedure.query(() => collectionsRepo.listCollections(openDatabase())),
@@ -19,6 +19,13 @@ export const collectionsRouter = router({
   create: publicProcedure
     .input(createCollectionSchema)
     .mutation(({ input }) => collectionsRepo.createCollection(openDatabase(), input)),
+
+  // Members stay put; only the name changes. False when the id is gone.
+  rename: publicProcedure
+    .input(renameCollectionSchema)
+    .mutation(({ input }) =>
+      collectionsRepo.renameCollection(openDatabase(), input.id, input.name),
+    ),
 
   delete: publicProcedure.input(idSchema).mutation(({ input }) => {
     collectionsRepo.deleteCollection(openDatabase(), input);

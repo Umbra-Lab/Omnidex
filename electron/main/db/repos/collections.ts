@@ -104,6 +104,20 @@ export function createCollection(db: Database, req: CreateCollectionRequest): nu
   return Number(result.lastInsertRowid);
 }
 
+/**
+ * Rename a collection, keeping its members. Returns false when no collection
+ * has that id. The name is trimmed; an empty name is refused rather than
+ * stored, since a blank card title can't be clicked or found.
+ */
+export function renameCollection(db: Database, id: number, name: string): boolean {
+  const trimmed = name.trim();
+  if (trimmed === '') throw new Error('A collection needs a name');
+  const res = db
+    .prepare('UPDATE collections SET name = ?, updated_at = ? WHERE id = ?')
+    .run(trimmed, new Date().toISOString(), id);
+  return res.changes > 0;
+}
+
 export function deleteCollection(db: Database, id: number): void {
   db.prepare('DELETE FROM collections WHERE id = ?').run(id);
 }

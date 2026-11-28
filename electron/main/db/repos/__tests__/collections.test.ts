@@ -8,6 +8,7 @@ import {
   listCollectionAssetCards,
   listCollections,
   removeAssetsFromCollection,
+  renameCollection,
 } from '../collections';
 
 /**
@@ -218,5 +219,43 @@ describe('listCollections ordering', () => {
       });
     }
     expect(listCollections(db).map((c) => c.name)).toEqual(['alpha', 'Beta', 'Gamma', 'zeta']);
+  });
+});
+
+describe('renameCollection', () => {
+  let db: Database;
+  const blank = {
+    description: null,
+    color: null,
+    icon: null,
+    is_smart: null,
+    smart_filter: null,
+  };
+
+  beforeEach(() => {
+    db = makeDb();
+  });
+  afterEach(() => {
+    (db as unknown as DatabaseSync).close();
+  });
+
+  it('renames and keeps the members', () => {
+    const id = createCollection(db, { name: 'Rokcs', ...blank });
+    const a = seedAsset(db, 'Alpha');
+    addAssetsToCollection(db, id, [a]);
+
+    expect(renameCollection(db, id, '  Rocks ')).toBe(true);
+
+    const [row] = listCollections(db);
+    expect(row.name).toBe('Rocks');
+    expect(row.asset_count).toBe(1);
+    expect(listCollectionAssetCards(db, id).map((c) => c.id)).toEqual([a]);
+  });
+
+  it('reports a missing collection and refuses a blank name', () => {
+    const id = createCollection(db, { name: 'Kit', ...blank });
+    expect(renameCollection(db, id + 1, 'Other')).toBe(false);
+    expect(() => renameCollection(db, id, '   ')).toThrow('needs a name');
+    expect(listCollections(db)[0].name).toBe('Kit');
   });
 });
