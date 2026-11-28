@@ -31,6 +31,8 @@ const QUESTION = 'How does the instructor build a ribbon trail effect in Niagara
 let app: ElectronApplication;
 let win: Page;
 let stackUp = false;
+/** Set once the first question got an answer; the follow-up builds on it. */
+let answered = false;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -109,6 +111,7 @@ test('a question streams an answer with working citations', async () => {
   // An answer exists and is not an error state.
   const errorLine = win.locator('p.text-danger-400');
   expect(await errorLine.count(), 'ask surfaced an error instead of an answer').toBe(0);
+  answered = true;
 
   // Citation chips are the product's point. The local model is instructed to
   // emit them; assert at least one resolved chip and drive the player with it.
@@ -134,6 +137,9 @@ test('a question streams an answer with working citations', async () => {
 });
 
 test('a follow-up keeps the conversation', async () => {
+  // Without a first answer (no local stack, or the question was skipped) a
+  // follow-up only reproduces the same provider error.
+  test.skip(!answered, 'the first question was not answered');
   test.setTimeout(300_000);
 
   const input = win.locator('input[aria-label="Ask this course"]');
