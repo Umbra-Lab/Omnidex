@@ -38,9 +38,9 @@ runs three things in order:
    (works around pnpm 11.1.3 skipping Electron's own postinstall).
 2. `electron-rebuild -f -w better-sqlite3,keytar` — rebuilds those two native
    modules against Electron's ABI.
-3. `scripts/apply-patches.mjs` — idempotently applies the electron-trpc patch
-   that wires superjson into the IPC transformer. Without it every tRPC call
-   crashes; the script is safe to re-run.
+3. `scripts/apply-patches.mjs` — idempotently applies any `patches/` files.
+   There are none today (electron-trpc 1.0 needs none); the script is safe to
+   re-run.
 
 > pnpm 11.1.3 may append a harmless `allowBuilds:` stub to the bottom of
 > `pnpm-workspace.yaml` on install. It is not committed — delete the appended
