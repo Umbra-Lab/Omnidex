@@ -1,5 +1,6 @@
 import { basename, dirname, relative } from 'node:path';
 import type { Database } from 'better-sqlite3';
+import { tagMirrorWriter } from '../../db/repos/tags';
 
 /**
  * One file shown twice is worse than one shown once. When a DCC location and a Unity
@@ -106,8 +107,7 @@ export function foldDccRowsIntoUnity(db: Database, claims: UnityClaim[]): number
         WHERE t.asset_id = ?
           AND NOT EXISTS (SELECT 1 FROM asset_tags u WHERE u.asset_id = ? AND u.tag = t.tag)`,
   );
-  const allTags = db.prepare('SELECT DISTINCT tag FROM asset_tags WHERE asset_id = ?');
-  const setTags = db.prepare('UPDATE assets SET tags = ? WHERE id = ?');
+  const writeTagMirror = tagMirrorWriter(db);
   const noteOf = db.prepare(
     `SELECT note_text, rating, reminders, tested_ue_versions FROM asset_notes
       WHERE asset_id = ? ORDER BY id LIMIT 1`,
@@ -129,10 +129,7 @@ export function foldDccRowsIntoUnity(db: Database, claims: UnityClaim[]): number
     const label = claim.folder ? relative(claim.path, row.file_path) : row.file_path;
 
     moveCollections.run(claim.id, row.id);
-    if (moveTags.run(claim.id, row.id, claim.id).changes > 0) {
-      const tags = (allTags.all(claim.id) as Array<{ tag: string }>).map((t) => t.tag);
-      setTags.run(JSON.stringify(tags), claim.id);
-    }
+    if (moveTags.run(claim.id, row.id, claim.id).changes > 0) writeTagMirror(claim.id);
     const note = noteOf.get(row.id) as NoteRow | undefined;
     if (
       note &&

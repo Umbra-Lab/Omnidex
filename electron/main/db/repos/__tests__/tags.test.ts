@@ -240,6 +240,20 @@ describe('setAssetTags', () => {
 });
 
 describe('officialTagsWriter — FAB category tags', () => {
+  it('does not rewrite (and reindex) the mirror when a re-sync brings the same categories', () => {
+    const id = seed(db, 'Castle Pack');
+    db.exec(`CREATE TEMP TABLE writes (n INTEGER);
+      CREATE TEMP TRIGGER count_writes AFTER UPDATE OF tags ON assets
+      BEGIN INSERT INTO writes VALUES (1); END;`);
+    const write = officialTagsWriter(db);
+    write(id, ['props', 'environments']);
+    write(id, ['props', 'environments']);
+    write(id, ['environments', 'props']);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM writes').get() as { n: number }).n).toBe(1);
+    const row = db.prepare('SELECT tags FROM assets WHERE id = ?').get(id) as { tags: string };
+    expect(row.tags).toBe('["environments","props"]');
+  });
+
   it('replaces the official tags and leaves user and ai tags, mirror included', () => {
     const id = seed(db, 'Castle Pack');
     setAssetTags(db, id, ['mine']);
@@ -295,7 +309,7 @@ describe('migration 20261128000000_unify_asset_tags', () => {
       getAssetTags(db, id)
         .map((t) => `${t.tag}:${t.source}`)
         .sort(),
-    ).toEqual(['environments:official', 'mine:user', 'props:official']);
+    ).toEqual(['environments:user', 'mine:user', 'props:user']);
     expect((JSON.parse(mirror(id) as string) as string[]).sort()).toEqual([
       'environments',
       'mine',
@@ -303,6 +317,13 @@ describe('migration 20261128000000_unify_asset_tags', () => {
     ]);
     expect(countAssets(db, { ...NO_FILTER, tags: ['mine'] })).toBe(1);
     expect(searchAssets(db, 'mine').map((r) => r.id)).toEqual([id]);
+  });
+
+  it('stores mirror-only tags as user tags, so a later FAB sync does not delete them', () => {
+    const id = seed(db, 'Old Pack', '["hand-typed"]');
+    db.exec(sql);
+    officialTagsWriter(db)(id, ['props']);
+    expect(mirror(id)).toBe('["hand-typed","props"]');
   });
 
   it('gives mirror-only tags a row, trimmed, skipping blanks and non-strings', () => {

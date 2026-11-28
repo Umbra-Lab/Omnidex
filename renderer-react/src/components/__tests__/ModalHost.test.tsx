@@ -6,7 +6,10 @@ const api = vi.hoisted(() => ({
   tags: { status: 'pending', data: undefined } as {
     status: 'pending' | 'success' | 'error';
     data: string[] | undefined;
+    /** False while showing only cached data from before this opening. */
+    fresh?: boolean;
   },
+  queryOpts: [] as unknown[],
   setTags: vi.fn(),
   listeners: new Set<() => void>(),
 }));
@@ -28,12 +31,16 @@ vi.mock('@/ipc/trpc', async () => {
       useUtils: () => ({ assets: { invalidate: vi.fn() } }),
       assets: {
         getTags: {
-          useQuery: () => ({
-            ...useSyncExternalStore(subscribe, () => api.tags),
-            isPending: api.tags.status === 'pending',
-            isSuccess: api.tags.status === 'success',
-            isError: api.tags.status === 'error',
-          }),
+          useQuery: (_input: unknown, opts: unknown) => {
+            api.queryOpts.push(opts);
+            return {
+              ...useSyncExternalStore(subscribe, () => api.tags),
+              isFetchedAfterMount: api.tags.status !== 'pending' && api.tags.fresh !== false,
+              isPending: api.tags.status === 'pending',
+              isSuccess: api.tags.status === 'success',
+              isError: api.tags.status === 'error',
+            };
+          },
         },
         setTags: { useMutation: () => ({ mutate: api.setTags }) },
         addTags: { useMutation: () => ({ mutate: vi.fn() }) },
@@ -65,6 +72,7 @@ function saveButton(): HTMLButtonElement | undefined {
 describe('single-asset tagging', () => {
   beforeEach(() => {
     api.tags = { status: 'pending', data: undefined };
+    api.queryOpts = [];
     api.setTags.mockReset();
     container = document.createElement('div');
     document.body.append(container);
@@ -106,5 +114,27 @@ describe('single-asset tagging', () => {
     expect(document.body.textContent).not.toContain('No tags yet');
     expect(saveButton()?.disabled ?? true).toBe(true);
     expect(api.setTags).not.toHaveBeenCalled();
+  });
+
+  it('waits for a fresh fetch instead of seeding from a stale cached list', async () => {
+    // Cached from an earlier opening; a FAB sync has since added "props".
+    api.tags = { status: 'success', data: ['hero'], fresh: false };
+    await render();
+    await act(async () => useModals.getState().openTagging(7));
+    expect(api.queryOpts.at(-1)).toMatchObject({ refetchOnMount: 'always' });
+    expect(saveButton()?.disabled ?? true).toBe(true);
+
+    await act(async () => setTagsQuery({ status: 'success', data: ['hero', 'props'] }));
+    const save = saveButton();
+    expect(save?.disabled).toBe(false);
+    await act(async () => save?.click());
+    expect(api.setTags).toHaveBeenCalledWith({ assetId: 7, tags: ['hero', 'props'] });
+  });
+
+  it('blocks saving when the refetch failed, even with a cached list', async () => {
+    api.tags = { status: 'error', data: ['hero'] };
+    await render();
+    await act(async () => useModals.getState().openTagging(7));
+    expect(saveButton()?.disabled ?? true).toBe(true);
   });
 });

@@ -51,7 +51,11 @@ export function removeTag(db: Database, assetId: number, tag: string): number {
 
 /**
  * Returns a function that rewrites one asset's `assets.tags` JSON mirror from
- * its `asset_tags` rows (every source), in row order, de-duplicated.
+ * its `asset_tags` rows (every source), de-duplicated and sorted by tag.
+ *
+ * Sorted so the same tags always give the same JSON: a FAB re-sync that
+ * re-creates the same category rows leaves the mirror as it was, and the write
+ * is skipped, so the FTS trigger does not reindex the row again.
  *
  * `asset_tags` is the store; `assets.tags` is only a mirror that the FTS index
  * (via the `assets_fts_au` trigger), the `tags LIKE '%"tag"%'` filter in
@@ -60,13 +64,15 @@ export function removeTag(db: Database, assetId: number, tag: string): number {
  * mirror is a plain `string[]`, or `NULL` when the asset has no tags.
  */
 export function tagMirrorWriter(db: Database): (assetId: number) => void {
-  const selectAll = db.prepare('SELECT tag FROM asset_tags WHERE asset_id = ? ORDER BY id');
-  const updateAssets = db.prepare('UPDATE assets SET tags = ? WHERE id = ?');
+  const selectAll = db.prepare(
+    'SELECT tag FROM asset_tags WHERE asset_id = ? GROUP BY tag ORDER BY tag',
+  );
+  // `IS NOT` skips an unchanged mirror, so `assets_fts_au` only fires on a change.
+  const updateAssets = db.prepare('UPDATE assets SET tags = ? WHERE id = ? AND tags IS NOT ?');
   return (assetId) => {
-    const merged = Array.from(
-      new Set((selectAll.all(assetId) as { tag: string }[]).map((r) => r.tag)),
-    );
-    updateAssets.run(merged.length > 0 ? JSON.stringify(merged) : null, assetId);
+    const merged = (selectAll.all(assetId) as { tag: string }[]).map((r) => r.tag);
+    const json = merged.length > 0 ? JSON.stringify(merged) : null;
+    updateAssets.run(json, assetId, json);
   };
 }
 
