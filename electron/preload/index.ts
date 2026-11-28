@@ -15,16 +15,6 @@ const scannerBridge = {
   activeCount: (): Promise<number> => ipcRenderer.invoke('omnidex:scanner:active-count'),
 };
 
-const uassetBridge = {
-  extractThumbnail: (uassetPath: string, targetSize?: number): Promise<string | null> =>
-    ipcRenderer.invoke('omnidex:uasset:extract-thumbnail', { uassetPath, targetSize }),
-
-  parseHeader: (
-    uassetPath: string,
-  ): Promise<{ magic: string; packageFileVersion: number; hasThumbnail: boolean }> =>
-    ipcRenderer.invoke('omnidex:uasset:parse-header', uassetPath),
-};
-
 interface OrbitalSearchRequest {
   searchText: string;
   limit?: number;
@@ -131,7 +121,9 @@ function fileUrl(absolutePath: string): string {
     return absolutePath;
   }
   const normalized = absolutePath.replace(/\\/g, '/');
-  return `omnidex-asset:///${encodeURI(normalized)}`;
+  // Keep in sync with the copy in electron/main/asset-protocol.ts encodeAssetUrl; a source-parity test in asset-protocol.test.ts enforces this.
+  // encodeURI leaves # and ? alone; they would start a fragment/query and truncate the path.
+  return `omnidex-asset:///${encodeURI(normalized).replace(/#/g, '%23').replace(/\?/g, '%3F')}`;
 }
 
 interface SerializedMenuItem {
@@ -162,7 +154,6 @@ const omnidex = {
     node: process.versions.node,
   },
   scanner: scannerBridge,
-  uasset: uassetBridge,
   orbital: orbitalBridge,
   fab: fabBridge,
   shell: shellBridge,

@@ -19,6 +19,26 @@
  * the file byte-for-byte alone.
  */
 
+/**
+ * Decode a subtitle sidecar's bytes to text.
+ *
+ * Sidecars are not reliably UTF-8. Windows tooling saves "Unicode" as UTF-16
+ * with a BOM, which read as UTF-8 is NUL-interleaved and yields no cues at all;
+ * older Western-European files are Windows-1252, where every accented letter
+ * and curly quote became U+FFFD in the transcript index. So: honour a UTF-16
+ * BOM, try strict UTF-8 (a UTF-8 BOM is dropped), and fall back to
+ * Windows-1252, which maps every byte and is by far the commonest legacy case.
+ */
+export function decodeSubtitle(bytes: Uint8Array): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
 /** A timing line: `00:00:01,000 --> 00:00:04,000` with optional cue settings. */
 const TIMING_LINE = /-->/;
 
@@ -32,7 +52,13 @@ const TIMING_LINE = /-->/;
 export function toWebVtt(source: string): string | null {
   // Strip a UTF-8 BOM. A leading ﻿ before `WEBVTT` makes the whole file
   // invalid, and sidecars written by Windows tooling carry one often enough.
-  const text = source.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  // Line endings as `parseCues` normalises them, and a separator line holding
+  // only spaces or tabs blanked: WebVTT ends a cue only at a truly empty line,
+  // so the next cue's number and timing would otherwise play as caption text.
+  const text = source
+    .replace(/^﻿/, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/^[ \t]+$/gm, '');
   if (!TIMING_LINE.test(text)) return null;
 
   const lines = text.split('\n');
@@ -53,8 +79,11 @@ export function toWebVtt(source: string): string | null {
 
 /** Subtitle extensions the scanner records as `kind = 'subtitle'`. */
 const SUB_EXT = /\.(srt|vtt)$/i;
-/** Optional BCP-47-ish tag: `.en`, `.en_US`, `.pt-BR`. */
-const LANG_TAG = /\.[a-z]{2}([-_][A-Za-z]{2,4})?$/;
+/**
+ * Optional BCP-47-ish tag: `.en`, `.en_US`, `.pt-BR`, `.EN`. Case-insensitive
+ * because it runs before the lowercasing, so `Lesson.EN.srt` must still pair.
+ */
+const LANG_TAG = /\.[a-z]{2}([-_][a-z]{2,4})?$/i;
 /** Video containers the manifest records as `kind = 'video'`. */
 const VIDEO_EXT = /\.(mp4|mkv|webm|avi|mov|m4v)$/i;
 
@@ -84,4 +113,22 @@ export function subtitleStem(relPath: string): string {
 /** The stem of a video path — extension off, nothing else. */
 export function videoStem(relPath: string): string {
   return relPath.replace(/\.[^./]+$/, '').toLowerCase();
+}
+
+/**
+ * Whether a subtitle sidecar belongs to a video.
+ *
+ * The language-tag strip cannot tell `Lesson.EN.srt` (English captions for
+ * `Lesson.mp4`) from `Intro.UE.srt` (plain captions for `Intro.UE.mp4`): both
+ * end in a two-letter word. So the sidecar pairs when either its tag-stripped
+ * or its unstripped stem equals the video's.
+ */
+export function subtitlePairsWith(subtitlePath: string, videoPath: string): boolean {
+  const wanted = videoStem(videoPath);
+  return subtitleStem(subtitlePath) === wanted || untaggedStem(subtitlePath) === wanted;
+}
+
+/** `subtitleStem` without the language-tag strip. */
+function untaggedStem(relPath: string): string {
+  return relPath.replace(SUB_EXT, '').replace(VIDEO_EXT, '').toLowerCase();
 }

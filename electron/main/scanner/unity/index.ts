@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
-import { basename, extname, join, sep } from 'node:path';
+import { basename, dirname, extname, join, sep } from 'node:path';
 import type { Database } from 'better-sqlite3';
 import { pruneAssetsNotIn } from '../../db/repos/assets';
+import { dccFormatOf, isTextureMapName } from '../dcc-discovery';
 import { type AssetStoreInfo, readAssetStoreInfo } from './asset-store';
+import { foldDccRowsIntoUnity, unityClaims } from './ownership';
 import {
   discoverUnity,
   listProjectFiles,
@@ -128,6 +130,8 @@ export async function scanUnityLocation(
   db.exec('BEGIN');
   try {
     pruneAssetsNotIn(db, locationId, keep);
+    // A DCC location that reached these projects first gives way to them.
+    foldDccRowsIntoUnity(db, unityClaims(db));
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
@@ -158,10 +162,15 @@ function upsertContainer(
   fields: { name: string; path: string; type: string; size: number; searchText: string },
 ): number {
   const owner = db
-    .prepare('SELECT id, scan_location_id FROM assets WHERE file_path = ?')
-    .get(fields.path) as { id: number; scan_location_id: number } | undefined;
+    .prepare('SELECT id, scan_location_id, asset_type FROM assets WHERE file_path = ?')
+    .get(fields.path) as { id: number; scan_location_id: number; asset_type: string } | undefined;
   if (owner && owner.scan_location_id !== locationId) {
-    throw new Error('path belongs to another scan location');
+    // A DCC location's catalogue row for the same file or folder gives way to the Unity
+    // entry. The row is taken over in place, so its collections, tags and notes stay.
+    if (!owner.asset_type.startsWith('dcc_')) {
+      throw new Error('path belongs to another scan location');
+    }
+    db.prepare('UPDATE assets SET scan_location_id = ? WHERE id = ?').run(locationId, owner.id);
   }
   const now = new Date().toISOString();
   db.prepare(ASSET_UPSERT).run(
@@ -202,6 +211,43 @@ function writeStoreInfo(db: Database, containerId: number, store: AssetStoreInfo
       containerId,
     );
   }
+}
+
+/** At most this many distinct 3D file names go into a project's search text. */
+const MAX_DCC_SEARCH_NAMES = 2000;
+
+/**
+ * The 3D and DCC files in a project (models, Blender, Maya, Substance, archives, and
+ * folders of texture maps), as the DCC catalogue would describe them: name, kind and
+ * tool. The Unity entry replaces their DCC rows, so this keeps them findable from the
+ * library search.
+ */
+function dccSearchTerms(files: Array<{ name: string; relPath: string }>): string {
+  const names = new Set<string>();
+  const tools = new Set<string>();
+  const textureMaps = new Map<string, string[]>();
+  for (const file of files) {
+    if (isTextureMapName(file.name)) {
+      const dir = dirname(file.relPath);
+      const maps = textureMaps.get(dir) ?? [];
+      maps.push(file.name);
+      textureMaps.set(dir, maps);
+      continue;
+    }
+    const format = dccFormatOf(file.name);
+    if (!format) continue;
+    tools.add(`${format[0]} ${format[1].replaceAll('_', ' ')}`);
+    if (names.size < MAX_DCC_SEARCH_NAMES) names.add(file.name);
+  }
+  for (const [dir, maps] of textureMaps) {
+    if (maps.length < 2) continue;
+    tools.add('texture set');
+    // The folder and its map names, as the DCC texture-set row was searchable by both.
+    for (const name of [basename(dir), ...maps]) {
+      if (names.size < MAX_DCC_SEARCH_NAMES) names.add(name);
+    }
+  }
+  return [...tools, ...names].join(' ');
 }
 
 function searchText(parts: Array<string | null | undefined>): string {
@@ -361,6 +407,7 @@ export async function indexUnityProject(
         info.editorVersion,
         info.renderPipeline,
         ...Object.keys(info.packages),
+        dccSearchTerms(files),
       ]),
     });
     db.prepare(

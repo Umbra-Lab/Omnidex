@@ -196,3 +196,27 @@ describe('collections repo', () => {
     expect(listCollections(db).some((c) => c.id === collId)).toBe(false);
   });
 });
+
+describe('listCollections ordering', () => {
+  let db: Database;
+  beforeEach(() => {
+    db = makeDb();
+  });
+  afterEach(() => {
+    (db as unknown as { close: () => void }).close();
+  });
+
+  it('sorts names case-insensitively', () => {
+    for (const name of ['zeta', 'Beta', 'alpha', 'Gamma']) {
+      createCollection(db, {
+        name,
+        description: null,
+        color: null,
+        icon: null,
+        is_smart: null,
+        smart_filter: null,
+      });
+    }
+    expect(listCollections(db).map((c) => c.name)).toEqual(['alpha', 'Beta', 'Gamma', 'zeta']);
+  });
+});

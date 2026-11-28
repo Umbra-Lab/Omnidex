@@ -60,23 +60,27 @@ export type SortOption =
   | 'size_asc'
   | 'favorites_first';
 
+/**
+ * Every option ends in `id ASC` so LIMIT/OFFSET pages never overlap or skip rows on
+ * ties, and name terms use NOCASE so `banana` sorts between `Apple` and `Cherry`.
+ */
 export const SORT_OPTION_SQL: Record<SortOption, string> = {
-  name_asc: 'name ASC',
-  name_desc: 'name DESC',
-  date_asc: 'modified_date ASC',
-  date_desc: 'modified_date DESC',
-  date_added_asc: 'created_date ASC',
-  date_added_desc: 'created_date DESC',
-  rating_desc: 'COALESCE(orbital_rating_average, 0) DESC, name ASC',
+  name_asc: 'name COLLATE NOCASE ASC, id ASC',
+  name_desc: 'name COLLATE NOCASE DESC, id ASC',
+  date_asc: 'modified_date ASC, id ASC',
+  date_desc: 'modified_date DESC, id ASC',
+  date_added_asc: 'created_date ASC, id ASC',
+  date_added_desc: 'created_date DESC, id ASC',
+  rating_desc: 'COALESCE(orbital_rating_average, 0) DESC, name COLLATE NOCASE ASC, id ASC',
   rating_asc:
-    'CASE WHEN orbital_rating_average IS NULL THEN 1 ELSE 0 END, orbital_rating_average ASC, name ASC',
-  reviews_desc: 'COALESCE(orbital_rating_count, 0) DESC, name ASC',
-  price_desc: 'COALESCE(orbital_price, 0) DESC, name ASC',
+    'CASE WHEN orbital_rating_average IS NULL THEN 1 ELSE 0 END, orbital_rating_average ASC, name COLLATE NOCASE ASC, id ASC',
+  reviews_desc: 'COALESCE(orbital_rating_count, 0) DESC, name COLLATE NOCASE ASC, id ASC',
+  price_desc: 'COALESCE(orbital_price, 0) DESC, name COLLATE NOCASE ASC, id ASC',
   price_asc:
-    'CASE WHEN orbital_price IS NULL OR orbital_price = 0 THEN 1 ELSE 0 END, orbital_price ASC, name ASC',
-  size_desc: 'file_size DESC, name ASC',
-  size_asc: 'file_size ASC, name ASC',
-  favorites_first: 'is_favorite DESC, name ASC',
+    'CASE WHEN orbital_price IS NULL OR orbital_price = 0 THEN 1 ELSE 0 END, orbital_price ASC, name COLLATE NOCASE ASC, id ASC',
+  size_desc: 'file_size DESC, name COLLATE NOCASE ASC, id ASC',
+  size_asc: 'file_size ASC, name COLLATE NOCASE ASC, id ASC',
+  favorites_first: 'is_favorite DESC, name COLLATE NOCASE ASC, id ASC',
 };
 
 export const DEFAULT_SORT: SortOption = 'date_desc';

@@ -89,9 +89,12 @@ const MIN_INTERIOR_SIGNALS = 2;
 
 /**
  * Per-pack caps. Prevents a pathological multi-GB pack with hundreds of
- * thousands of files from blocking the scan on `fs.stat`. `hasUassetFiles`
- * is always correct once the flag trips; `fileSize` and `fileCount` are
- * lower bounds above the cap, and `DetectedAssetFolder.sizeIsPartial` says so.
+ * thousands of files from blocking the scan on `fs.stat`. `fileSize` and
+ * `fileCount` are lower bounds above the cap, and
+ * `DetectedAssetFolder.sizeIsPartial` says so. `hasUassetFiles` is still
+ * answered past the cap by a names-only probe of what the walk skipped (see
+ * `MAX_UASSET_PROBE_ENTRIES`), so a pack whose only `.umap` sits after 5,000
+ * textures is still a UE pack.
  *
  * ponytail: the cap stays because the walker still issues one `fs.stat` per
  * file. Measured against the user's real library (`Assets\Organized`, 1,256
@@ -101,6 +104,14 @@ const MIN_INTERIOR_SIGNALS = 2;
  */
 export const MAX_FILES_PER_PACK = 5000;
 const MAX_DEPTH_PER_PACK = 8;
+
+/**
+ * Directory entries the post-cap `.uasset` probe may read. The probe issues no
+ * `fs.stat`, only `readdir`, so this is far cheaper per entry than the walk it
+ * follows; the bound only stops a pathological tree from walking forever. Run
+ * out, and the pack is reported partial and its type left as the walk found it.
+ */
+const MAX_UASSET_PROBE_ENTRIES = 50_000;
 
 /**
  * Maximum depth from the scan root the pack-finder will descend. Cats out
@@ -130,6 +141,7 @@ export const WALK_DIAGNOSTIC_KINDS: readonly ScanDiagnosticKind[] = [
   'archive-only',
   'depth-limit-abandoned',
   'path-near-max-length',
+  'unreadable-folder',
 ];
 
 export interface WalkResult {
@@ -265,12 +277,17 @@ async function findPackFolders(
 }> {
   const packs: string[] = [];
   const diagnostics: ScanDiagnostic[] = [];
+  const unreadableSince = (start: number) =>
+    diagnostics.slice(start).some((d) => d.kind === 'unreadable-folder');
 
   async function descend(dir: string, depth: number): Promise<boolean> {
     let entries: Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      // Not "empty": the scanner prunes what it did not see, so anything
+      // already indexed under here must be kept, and the user told why.
+      diagnostics.push(unreadableDiagnostic(dir, error));
       return false;
     }
 
@@ -307,9 +324,16 @@ async function findPackFolders(
     }
 
     if (depth >= MAX_PACK_SEARCH_DEPTH) {
-      if (await subtreeHasUasset(dir, 2)) {
+      const before = diagnostics.length;
+      if (await subtreeHasUasset(dir, 2, diagnostics)) {
         packs.push(dir);
         return true;
+      }
+      // Whether this folder is a pack hinged on a folder below it that failed
+      // to list. Report the folder itself, so the prune keeps its own row too.
+      if (unreadableSince(before)) {
+        diagnostics.push(unreadableBelowDiagnostic(dir));
+        return false;
       }
       // The drop this whole feature exists for. An unextracted archive pile
       // and a pack buried one level too deep both used to vanish here with
@@ -326,6 +350,7 @@ async function findPackFolders(
       return false;
     }
 
+    const beforeChildren = diagnostics.length;
     let anyChildIsPack = false;
     for (const name of subdirs) {
       const childIsPack = await descend(join(dir, name), depth + 1);
@@ -341,7 +366,13 @@ async function findPackFolders(
 
       // Loose-content fallback: if a top-level folder has no pack descendants
       // (e.g. a zipped archive pile or a PDF library), register it anyway.
-      if (depth === 1) packs.push(dir);
+      // Not when a folder below failed to list: its packs may be in there, and
+      // a card invented now is pruned again on the next good scan. Reporting
+      // the folder keeps a loose-content row it already had.
+      if (depth === 1) {
+        if (unreadableSince(beforeChildren)) diagnostics.push(unreadableBelowDiagnostic(dir));
+        else packs.push(dir);
+      }
     }
     return anyChildIsPack;
   }
@@ -355,6 +386,24 @@ async function findPackFolders(
   return { packs, diagnostics };
 }
 
+/** A folder under the root that failed to list (EACCES, EBUSY, a dropped share). */
+function unreadableDiagnostic(dir: string, error: unknown): ScanDiagnostic {
+  const code = (error as NodeJS.ErrnoException | null)?.code ?? 'error';
+  return {
+    kind: 'unreadable-folder',
+    path: dir,
+    detail: `could not be listed (${code}); anything already indexed under it was kept`,
+  };
+}
+
+function unreadableBelowDiagnostic(dir: string): ScanDiagnostic {
+  return {
+    kind: 'unreadable-folder',
+    path: dir,
+    detail: 'a folder below it could not be listed; anything already indexed here was kept',
+  };
+}
+
 function archiveDiagnostic(dir: string, archiveCount: number): ScanDiagnostic {
   return {
     kind: 'archive-only',
@@ -363,12 +412,17 @@ function archiveDiagnostic(dir: string, archiveCount: number): ScanDiagnostic {
   };
 }
 
-async function subtreeHasUasset(dir: string, maxDepth: number): Promise<boolean> {
+async function subtreeHasUasset(
+  dir: string,
+  maxDepth: number,
+  diagnostics: ScanDiagnostic[],
+): Promise<boolean> {
   if (maxDepth < 0) return false;
   let entries: Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
-  } catch {
+  } catch (error) {
+    diagnostics.push(unreadableDiagnostic(dir, error));
     return false;
   }
   for (const e of entries) {
@@ -383,7 +437,7 @@ async function subtreeHasUasset(dir: string, maxDepth: number): Promise<boolean>
   for (const e of entries) {
     if (!e.isDirectory()) continue;
     if (e.name.startsWith('.') || IGNORED_DIR_NAMES.has(e.name)) continue;
-    if (await subtreeHasUasset(join(dir, e.name), maxDepth - 1)) return true;
+    if (await subtreeHasUasset(join(dir, e.name), maxDepth - 1, diagnostics)) return true;
   }
   return false;
 }
@@ -394,6 +448,8 @@ interface DirStats {
   hasUasset: boolean;
   /** Set once either per-pack cap cuts the walk short. See `sizeIsPartial`. */
   truncated: boolean;
+  /** Folders the file cap kept the walk out of, for the post-cap probe. */
+  unvisited: { dir: string; depth: number }[];
   /**
    * Files at or past `LONG_PATH_THRESHOLD`. Bounded by the same per-pack caps
    * as `count`, so this is a lower bound on a truncated pack.
@@ -409,18 +465,64 @@ async function aggregateDirectoryStats(dir: string): Promise<DirStats> {
     count: 0,
     hasUasset: false,
     truncated: false,
+    unvisited: [],
     longPathCount: 0,
     longestPath: null,
   };
   await walkRecursive(dir, stats, 0);
+  if (stats.unvisited.length > 0) await probeUnvisited(stats);
   return stats;
 }
 
-async function walkRecursive(dir: string, stats: DirStats, depth: number): Promise<void> {
-  if (stats.count >= MAX_FILES_PER_PACK) {
-    stats.truncated = true;
-    return;
+function isUassetName(name: string): boolean {
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 && UASSET_EXTENSIONS.has(name.slice(dot).toLowerCase());
+}
+
+/**
+ * What the file cap skipped: is there anything in it (so the size really is a
+ * lower bound), and is there a `.uasset`/`.umap` in it (so the pack really is a
+ * UE pack)? Names only — no `fs.stat` — and bounded by
+ * `MAX_UASSET_PROBE_ENTRIES` and the per-pack depth cap.
+ */
+async function probeUnvisited(stats: DirStats): Promise<void> {
+  let budget = MAX_UASSET_PROBE_ENTRIES;
+  const stack = [...stats.unvisited];
+  while (stack.length > 0 && !(stats.truncated && stats.hasUasset)) {
+    const next = stack.pop();
+    if (!next) continue;
+    if (next.depth >= MAX_DEPTH_PER_PACK) {
+      // As in `walkRecursive`: partial only if there is something to miss.
+      if (await hasAnyEntry(next.dir)) stats.truncated = true;
+      continue;
+    }
+    if (budget <= 0) {
+      // Out of budget with folders left unread: the size cannot be exact.
+      stats.truncated = true;
+      return;
+    }
+    let entries: Dirent[];
+    try {
+      entries = await readdir(next.dir, { withFileTypes: true });
+    } catch {
+      // Unread is not empty: whatever is in there was not counted.
+      stats.truncated = true;
+      continue;
+    }
+    budget -= entries.length;
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      if (e.isFile()) {
+        stats.truncated = true;
+        if (isUassetName(e.name)) stats.hasUasset = true;
+      } else if (e.isDirectory() && !IGNORED_DIR_NAMES.has(e.name)) {
+        stack.push({ dir: join(next.dir, e.name), depth: next.depth + 1 });
+      }
+    }
   }
+}
+
+async function walkRecursive(dir: string, stats: DirStats, depth: number): Promise<void> {
   if (depth >= MAX_DEPTH_PER_PACK) {
     // Only a truncation if there is actually something down here to miss. An
     // empty (or unreadable) directory at the depth limit costs no bytes.
@@ -435,11 +537,19 @@ async function walkRecursive(dir: string, stats: DirStats, depth: number): Promi
     return;
   }
 
-  for (const entry of entries) {
-    if (entry.name.startsWith('.') || !entry.isFile()) continue;
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry = entries[i];
+    if (!entry || entry.name.startsWith('.') || !entry.isFile()) continue;
     if (stats.count >= MAX_FILES_PER_PACK) {
+      // A real file is left uncounted. Its siblings' names are already in
+      // hand, so whether one of them is a .uasset costs nothing to answer.
       stats.truncated = true;
-      return;
+      if (!stats.hasUasset) {
+        stats.hasUasset = entries
+          .slice(i)
+          .some((e) => e.isFile() && !e.name.startsWith('.') && isUassetName(e.name));
+      }
+      break;
     }
 
     stats.count += 1;
@@ -448,13 +558,7 @@ async function walkRecursive(dir: string, stats: DirStats, depth: number): Promi
       stats.longPathCount += 1;
       if (fullPath.length > (stats.longestPath?.length ?? 0)) stats.longestPath = fullPath;
     }
-    if (!stats.hasUasset) {
-      const dot = entry.name.lastIndexOf('.');
-      if (dot >= 0) {
-        const ext = entry.name.slice(dot).toLowerCase();
-        if (UASSET_EXTENSIONS.has(ext)) stats.hasUasset = true;
-      }
-    }
+    if (!stats.hasUasset && isUassetName(entry.name)) stats.hasUasset = true;
     // Sum the size of every enumerated file, not just the first 200. The walk
     // is already bounded by `MAX_FILES_PER_PACK`, so this is at most one extra
     // `fs.stat` per counted file (the same stat we already issue) and the total
@@ -470,13 +574,13 @@ async function walkRecursive(dir: string, stats: DirStats, depth: number): Promi
   }
 
   for (const entry of entries) {
-    if (stats.count >= MAX_FILES_PER_PACK) {
-      stats.truncated = true;
-      return;
-    }
     if (entry.name.startsWith('.') || !entry.isDirectory()) continue;
     if (IGNORED_DIR_NAMES.has(entry.name)) continue;
-    await walkRecursive(join(dir, entry.name), stats, depth + 1);
+    const child = join(dir, entry.name);
+    // Past the cap, a folder is only "missed content" if it holds something;
+    // an empty one costs no bytes. `probeUnvisited` decides which.
+    if (stats.count >= MAX_FILES_PER_PACK) stats.unvisited.push({ dir: child, depth: depth + 1 });
+    else await walkRecursive(child, stats, depth + 1);
   }
 }
 

@@ -7,7 +7,7 @@ import { trpc } from '@/ipc/trpc';
 import { toAssetUrl } from '@/lib/assetUrl';
 import { cn } from '@/lib/cn';
 import { formatCount } from '@/lib/format';
-import { subtitleStem, videoStem } from '@/lib/subtitleStem';
+import { subtitlePairsWith } from '@/lib/subtitleStem';
 
 /**
  * Learn — an index that knows what is inside.
@@ -357,7 +357,7 @@ function CourseDetail({
               // the same stem beside it. The shared stem helpers handle the
               // `lesson.mp4.srt` shape the Whisper backfill writes — stripping
               // a single extension from both sides never pairs those.
-              const target = videos.find((v) => videoStem(v.rel_path) === subtitleStem(h.rel_path));
+              const target = videos.find((v) => subtitlePairsWith(h.rel_path, v.rel_path));
               return (
                 <button
                   key={`${h.file_id}-${h.start_ms}`}
