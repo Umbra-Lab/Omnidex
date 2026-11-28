@@ -181,7 +181,10 @@ test('ArrowRight/ArrowLeft cycle gallery when multi-image present', async () => 
 
   const search = win.locator('[aria-label="Search assets"]');
   await search.fill(targetName as string);
-  await win.waitForTimeout(400);
+  // A committed query drops the selection, so click only once it has landed.
+  await expect
+    .poll(() => new URLSearchParams(new URL(win.url()).hash.split('?')[1]).get('q'))
+    .toBe(targetName);
 
   const card = win.locator(`[data-testid="asset-card"][data-asset-id="${targetId}"]`);
   await card.waitFor({ state: 'visible', timeout: 5000 });
