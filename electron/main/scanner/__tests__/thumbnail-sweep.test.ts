@@ -57,6 +57,16 @@ describe('sweepOrphanThumbnails', () => {
     expect(existsSync(fresh)).toBe(true);
   });
 
+  it('keeps an old orphan that an extraction rewrites, since the rewrite makes it young', async () => {
+    // Extractors always rewrite their hashed file, so a pack that comes back
+    // after a move refreshes the old PNG before its row points at it again.
+    const reused = file('reused.png', 3 * DAY);
+    writeFileSync(reused, Buffer.alloc(10));
+    const result = await sweepOrphanThumbnails(db, dir);
+    expect(result.removed).toBe(0);
+    expect(existsSync(reused)).toBe(true);
+  });
+
   it('matches by file name, so a differently spelled folder still counts as in use', async () => {
     // Rows that still point at the legacy Electron folder, or at a userData
     // folder whose case changed, name the same file in another place.

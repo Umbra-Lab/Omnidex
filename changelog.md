@@ -107,9 +107,10 @@ work that reached `main` through direct merges with no pull request, the commit.
   only ever raises a confident match. (12c2de5, f133764)
 - CI runs on `main`. The pre-commit hook passes when no staged file is one Biome
   handles. (#35)
-- Thumbnails of packs that were renamed, moved or removed are deleted a minute
-  after launch. Nothing deleted them before, so the thumbnail cache only grew.
-  Only files over a day old that no asset uses are removed. (#62)
+- Thumbnails no asset uses any more are deleted a minute after launch. A pack
+  that was renamed, moved or removed without notes, tags or collections left
+  its thumbnail behind for good, so the cache only grew. Only files over a day
+  old are removed. (#62)
 
 ### Fixed
 

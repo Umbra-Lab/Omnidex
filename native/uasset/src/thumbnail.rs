@@ -198,6 +198,9 @@ fn resize_and_encode_png(img: image::DynamicImage, target_size: u32) -> Result<V
   Ok(buf)
 }
 
+// The startup sweep (electron/main/scanner/thumbnail-sweep.ts) deletes unused
+// thumbnails over a day old. It relies on every extraction rewriting this file,
+// which refreshes its mtime. Don't skip the write when the file already exists.
 fn hashed_filename(path: &str) -> String {
   let mut hasher = DefaultHasher::new();
   path.hash(&mut hasher);

@@ -600,7 +600,7 @@ app.whenReady().then(() => {
   // anywhere else, so the cache only grows. Sweep once per launch, a minute
   // in so it stays off the startup path. It only touches files over a day
   // old, so an extraction running at the same time is safe.
-  setTimeout(() => {
+  const sweepTimer = setTimeout(() => {
     sweepOrphanThumbnails(openDatabase(), thumbnailsDir())
       .then(({ removed, freedBytes }) => {
         if (removed > 0) {
@@ -610,7 +610,10 @@ app.whenReady().then(() => {
         }
       })
       .catch((err) => console.warn('[thumbs] unused-thumbnail sweep failed:', err));
-  }, 60_000).unref();
+  }, 60_000);
+  sweepTimer.unref();
+  // Quitting inside the first minute must not reopen the DB that will-quit closed.
+  app.once('will-quit', () => clearTimeout(sweepTimer));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
