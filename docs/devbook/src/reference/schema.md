@@ -115,7 +115,7 @@ ORDER BY rank
 | `orbital_product_cache`, `orbital_catalog_index`, `orbital_catalog_sync` | Marketplace cache, 24-hour TTL |
 | `fab_library_items`, `fab_assets`, `fab_metadata` | Epic FAB import |
 | `app_settings`, `settings` | Persisted settings |
-| `assets_fts` | FTS5 over pack names and marketplace titles, BM25-weighted to favour the name |
+| `assets_fts` | FTS5 over pack names, marketplace text, the split scan name (`scan_search_text`) and AI keywords (`ai_tags`), BM25-weighted to favour the name |
 | `_omnidex_migrations` | Applied migrations |
 
 ## Legacy

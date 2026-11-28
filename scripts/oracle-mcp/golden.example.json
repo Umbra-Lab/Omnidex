@@ -1,0 +1,10 @@
+[
+  { "tool": "search_assets", "query": "corridor", "expect": "SciFiCorridor" },
+  { "tool": "search_assets", "query": "niagra fire", "expect": "Niagara" },
+  {
+    "tool": "search_transcripts",
+    "query": "how do I add a ribbon renderer in niagara",
+    "expect": "ribbon renderer"
+  },
+  { "tool": "search_lessons", "query": "outline effect", "expect": "outline" }
+]

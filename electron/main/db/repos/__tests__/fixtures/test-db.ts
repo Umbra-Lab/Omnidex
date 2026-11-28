@@ -131,6 +131,7 @@ END;
 /** Columns we let a test seed; everything else falls back to a schema default. */
 export interface SeedAsset {
   name: string;
+  scan_search_text?: string;
   asset_type?: string;
   file_size?: number;
   file_path?: string;

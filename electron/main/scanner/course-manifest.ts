@@ -518,32 +518,48 @@ export interface CueRow {
  * `-->`, then text until a blank line. VTT uses `.` for the millisecond
  * separator and SRT uses `,`; everything else that differs (styling blocks,
  * NOTE lines, cue settings) is ignorable for search.
+ *
+ * Read line by line rather than split on blank lines. Real sidecars separate
+ * cues with lines that only look blank (`" \n"`, `"\r\r\n"`, lone `\r`) or
+ * with nothing at all, and splitting on `\n\n` turned each of those files into
+ * one cue holding the whole transcript. So a cue's text runs from its timing
+ * line to the next line that trims to empty or to the next timing line, and a
+ * last line equal to the next cue's number is that cue's index, not text.
  */
 export function parseCues(source: string): CueRow[] {
   const cues: CueRow[] = [];
-  // Normalise CRLF and old-Mac CR-only endings, then split on any line that is
-  // blank or holds only whitespace. A `\n{2,}` split merged two cues whenever
-  // the separator carried a stray space, and the second timing line landed in
-  // the first cue's searchable text.
-  const blocks = source.replace(/\r\n?/g, '\n').split(/\n[ \t]*\n(?:[ \t]*\n)*/);
-  for (const block of blocks) {
-    const lines = block.split('\n').filter((l) => l.trim().length > 0);
-    if (lines.length === 0) continue;
-    const timingIdx = lines.findIndex((l) => l.includes('-->'));
-    if (timingIdx === -1) continue;
-
-    const startRaw = lines[timingIdx].split('-->')[0].trim();
-    const startMs = parseTimestamp(startRaw);
-    if (startMs == null) continue;
-
-    const text = lines
-      .slice(timingIdx + 1)
+  let startMs: number | null = null;
+  let text: string[] = [];
+  const flush = () => {
+    const joined = text
       // Strip inline tags (<i>, <c.colorE5E5E5>) — they are styling, not words.
       .map((l) => l.replace(/<[^>]+>/g, '').trim())
       .filter(Boolean)
       .join(' ');
-    if (text) cues.push({ startMs, text });
+    if (startMs != null && joined) cues.push({ startMs, text: joined });
+    startMs = null;
+    text = [];
+  };
+
+  let timings = 0;
+  for (const raw of source.split(/\r*\n|\r/)) {
+    const line = raw.trim();
+    // A timing line starts with a timestamp-like run. Dialogue can hold "-->" too
+    // ("drag A --> B") and stays text.
+    if (/^[\d:.,]+\s*-->/.test(line)) {
+      timings += 1;
+      // With no blank line before it, a last line equal to the next cue number is that
+      // cue's index; any other number ("42") is dialogue.
+      if (text.length > 0 && text[text.length - 1] === String(timings)) text.pop();
+      flush();
+      startMs = parseTimestamp(line.split('-->')[0]);
+    } else if (line === '') {
+      flush();
+    } else if (startMs != null) {
+      text.push(line);
+    }
   }
+  flush();
   return cues;
 }
 

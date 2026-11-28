@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { Database } from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedAsset } from '../../db/repos/__tests__/fixtures/test-db';
@@ -25,6 +27,10 @@ let db: Database;
 
 beforeEach(() => {
   db = createTestDb();
+  // The upsert writes scan_search_text, which this migration adds to the fixture schema.
+  db.exec(
+    readFileSync(resolve('electron/main/db/migrations/20261108000000_dcc_index.up.sql'), 'utf8'),
+  );
 });
 afterEach(() => {
   (db as unknown as { close: () => void }).close();
@@ -45,6 +51,7 @@ function scanUpsert(path: string, name: string, locationId = 1): void {
     'unreal_engine',
     'unreal_engine',
     null,
+    name,
   );
 }
 

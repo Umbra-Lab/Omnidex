@@ -158,6 +158,22 @@ export function claudeCodeAvailable(): Promise<boolean> {
   return claudeCodeProbe;
 }
 
+/**
+ * The environment for a headless `claude` child: this process's, minus Claude-session
+ * variables (set when Omnidex was launched from a Claude Code session; they break the
+ * child's OAuth refresh) and minus API credentials, which would make the CLI bill the
+ * API per token instead of using the subscription login. Shared with enrich-tags.
+ */
+export function claudeCliEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = { ...base };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('CLAUDE_CODE_') || key === 'CLAUDECODE') delete env[key];
+  }
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  return env;
+}
+
 /** `--resume` rides a shell:true command line; only a UUID shape may pass. */
 const SESSION_ID_SHAPE = /^[0-9a-fA-F-]{1,64}$/;
 
@@ -177,20 +193,9 @@ export async function streamClaudeCode(
     ...(resume ? ['--resume', resume] : []),
   ];
   // shell:true so Windows resolves the `claude.cmd` shim; every arg above is a
-  // fixed token and the session id is a UUID, so there is nothing to escape.
-  //
-  // The environment is scrubbed on two counts. Claude-session variables leak in
-  // when Omnidex itself was launched from a Claude Code session and break the
-  // child's OAuth refresh. ANTHROPIC_API_KEY is deliberate: with it set the CLI
-  // bills the API per token instead of using the subscription login, silently
-  // violating this provider's "free" contract.
-  const env = { ...process.env };
-  for (const key of Object.keys(env)) {
-    if (key.startsWith('CLAUDE_CODE_') || key === 'CLAUDECODE') delete env[key];
-  }
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  const child = spawn('claude', args, { shell: true, windowsHide: true, env });
+  // fixed token and the session id is a UUID, so there is nothing to escape. The
+  // environment is scrubbed of session variables and API keys (claudeCliEnv).
+  const child = spawn('claude', args, { shell: true, windowsHide: true, env: claudeCliEnv() });
   // The first-question prompt is hundreds of KB of transcript — far past the
   // pipe buffer — so the write settles asynchronously. If the CLI exits before
   // draining it (not logged in, bad --resume, missing binary behind a cached

@@ -17,6 +17,8 @@ Most have a `package.json` wrapper; see [Commands](commands.md).
 | `--enrich-orbital` | `pnpm enrich-orbital` | Match packs against Orbital Market and write metadata |
 | `--enrich-fab` | `pnpm enrich-fab` | Pull the Epic FAB library and enrich matches |
 | `--backfill-course-sources` | `pnpm backfill:course-sources` | Fill `tutorial_source` on courses that already have a manifest |
+| `--enrich-tags` | `pnpm enrich-tags` | Write AI search keywords for untagged packs with the Claude Code CLI (`--limit N`, `--batch N`, `--model name`; default `opus`) |
+| `--clear-ai-tags` | `pnpm clear-ai-tags` | Forget every AI tag so the next `enrich-tags` run writes them again |
 
 ## FAB credential overrides
 
@@ -60,6 +62,8 @@ Used by the Playwright suite so a spec can install its own data without a separa
 **Close the app first.** A job flag cannot run while the Omnidex window is open (single-instance lock). It prints `Omnidex is already running; close it and run this again.` and exits `1`. The reverse holds too: while a job runs, opening the app prints `Another Omnidex process is running…` to stderr and exits without a window.
 
 **`--refresh-scans` waits for thumbnails.** The UI gets a scan's result before thumbnail extraction ends; the CLI run waits for extraction to finish before it exits.
+
+**`--enrich-tags` exit code.** `1` when any Claude Code call failed or the run stopped after two failures in a row (not logged in, out of quota, CLI missing). Packs in a failed call stay untagged and the next run retries them.
 
 **`--enrich-fab` and stdin.** When stored credentials are stale it prompts for an Epic authorization code on stdin. With stdin closed (cron, `</dev/null`) it exits `1` instead of waiting; pass `--fab-token`/`--fab-account` for unattended runs.
 

@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { callDocsTool, docsToolNames, docsTools } from './docs-tools.mjs';
+import { createSearch } from './search.mjs';
 import { createUnityTools, unityTools } from './unity-tools.mjs';
 
 const PROTOCOL_VERSION = '2025-06-18';
@@ -38,15 +39,6 @@ function stamp(ms) {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-}
-
-// Quote every token so user input is a literal-term FTS query, never FTS5 syntax.
-function ftsQuote(query) {
-  return query
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((t) => `"${t.replaceAll('"', '""')}"`)
-    .join(' ');
 }
 
 // Make % and _ literal inside LIKE filters (paired with ESCAPE '\' in the SQL).
@@ -72,26 +64,6 @@ function videoHint(subPath) {
   return subPath.replace(/(\.[a-z]{2}(_[A-Z]{2})?)?\.(srt|vtt)$/i, '');
 }
 
-const searchStmt = db.prepare(`
-  SELECT q.text, q.file_id, q.start_ms, c.rel_path, c.abs_path, a.name AS course
-  FROM transcript_fts t
-  JOIN transcript_cues q ON q.id = t.rowid
-  JOIN course_files c ON c.id = q.file_id
-  JOIN assets a ON a.id = c.asset_id
-  WHERE transcript_fts MATCH ?
-  ORDER BY rank
-  LIMIT ?
-`);
-const searchInCourseStmt = db.prepare(`
-  SELECT q.text, q.file_id, q.start_ms, c.rel_path, c.abs_path, a.name AS course
-  FROM transcript_fts t
-  JOIN transcript_cues q ON q.id = t.rowid
-  JOIN course_files c ON c.id = q.file_id
-  JOIN assets a ON a.id = c.asset_id
-  WHERE transcript_fts MATCH ? AND a.name LIKE '%' || ? || '%' ESCAPE '\\'
-  ORDER BY rank
-  LIMIT ?
-`);
 // Was a full scan of the corpus per call (~1.1 s at 4.6M cues) when file_id was an
 // UNINDEXED FTS5 column. transcript_cues is indexed on (file_id, start_ms).
 const contextStmt = db.prepare(`
@@ -143,25 +115,17 @@ function lessonsStmtFor(n) {
 }
 
 /**
- * Asset search over the pack library — the half of Omnidex the oracle was blind
- * to. 2,799 packs with names, categories, ecosystems and marketplace metadata,
- * and no way to ask "do I already own something for this?" until now.
- *
- * Uses the existing `assets_fts` index (BM25, name weighted 10x) rather than a
- * LIKE scan, so ranking matches what the app's own search box returns.
+ * Asset search over the pack library: 2,799 packs with names, categories, ecosystems
+ * and marketplace metadata, for "do I already own something for this?". Transcript and
+ * asset queries are built in search.mjs (prefix words, typo correction, OR fallback).
+ * ORACLE_SEARCH_LEGACY=1 restores exact ANDed words, for comparing on a real library.
  */
-const assetsStmt = db.prepare(`
-  SELECT a.name, a.orbital_title, a.file_path, a.file_size, a.asset_type,
-         a.orbital_categories, a.orbital_seller_name,
-         COALESCE(a.asset_ecosystem, a.ecosystem, 'unknown') AS ecosystem
-  FROM assets a
-  JOIN assets_fts f ON f.rowid = a.id
-  WHERE assets_fts MATCH ?
-    AND a.content_format IS NULL
-    AND a.missing_since IS NULL
-  ORDER BY bm25(assets_fts, 10.0, 1.0, 5.0, 8.0, 2.0, 2.0, 1.0)
-  LIMIT ?
-`);
+const search = createSearch(db, { legacy: process.env.ORACLE_SEARCH_LEGACY === '1' });
+
+/** Notes on how a search was relaxed, above the results, so the agent sees them first. */
+function withNotes(notes, body) {
+  return notes.length > 0 ? `${notes.map((n) => `Note: ${n}`).join('\n')}\n${body}` : body;
+}
 
 const coursesStmt = db.prepare(`
   SELECT a.name,
@@ -259,19 +223,21 @@ function callTool(name, args) {
   if (docsToolNames.has(name)) return callDocsTool(name, args, docsDbPath);
   if (name === 'search_transcripts') {
     const limit = clampLimit(args.limit, 20, 100);
-    const match = ftsQuote(String(args.query ?? ''));
-    if (!match) return 'Empty query.';
-    const rows = args.course
-      ? searchInCourseStmt.all(match, likeEscape(String(args.course)), limit)
-      : searchStmt.all(match, limit);
+    const { rows, notes, empty } = search.transcripts(
+      String(args.query ?? ''),
+      limit,
+      args.course ? likeEscape(String(args.course)) : '',
+    );
+    if (empty) return 'Empty query.';
     if (rows.length === 0) return 'No transcript cues matched.';
-    return rows
+    const body = rows
       .map(
         (r) =>
           `[${r.course}] ${r.rel_path} @ ${stamp(r.start_ms)} — ${r.text}\n` +
           `  (file_id=${r.file_id}, start_ms=${r.start_ms}, video=${videoHint(r.abs_path)})`,
       )
       .join('\n');
+    return withNotes(notes, body);
   }
   if (name === 'get_context') {
     // FTS5 UNINDEXED columns have no type affinity: a string file_id would silently
@@ -306,11 +272,26 @@ function callTool(name, args) {
   }
   if (name === 'search_assets') {
     const limit = clampLimit(args.limit, 20, 100);
-    const match = ftsQuote(String(args.query ?? ''));
-    if (!match) return 'Empty query.';
-    const rows = assetsStmt.all(match, limit);
-    if (rows.length === 0) return 'No owned assets matched.';
-    return rows
+    // Fetch extra so collapsing copies still fills the limit.
+    const { rows: found, notes, empty } = search.assets(String(args.query ?? ''), limit * 3);
+    if (empty) return 'Empty query.';
+    if (found.length === 0) return 'No owned assets matched.';
+    // One entry per pack: the same pack copied into several folders (same title and size)
+    // used to take several of the top slots. Extra paths are listed under the first. The
+    // title is the marketplace one when known, so a copy kept under a short folder name
+    // ("Cinemotion") folds into the one named in full.
+    const groups = new Map();
+    for (const r of found) {
+      const title = String(r.orbital_title ?? r.name)
+        .trim()
+        .toLowerCase();
+      const k = `${title}\u0000${r.file_size}`;
+      const g = groups.get(k);
+      if (g) g.copies.push(r.file_path);
+      else groups.set(k, { ...r, copies: [] });
+    }
+    const rows = [...groups.values()].slice(0, limit);
+    const body = rows
       .map((r) => {
         const size = !r.file_size
           ? '—'
@@ -326,9 +307,11 @@ function callTool(name, args) {
         const title =
           r.orbital_title && r.orbital_title !== r.name ? ` ("${r.orbital_title}")` : '';
         const by = r.orbital_seller_name ? ` by ${r.orbital_seller_name}` : '';
-        return `${r.name}${title}${by} — ${r.ecosystem}, ${r.asset_type}${cats ? `, ${cats}` : ''}, ${size}\n  ${r.file_path}`;
+        const copies = r.copies.map((p) => `\n  also at ${p}`).join('');
+        return `${r.name}${title}${by} — ${r.ecosystem}, ${r.asset_type}${cats ? `, ${cats}` : ''}, ${size}\n  ${r.file_path}${copies}`;
       })
       .join('\n');
+    return withNotes(notes, body);
   }
   if (name === 'list_courses') {
     const rows = coursesStmt.all(likeEscape(String(args.query ?? '')));

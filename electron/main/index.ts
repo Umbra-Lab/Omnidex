@@ -39,6 +39,7 @@ import { enrichOrbital } from './orbital/enrich';
 import { type ActionProgress, progressBus } from './progress/bus';
 import { waitForBackgroundThumbnails } from './scanner/pipeline';
 import { refreshAllScans } from './scanner/refresh-all';
+import { backfillPackSearchText } from './scanner/search-text';
 import { findThumbnailSource } from './scanner/thumbnail-finder';
 import { appRouter } from './trpc/router';
 import { initAutoUpdater } from './updater';
@@ -51,6 +52,8 @@ const EXTRACT_THUMBS = process.argv.includes('--extract-missing-thumbs');
 const ENRICH_ORBITAL = process.argv.includes('--enrich-orbital');
 const ENRICH_FAB = process.argv.includes('--enrich-fab');
 const BACKFILL_COURSE_SOURCES = process.argv.includes('--backfill-course-sources');
+const ENRICH_TAGS = process.argv.includes('--enrich-tags');
+const CLEAR_AI_TAGS = process.argv.includes('--clear-ai-tags');
 const INJECT_GALLERY_FIXTURE = process.argv.includes('--inject-gallery-fixture');
 const REVERT_GALLERY_FIXTURE = process.argv.includes('--revert-gallery-fixture');
 // Any of the above (or --check-fixture): no window, no modal dialogs, and the
@@ -512,6 +515,14 @@ app.whenReady().then(() => {
       n: number;
     };
     console.log(`[omnidex] db ready at ${db.name} — ${n} migrations applied`);
+    try {
+      // Split camelCase pack names scanned before the pack scanner wrote them. Runs once
+      // per row; a failure only costs search quality, so it must not block boot.
+      const filled = backfillPackSearchText(db);
+      if (filled > 0) console.log(`[omnidex] search text filled for ${filled} assets`);
+    } catch (err) {
+      console.error('[omnidex] search text backfill failed:', err);
+    }
   } catch (err) {
     const e = err as Error & { migrationName?: string; backupPath?: string };
     console.error('[omnidex] failed to open database on boot:', e);
@@ -568,6 +579,14 @@ app.whenReady().then(() => {
   }
   if (BACKFILL_COURSE_SOURCES) {
     void runHeadless('backfill', runBackfillCourseSourcesAndQuit, headlessIo);
+    return;
+  }
+  if (ENRICH_TAGS) {
+    void runHeadless('tags', runEnrichTagsAndQuit, headlessIo);
+    return;
+  }
+  if (CLEAR_AI_TAGS) {
+    void runHeadless('tags', runClearAiTagsAndQuit, headlessIo);
     return;
   }
   if (INJECT_GALLERY_FIXTURE || REVERT_GALLERY_FIXTURE) {
@@ -917,4 +936,36 @@ async function runBackfillCourseSourcesAndQuit(): Promise<number> {
     console.error('[backfill] failed:', err);
     return 1;
   }
+}
+
+/**
+ * `pnpm enrich-tags [--limit N] [--batch N] [--model name]`: search keywords for untagged
+ * packs from the Claude Code CLI on the user's subscription (see tagging/enrich-tags).
+ */
+async function runEnrichTagsAndQuit(): Promise<number> {
+  const { openDatabase } = await import('./db');
+  const { enrichTags, enrichTagsExitCode } = await import('./tagging/enrich-tags');
+  const num = (flag: string) => {
+    const v = Number(flagValue(process.argv, flag));
+    return Number.isFinite(v) && v > 0 ? Math.trunc(v) : undefined;
+  };
+  const result = await enrichTags(openDatabase(), {
+    limit: num('--limit'),
+    batchSize: num('--batch'),
+    model: flagValue(process.argv, '--model'),
+    log: (line) => console.log(`[tags] ${line}`),
+  });
+  console.log(
+    `[tags] done: ${result.tagged} tagged, ${result.empty} with nothing to add, ${result.skipped} left for next run`,
+  );
+  if (result.stoppedEarly) console.error(`[tags] stopped early: ${result.stoppedEarly}`);
+  return enrichTagsExitCode(result);
+}
+
+/** `pnpm clear-ai-tags`: forget every AI tag so the next enrich-tags run rewrites them. */
+async function runClearAiTagsAndQuit(): Promise<number> {
+  const { openDatabase } = await import('./db');
+  const { aiTagsRepo } = await import('./db/repos');
+  console.log(`[tags] cleared AI tags from ${aiTagsRepo.clearAiTags(openDatabase())} pack(s)`);
+  return 0;
 }

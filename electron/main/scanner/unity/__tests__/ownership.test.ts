@@ -140,7 +140,9 @@ describe('a DCC and a Unity location over the same Unity project', () => {
     expect(idOf(database, textures)).toBeUndefined();
     expect(search).toContain('texture set');
     expect(search).toContain('Rock');
-    expect(search).toContain('Rock Base Color png');
+    // Map names are split for search (buildSearchText also adds joined pairs like BaseColor).
+    expect(search).toContain('Rock Base Color');
+    expect(search).toContain('BaseColor png');
 
     // The package row is taken over in place: same id, so its tag stays.
     expect(

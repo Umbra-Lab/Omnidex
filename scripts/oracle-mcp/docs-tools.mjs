@@ -13,6 +13,7 @@
  */
 import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { contentTerms, isStopword, mergeTiers } from './search.mjs';
 
 const READ_CHUNK = 20_000;
 const MIN_CHUNK = 2_000;
@@ -117,11 +118,20 @@ export function parseCitation(raw) {
   return { path: m[1], anchor: m[2] || null, version: m[3] || null };
 }
 
+// Every word quoted (literal, never FTS5 syntax) and prefix-matched, like the app's
+// search box, so "instanc" finds "instance" and "instanced". Only plain words take the
+// prefix (`"c++"*` would be `c*`), and never a stopword, since `"a"*` matches nearly every
+// section. ORACLE_SEARCH_LEGACY=1 drops it, for golden.mjs.
 function ftsQuote(query) {
+  const legacy = process.env.ORACLE_SEARCH_LEGACY === '1';
   return query
     .split(/\s+/)
     .filter(Boolean)
-    .map((t) => `"${t.replaceAll('"', '""')}"`)
+    .map((t) => {
+      const plain = /^[\p{L}\p{N}_]+$/u.test(t) && !isStopword(t);
+      const prefix = !legacy && plain ? '*' : '';
+      return `"${t.replaceAll('"', '""')}"${prefix}`;
+    })
     .join(' ');
 }
 
@@ -236,12 +246,23 @@ function search(db, args) {
       pinned,
       limit,
     );
-  let rows = run(ftsQuote(terms.join(' ')));
+  // Stopwords only dilute the match once the query has real words; keep them when it has
+  // nothing else ("how to").
+  const legacyMode = process.env.ORACLE_SEARCH_LEGACY === '1';
+  const content = legacyMode ? terms : contentTerms(terms);
+  const words = content.length > 0 ? content : terms;
+  let rows = run(ftsQuote(words.join(' ')));
+  if (rows.length > 0 && words.length !== terms.length) {
+    // Blueprint nodes are named with common words (Do Once, For Loop, Is Valid): sections
+    // holding every typed word go first, then those with only the real words.
+    const all = run(terms.map((t) => `"${t.replaceAll('"', '""')}"`).join(' '));
+    rows = mergeTiers([all, rows], (r) => `${r.path}#${r.anchor}#${r.ord}`, limit);
+  }
   let note = '';
-  if (rows.length === 0 && terms.length > 1) {
+  if (rows.length === 0 && words.length > 1) {
     // Every word must match first; a natural-language question rarely does, so retry with
     // any word and say so.
-    rows = run(terms.map((t) => ftsQuote(t)).join(' OR '));
+    rows = run(words.map((t) => ftsQuote(t)).join(' OR '));
     note = 'No section has every word; these match some of them.\n';
   }
   if (rows.length === 0) {

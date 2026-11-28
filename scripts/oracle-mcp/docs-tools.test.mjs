@@ -50,6 +50,12 @@ try {
       Array.from({ length: 3000 }, (_, i) => `line ${i} of a long reference table`).join('\n'),
   );
   page(
+    'blender/5.3/python-api/flow.md',
+    { ...common, title: 'Flow nodes', source_url: 'https://docs.blender.org/api/5.3/flow.html' },
+    '# Flow nodes\n\n## Once per frame\n\nRuns once per frame.\n\n' +
+      '## Do Once\n\nFires its output only the first time; do this once and stop.\n',
+  );
+  page(
     'unreal/5.7/unreal-mcp/index.md',
     {
       ...common,
@@ -115,6 +121,12 @@ try {
     version: null,
   });
   assert.equal(normalizeText('See [the *Node*](x.md) and `f(*args)`'), 'See the Node and f(*args)');
+
+  // A node named with common words ("Do Once") ranks above a section with only "once".
+  assert.match(
+    callDocsTool('docs_search', { query: 'do once' }, dbPath),
+    /^blender\/5\.3\/python-api\/flow\.md#do-once/,
+  );
 
   // Search finds an API name whole, ranks the section that defines it, and gives a citation.
   const hits = callDocsTool('docs_search', { query: 'primitive_cube_add' }, dbPath);

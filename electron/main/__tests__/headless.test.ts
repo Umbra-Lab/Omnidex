@@ -28,6 +28,8 @@ describe('isHeadlessRun', () => {
       '--enrich-orbital',
       '--enrich-fab',
       '--backfill-course-sources',
+      '--enrich-tags',
+      '--clear-ai-tags',
     ]) {
       expect(isHeadlessRun(['electron', '.', flag])).toBe(true);
     }

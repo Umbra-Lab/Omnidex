@@ -15,8 +15,9 @@
 export const ASSET_UPSERT_SQL = `INSERT INTO assets (
        name, file_path, asset_type, file_size, file_size_is_partial,
        created_date, modified_date,
-       scan_location_id, is_favorite, ecosystem, asset_ecosystem, content_format
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+       scan_location_id, is_favorite, ecosystem, asset_ecosystem, content_format,
+       scan_search_text
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
      ON CONFLICT(file_path) DO UPDATE SET
        name = excluded.name,
        asset_type = excluded.asset_type,
@@ -27,6 +28,7 @@ export const ASSET_UPSERT_SQL = `INSERT INTO assets (
        asset_ecosystem = excluded.asset_ecosystem,
        scan_location_id = excluded.scan_location_id,
        content_format = excluded.content_format,
+       scan_search_text = excluded.scan_search_text,
        -- A path that is back on disk is not missing any more. The prune stamps
        -- curated rows instead of deleting them, so this is the other half of
        -- that: move a pack away, scan, move it back, scan — and its

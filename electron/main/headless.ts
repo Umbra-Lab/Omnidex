@@ -16,6 +16,8 @@ export const HEADLESS_JOB_FLAGS = [
   '--enrich-orbital',
   '--enrich-fab',
   '--backfill-course-sources',
+  '--enrich-tags',
+  '--clear-ai-tags',
   '--inject-gallery-fixture',
   '--revert-gallery-fixture',
   '--check-fixture',
