@@ -161,6 +161,24 @@ work that reached `main` through direct merges with no pull request, the commit.
   electron-trpc closed every subscription on each hash navigation while the
   renderer still believed it was subscribed; a patch now leaves same-document
   navigations alone. (#64)
+- Single-letter shortcuts fired while typing: searching for "arcade" in Match's
+  manual search accepted, dismissed and rejected the pack. Shortcuts now ignore
+  keys typed into text fields and chords with modifiers they did not ask for,
+  and Ctrl/Cmd-A in the search box selects its text instead of every asset. The
+  command palette (Ctrl/Cmd-K) still opens from anywhere. (overnight)
+- The asset selection survived a facet, search or sort change, so after
+  selecting all and switching to Favorites the bulk bar still counted the
+  hidden rows and Remove, Add tags and New collection acted on them. Changing
+  what the list shows now clears the selection. Favoriting also refreshes the
+  inspector and the asset count. (overnight)
+- Manage tags could open before the asset's tags had loaded, show "No tags
+  yet", and then save only the new tag, replacing the existing ones. The modal
+  now waits for the tags and blocks saving if they fail to load. (overnight)
+- Learn: pausing or closing a lesson left the course percentage, chapter
+  checkmarks and Resume position stale for up to 30 seconds, so Resume reopened
+  at the old spot. Clicking a transcript hit or Ask citation in the lesson
+  already playing did not seek, and a hit's time could carry into the next
+  lesson opened with Resume. (overnight)
 
 ### Removed
 
