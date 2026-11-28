@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { subtitleStem, toWebVtt, videoStem } from '../subtitles';
+import { parseCues } from '../course-manifest';
+import { decodeSubtitle, subtitlePairsWith, subtitleStem, toWebVtt, videoStem } from '../subtitles';
 
 const SRT = [
   '1',
@@ -103,5 +104,78 @@ describe('subtitleStem / videoStem', () => {
 
   it('is case-insensitive, because Windows paths are', () => {
     expect(subtitleStem('01 - INTRO.SRT')).toBe(videoStem('01 - intro.mp4'));
+  });
+
+  it('still pairs a lesson whose own name ends in a two-letter word', () => {
+    // `.UE`, `.UI`, `.FX`, `.VR` look like language tags but are part of the
+    // lesson name, and the video keeps them.
+    for (const name of ['Intro.UE', 'Menus.UI', 'Sparks.FX', 'Setup.VR', 'Intro.ue']) {
+      expect(subtitlePairsWith(`${name}.srt`, `${name}.mp4`)).toBe(true);
+    }
+    expect(subtitlePairsWith('Lesson.EN.srt', 'Lesson.mp4')).toBe(true);
+    expect(subtitlePairsWith('lesson.mp4.srt', 'lesson.mp4')).toBe(true);
+    expect(subtitlePairsWith('01 - Intro.srt', '10 - Intro.mp4')).toBe(false);
+  });
+
+  it('pairs an upper-case language tag', () => {
+    expect(subtitleStem('Lesson.EN.srt')).toBe(videoStem('Lesson.mp4'));
+    expect(subtitleStem('Lesson.PT-BR.vtt')).toBe(videoStem('Lesson.mp4'));
+    expect(subtitleStem('Lesson.mp4.EN_US.srt')).toBe(videoStem('Lesson.mp4'));
+  });
+});
+
+describe('toWebVtt separator lines', () => {
+  it('blanks a separator line that holds only spaces, so cues do not merge in playback', () => {
+    const vtt = toWebVtt(
+      '1\n00:00:01,000 --> 00:00:02,000\nfirst\n \t\n2\n00:00:03,000 --> 00:00:04,000\nsecond\n',
+    );
+    expect(vtt).toBe(
+      'WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nfirst\n\n2\n00:00:03.000 --> 00:00:04.000\nsecond\n',
+    );
+  });
+
+  it('accepts CR-only line endings', () => {
+    const vtt = toWebVtt('1\r00:00:01,000 --> 00:00:02,000\rfirst\r\r');
+    expect(vtt).toBe('WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nfirst\n\n');
+  });
+});
+
+describe('decodeSubtitle', () => {
+  const srt = '1\n00:00:01,000 --> 00:00:02,000\nthe café “quote”\n';
+
+  it('decodes plain UTF-8, with or without a BOM', () => {
+    expect(decodeSubtitle(Buffer.from(srt, 'utf8'))).toBe(srt);
+    const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(srt, 'utf8')]);
+    expect(decodeSubtitle(bom)).toBe(srt);
+  });
+
+  it('decodes UTF-16 LE by its BOM, so the cues are not lost', () => {
+    // What Windows Notepad and several subtitle editors write as "Unicode".
+    // Read as UTF-8 it is NUL-interleaved and parseCues finds nothing.
+    const buf = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(srt, 'utf16le')]);
+    expect(parseCues(buf.toString('utf8'))).toEqual([]);
+    expect(decodeSubtitle(buf)).toBe(srt);
+    expect(parseCues(decodeSubtitle(buf))).toEqual([{ startMs: 1000, text: 'the café “quote”' }]);
+  });
+
+  it('decodes UTF-16 BE by its BOM', () => {
+    const le = Buffer.from(srt, 'utf16le');
+    const be = Buffer.from(le).swap16();
+    expect(decodeSubtitle(Buffer.concat([Buffer.from([0xfe, 0xff]), be]))).toBe(srt);
+  });
+
+  it('falls back to Windows-1252 when the bytes are not valid UTF-8', () => {
+    // "café" and curly quotes as a Western-European editor saves them.
+    const cp1252 = Buffer.from([
+      ...Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nthe caf', 'latin1'),
+      0xe9,
+      0x20,
+      0x93,
+      ...Buffer.from('quote', 'latin1'),
+      0x94,
+      0x0a,
+    ]);
+    expect(cp1252.toString('utf8')).toContain('\ufffd');
+    expect(decodeSubtitle(cp1252)).toBe(srt);
   });
 });
