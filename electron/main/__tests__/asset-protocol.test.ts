@@ -271,6 +271,8 @@ describe('UNC paths (win32)', () => {
     expect(isUncPath('C:\\Users')).toBe(false);
     expect(isUncPath('/home/u')).toBe(false);
     expect(isUncPath('\\\\')).toBe(false);
+    expect(isUncPath('\\\\\\nas\\share')).toBe(true);
+    expect(isUncPath('///nas/share')).toBe(true);
   });
 
   it('refuses a UNC server that is not an allowed root, with no filesystem call', () => {

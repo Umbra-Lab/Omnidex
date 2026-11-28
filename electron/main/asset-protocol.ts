@@ -108,7 +108,10 @@ export function decodeAssetPath(
  * filesystem call; see `isUncPathPermitted`.
  */
 export function isUncPath(p: string): boolean {
-  return /^[\\/]{2}[^\\/]/.test(p);
+  // Two or more leading separators. Three or more is not a UNC path to Node,
+  // but treating it as one keeps the check purely lexical instead of relying
+  // on the JS realpathSync resolving it to a drive-relative path first.
+  return /^[\\/]{2,}[^\\/]/.test(p);
 }
 
 /**
