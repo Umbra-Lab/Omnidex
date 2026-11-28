@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { openFolder } from '@/lib/openFolder';
+import { revealLabel } from '@/runtime/useRuntime';
 import type { SerializedMenuItem } from '@/types/omnidex';
 
 export interface ContextMenuItem extends SerializedMenuItem {
@@ -42,7 +43,7 @@ export function useNativeContextMenu() {
  */
 export interface AssetMenuActions {
   readonly id: number;
-  /** Absolute file path, used for "Reveal in Finder"; omitted when unknown. */
+  /** Absolute file path, used by the reveal entry; omitted when unknown. */
   readonly filePath: string | null;
   readonly isFavorite: boolean;
   readonly onToggleFavorite: () => void;
@@ -54,14 +55,14 @@ export interface AssetMenuActions {
 /**
  * Build the canonical asset context-menu item list. Views call this with their
  * own mutation/modal callbacks, then feed the result to `openMenu(...)`. The
- * "Reveal in Finder" entry is disabled (and a no-op) when no file path exists.
+ * reveal entry (`revealLabel`) is disabled, and a no-op, when no file path exists.
  */
 export function buildAssetMenuItems(actions: AssetMenuActions): ContextMenuItem[] {
   const { filePath, isFavorite } = actions;
   return [
     {
       id: 'reveal',
-      label: 'Reveal in Finder',
+      label: revealLabel(),
       enabled: Boolean(filePath),
       onSelect: () => {
         if (filePath) void openFolder(filePath);

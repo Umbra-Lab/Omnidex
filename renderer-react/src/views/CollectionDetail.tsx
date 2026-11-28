@@ -13,6 +13,7 @@ import { type ContextMenuItem, useNativeContextMenu } from '@/hooks/useNativeCon
 import { trpc } from '@/ipc/trpc';
 import { formatCount } from '@/lib/format';
 import { openFolder } from '@/lib/openFolder';
+import { revealLabel } from '@/runtime/useRuntime';
 import { useModals } from '@/stores/modals';
 
 export function CollectionDetail() {
@@ -77,7 +78,7 @@ export function CollectionDetail() {
     const menuItems: ContextMenuItem[] = [
       {
         id: 'reveal',
-        label: 'Reveal in Finder',
+        label: revealLabel(),
         enabled: Boolean(asset.file_path),
         onSelect: () => {
           if (asset.file_path) void openFolder(asset.file_path);
