@@ -114,7 +114,7 @@ work that reached `main` through direct merges with no pull request, the commit.
   (`E:\Packs\`, `e:/packs`), is refused with the name of the existing folder.
   Two locations on one folder took each pack from the other on every scan, and
   removing either deleted the notes, tags and collections on all of them. An
-  exact repeat used to fail with a raw database error. (#PR)
+  exact repeat used to fail with a raw database error. (#53)
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
