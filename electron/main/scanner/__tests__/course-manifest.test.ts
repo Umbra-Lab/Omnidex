@@ -193,6 +193,45 @@ describe('parseCues', () => {
     expect(cues).toHaveLength(1);
     expect(cues[0].startMs).toBe(90_000);
   });
+
+  it('splits cues on a separator line that holds only spaces or tabs', () => {
+    const cues = parseCues(
+      [
+        '1',
+        '00:00:01,000 --> 00:00:02,000',
+        'first',
+        ' \t',
+        '2',
+        '00:00:03,000 --> 00:00:04,000',
+        'second',
+        '',
+      ].join('\n'),
+    );
+    // Merged, the second timing line ended up as searchable text of cue one.
+    expect(cues).toEqual([
+      { startMs: 1000, text: 'first' },
+      { startMs: 3000, text: 'second' },
+    ]);
+  });
+
+  it('parses a file with old-Mac CR-only line endings', () => {
+    const cues = parseCues(
+      [
+        '1',
+        '00:00:01,000 --> 00:00:02,000',
+        'first',
+        '',
+        '2',
+        '00:00:03,000 --> 00:00:04,000',
+        'second',
+        '',
+      ].join('\r'),
+    );
+    expect(cues).toEqual([
+      { startMs: 1000, text: 'first' },
+      { startMs: 3000, text: 'second' },
+    ]);
+  });
 });
 
 describe('detectTutorialSource', () => {
@@ -252,6 +291,48 @@ describe('duration caching across re-scans', () => {
     const known = new Map([['README.pdf', { size: 999_999, duration: 123 }]]);
     const files = await buildCourseManifest(root, { readDurations: true, knownDurations: known });
     expect(files.find((f) => f.relPath === 'README.pdf')?.durationSeconds).toBeNull();
+  });
+
+  it('does not re-open a lesson the MP4 reader cannot parse just because its cached duration is null', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omnidex-course-mkv-'));
+    try {
+      // MP4 bytes under an .mkv name: if the reader were called it would find
+      // 30s, so a null result proves the cached null was kept without a read.
+      const mvhdPayload = Buffer.alloc(100);
+      mvhdPayload.writeUInt32BE(1000, 12);
+      mvhdPayload.writeUInt32BE(30_000, 16);
+      const bytes = Buffer.concat([
+        box('ftyp', Buffer.from('isom')),
+        box('moov', box('mvhd', mvhdPayload)),
+      ]);
+      writeFileSync(join(dir, 'lesson.mkv'), bytes);
+      const known = new Map([['lesson.mkv', { size: bytes.length, duration: null }]]);
+      const files = await buildCourseManifest(dir, { readDurations: true, knownDurations: known });
+      expect(files.find((f) => f.relPath === 'lesson.mkv')?.durationSeconds).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('re-reads a video whose cached duration is null, instead of keeping null forever', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omnidex-course-null-'));
+    try {
+      const mvhdPayload = Buffer.alloc(100);
+      mvhdPayload.writeUInt32BE(1000, 12);
+      mvhdPayload.writeUInt32BE(30_000, 16);
+      const mp4 = Buffer.concat([
+        box('ftyp', Buffer.from('isom')),
+        box('moov', box('mvhd', mvhdPayload)),
+      ]);
+      writeFileSync(join(dir, 'lesson.mp4'), mp4);
+      // A previous scan failed to read it (file still copying, reader bug since
+      // fixed); the bytes are the same now, but the read can succeed.
+      const known = new Map([['lesson.mp4', { size: mp4.length, duration: null }]]);
+      const files = await buildCourseManifest(dir, { readDurations: true, knownDurations: known });
+      expect(files.find((f) => f.relPath === 'lesson.mp4')?.durationSeconds).toBeCloseTo(30, 3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
