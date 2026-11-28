@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { shell } from 'electron';
 import { z } from 'zod';
 import { openDatabase } from '../../db';
+import { listMigrationBackups } from '../../db/backups';
 import { dbPath, thumbnailsDir, userDataDir } from '../../db/paths';
 import { appSettingsRepo, assetsRepo } from '../../db/repos';
 import { getLogFilePath } from '../../logger';
@@ -65,11 +66,16 @@ export const settingsRouter = router({
     const thumbStats = dirSize(thumbs);
     const logFile = getLogFilePath();
     const logDir = logFile ? dirname(logFile) : null;
+    const backups = listMigrationBackups(db);
     return {
       dbPath: db,
       // WAL + shm are part of the footprint; reporting only the .db file
       // understates it by however much is still uncheckpointed.
       dbBytes: fileSize(db) + fileSize(`${db}-wal`) + fileSize(`${db}-shm`),
+      // Pre-migration copies, each as big as the database was at the time.
+      backupPattern: `${db}.bak-*`,
+      backupCount: backups.length,
+      backupBytes: backups.reduce((sum, name) => sum + fileSize(join(dirname(db), name)), 0),
       thumbnailsPath: thumbs,
       thumbnailBytes: thumbStats.bytes,
       thumbnailCount: thumbStats.files,
