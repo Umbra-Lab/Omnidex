@@ -21,7 +21,8 @@ The largest surface. Browsing, filtering, faceting, and curation.
 | `categoryCounts`, `ecosystemCounts`, `marketplaceSourceCounts` | query | Facet counts |
 | `duplicates` | query | Suspected duplicate packs |
 | `setFavorite` | mutation | Toggle favourite |
-| `delete` | mutation | Remove an asset row |
+| `removalImpact` | query | What deleting these ids takes with it, for the confirm's counts |
+| `delete` | mutation | Remove asset rows; the next scan re-adds them as new assets |
 | `getTags`, `setTags`, `addTags` | query / mutation | Tagging. `addTags` is additive across a selection; `setTags` replaces. |
 | `learnList`, `learnCounts` | query | The course-side listing |
 | `stats`, `dbStats` | query | Library and database statistics |
