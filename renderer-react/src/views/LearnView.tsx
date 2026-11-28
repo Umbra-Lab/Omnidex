@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useViewStatus } from '@/components/layout/StatusBar';
 import { Input } from '@/components/ui/input';
 import { AskPane } from '@/features/learn/AskPane';
+import { readPlaybackRate, savePlaybackRate } from '@/features/learn/playbackRate';
 import { trpc } from '@/ipc/trpc';
 import { toAssetUrl } from '@/lib/assetUrl';
 import { cn } from '@/lib/cn';
@@ -581,7 +582,11 @@ function Player({
   // Seek once metadata is in — currentTime assignments before that are
   // discarded by the element.
   const onLoadedMetadata = useCallback(() => {
-    if (ref.current && startAt > 0) ref.current.currentTime = startAt;
+    if (!ref.current) return;
+    if (startAt > 0) ref.current.currentTime = startAt;
+    const rate = readPlaybackRate();
+    ref.current.defaultPlaybackRate = rate;
+    ref.current.playbackRate = rate;
   }, [startAt]);
 
   // A seek requested while this lesson is already loaded (a transcript hit or
@@ -654,6 +659,7 @@ function Player({
         style={{ maxHeight: '52vh' }}
         onLoadedMetadata={onLoadedMetadata}
         onError={() => setFailed(true)}
+        onRateChange={(e) => savePlaybackRate(e.currentTarget.playbackRate)}
         onPause={(e) => {
           const el = e.currentTarget;
           // The pause that precedes `ended` is onEnded's to save.
