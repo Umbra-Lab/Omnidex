@@ -110,6 +110,13 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Signing in to Epic for the FAB sync works from the app. The first sync, or
+  one with a login a token refresh can't revive, opens a dialog: open Epic's
+  sign-in page, paste the code it shows, and the sync runs. A first sync used
+  to show terminal instructions (`pnpm enrich-fab --fab-token …`) in a toast,
+  and a stale login offered a link with nowhere to put the result. The CLI
+  now signs in on its first run instead of exiting.
+
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would

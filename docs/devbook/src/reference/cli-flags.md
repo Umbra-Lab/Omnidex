@@ -20,7 +20,7 @@ Most have a `package.json` wrapper; see [Commands](commands.md).
 
 ## FAB credential overrides
 
-Used when no Epic credentials are stored in the OS keychain — headless machines and CI-like runs.
+Used when no Epic login is saved in `<userData>/epic_credentials.json` and nobody can sign in interactively — headless machines and CI-like runs.
 
 | Flag | Argument |
 |---|---|
@@ -34,7 +34,7 @@ pnpm enrich-fab --fab-token <bearer> --fab-account <id>
 Handled near the `runEnrichFabAndQuit` block in `electron/main/index.ts`.
 
 ```admonish warning title="Tokens on a command line are visible"
-A process command line is readable by other processes and lands in shell history. Prefer the stored-credential path; use these flags only where the keychain is unavailable.
+A process command line is readable by other processes and lands in shell history. Prefer the stored-credential path; use these flags only where nobody can sign in.
 ```
 
 ## Test fixtures

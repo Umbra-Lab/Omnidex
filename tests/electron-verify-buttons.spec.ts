@@ -132,17 +132,17 @@ test('#23 Sync FAB library — fires fab.enrich, surfaces a result/toast', async
 
   // The exact branch depends on the user's Epic creds, but SOME visible feedback
   // must appear — a dead button (no toast, no progress) is the failure mode.
-  const reauth = win.getByText('Epic re-authorization required');
-  const reauthVisible = await reauth.isVisible().catch(() => false);
+  // No login, or a stale one, opens the Epic sign-in dialog.
+  const signIn = win.getByRole('dialog', { name: 'Sign in to Epic' });
+  const reauthVisible = await signIn.isVisible().catch(() => false);
   if (reauthVisible) {
-    console.log('[test] Re-auth path hit. Verifying "Open Epic login" action is present…');
-    await expect(win.getByRole('button', { name: 'Open Epic login' })).toBeVisible({
-      timeout: 2000,
-    });
+    console.log('[test] Sign-in path hit. Verifying the dialog offers the Epic page…');
+    await expect(signIn.getByRole('button', { name: 'Open Epic sign-in' })).toBeVisible();
     await win.screenshot({ path: resolve(SHOTS_DIR, 'verify-fab-reauth.png') });
+    await signIn.getByRole('button', { name: 'Cancel' }).click();
   }
   expect(
     captured.length > 0 || reauthVisible,
-    'FAB sync must surface visible feedback (toast or re-auth prompt), not a dead click',
+    'FAB sync must surface visible feedback (toast or sign-in dialog), not a dead click',
   ).toBeTruthy();
 });

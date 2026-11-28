@@ -1,3 +1,5 @@
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { app } from 'electron';
 import { openDatabase } from '../db';
 import { type ActionProgress, emitProgress } from '../progress/bus';
@@ -118,10 +120,156 @@ function extractFabListingId(item: FabLibraryItem): string | null {
 export class FabAuthRequiredError extends Error {
   readonly redirectUrl: string;
   constructor(redirectUrl: string) {
-    super('Epic re-authorization required: stored credentials are stale.');
+    super('Epic sign-in required: no saved login, or one that can no longer be refreshed.');
     this.name = 'FabAuthRequiredError';
     this.redirectUrl = redirectUrl;
   }
+}
+
+/** Where the user signs in to Epic; the page answers with an authorization code. */
+export const FAB_AUTH_REDIRECT_URL = `https://www.epicgames.com/id/api/redirect?clientId=${LAUNCHER_CLIENT_ID}&responseType=code`;
+
+const EPIC_TOKEN_URL =
+  'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/token';
+
+function credentialsPath(): string {
+  // Lazy: `app.getPath` is only valid once the app module is loaded.
+  return join(app.getPath('userData'), 'epic_credentials.json');
+}
+
+/**
+ * Pull the authorization code out of whatever the user pasted. After signing
+ * in, Epic shows a JSON page (`{"redirectUrl":…,"authorizationCode":"…",…}`),
+ * and people paste the whole page, just the value, or the value in quotes.
+ * Returns null when nothing code-shaped is there.
+ */
+export function parseAuthorizationCode(pasted: string): string | null {
+  const text = pasted.trim();
+  if (!text) return null;
+  const fromJson = /"authorizationCode"\s*:\s*"([^"]+)"/.exec(text);
+  if (fromJson) return fromJson[1];
+  if (/"authorizationCode"\s*:\s*null/.test(text)) return null;
+  const fromUrl = /[?&]code=([^&\s]+)/.exec(text);
+  if (fromUrl) {
+    try {
+      return decodeURIComponent(fromUrl[1]);
+    } catch {
+      return null; // A malformed %-escape is not a code.
+    }
+  }
+  const bare = text.replace(/^["']+|["']+$/g, '');
+  return /^[A-Za-z0-9_-]{8,}$/.test(bare) ? bare : null;
+}
+
+/**
+ * Save the Epic login readable by this user only (0600; Windows ignores the
+ * mode and relies on the profile folder's ACL). Written to a temp file and
+ * renamed, so a crash never leaves half a file, and an existing file written
+ * by an older build with default permissions is replaced, not reused.
+ */
+function writeCredentials(credsPath: string, creds: EpicCredentials): void {
+  const tmp = `${credsPath}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(creds, null, 2), { mode: 0o600 });
+    renameSync(tmp, credsPath);
+  } catch (err) {
+    // Don't leave live tokens in a stray temp file (Windows rename can fail
+    // with EPERM/EBUSY while antivirus or the indexer holds the target).
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+}
+
+/**
+ * The saved Epic login, or null when there is none or it can't be parsed. A
+ * corrupt file is treated as signed out, so the person gets the sign-in
+ * prompt instead of a raw SyntaxError on every sync.
+ */
+function readCredentials(credsPath: string): EpicCredentials | null {
+  try {
+    const parsed = JSON.parse(readFileSync(credsPath, 'utf8')) as Partial<EpicCredentials> | null;
+    // `{}` or `[]` would otherwise reach Epic as `Bearer undefined`.
+    if (
+      !parsed ||
+      typeof parsed.access_token !== 'string' ||
+      typeof parsed.account_id !== 'string'
+    ) {
+      return null;
+    }
+    return parsed as EpicCredentials;
+  } catch {
+    return null;
+  }
+}
+
+export type EpicConnectResult = { ok: true; displayName?: string } | { ok: false; message: string };
+
+/**
+ * Exchange an Epic authorization code for tokens and save them where
+ * `enrichFab` reads them. Shared by the CLI's stdin prompt and the
+ * renderer's sign-in dialog (`fab.connect`). Never throws: a failure comes
+ * back as a message a person can act on.
+ */
+export async function exchangeEpicAuthCode(
+  code: string,
+  credsPath: string = credentialsPath(),
+): Promise<EpicConnectResult> {
+  const basic = Buffer.from(`${LAUNCHER_CLIENT_ID}:${LAUNCHER_CLIENT_SECRET}`).toString('base64');
+  let resp: Response;
+  try {
+    resp = await fetch(EPIC_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${basic}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: `grant_type=authorization_code&code=${encodeURIComponent(code)}`,
+    });
+  } catch (e) {
+    return { ok: false, message: `Could not reach Epic: ${(e as Error).message}` };
+  }
+  if (!resp.ok) {
+    // Codes are single-use and expire within minutes; that is the usual 400.
+    // Epic's body is for a log, not for the person reading the dialog.
+    const body = (await resp.text().catch(() => '')).slice(0, 250);
+    console.warn(`[fab] Epic token exchange failed: HTTP ${resp.status} ${body}`);
+    return {
+      ok: false,
+      message:
+        resp.status === 400
+          ? 'Epic did not accept that code. Codes work once and expire after a few minutes; sign in again for a fresh one.'
+          : `Epic answered HTTP ${resp.status}. Try again in a moment.`,
+    };
+  }
+  let fresh: {
+    access_token?: string;
+    refresh_token?: string;
+    account_id?: string;
+    displayName?: string;
+  };
+  try {
+    fresh = (await resp.json()) as typeof fresh;
+  } catch {
+    return { ok: false, message: 'Epic answered with something that is not a login.' };
+  }
+  if (!fresh.access_token || !fresh.account_id) {
+    return { ok: false, message: 'Epic answered without an access token or account id.' };
+  }
+  const creds: EpicCredentials = {
+    access_token: fresh.access_token,
+    refresh_token: fresh.refresh_token,
+    account_id: fresh.account_id,
+    ...(fresh.displayName ? { displayName: fresh.displayName } : {}),
+  };
+  try {
+    writeCredentials(credsPath, creds);
+  } catch (e) {
+    return {
+      ok: false,
+      message: `Signed in, but the login could not be saved: ${(e as Error).message}`,
+    };
+  }
+  return { ok: true, displayName: fresh.displayName };
 }
 
 export interface EnrichFabOptions {
@@ -162,7 +310,6 @@ export interface EnrichFabResult {
 
 export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabResult> {
   const emit = opts.onProgress ?? emitProgress;
-  const fsMod = await import('node:fs');
   const pathMod = await import('node:path');
   const credsPath = pathMod.join(app.getPath('userData'), 'epic_credentials.json');
 
@@ -175,16 +322,27 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
   const overrideAccount = opts.fabAccount;
 
   let creds: EpicCredentials;
-  if (fsMod.existsSync(credsPath)) {
-    creds = JSON.parse(fsMod.readFileSync(credsPath, 'utf8')) as EpicCredentials;
+  const saved = readCredentials(credsPath);
+  if (saved) {
+    creds = saved;
   } else if (overrideToken && overrideAccount) {
     creds = { access_token: overrideToken, account_id: overrideAccount };
+  } else if (opts.promptAuthCode) {
+    // First run from the CLI: sign in now instead of printing instructions.
+    const code = parseAuthorizationCode(await opts.promptAuthCode(FAB_AUTH_REDIRECT_URL));
+    const connected = code ? await exchangeEpicAuthCode(code, credsPath) : null;
+    if (!connected?.ok) {
+      throw new Error(
+        `[fab] not signed in to Epic: ${connected ? connected.message : 'no authorization code was entered'}`,
+      );
+    }
+    const fresh = readCredentials(credsPath);
+    if (!fresh) throw new Error('[fab] Epic login was saved but could not be read back');
+    creds = fresh;
   } else {
-    throw new Error(
-      `[fab] no credentials at ${credsPath} and no fabToken/fabAccount provided. Either:\n` +
-        `  - Drop a JSON with { access_token, refresh_token, account_id } at the path above, OR\n` +
-        `  - Re-run with: pnpm enrich-fab --fab-token <bearer> --fab-account <id>`,
-    );
+    // Never signed in. The renderer offers the same sign-in as for a stale
+    // login, so this is not an error it has to explain.
+    throw new FabAuthRequiredError(FAB_AUTH_REDIRECT_URL);
   }
   if (overrideToken) creds.access_token = overrideToken;
   if (overrideAccount) creds.account_id = overrideAccount;
@@ -227,7 +385,7 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
       creds.access_token = fresh.access_token;
       if (fresh.refresh_token) creds.refresh_token = fresh.refresh_token;
       if (fresh.account_id) creds.account_id = fresh.account_id;
-      fsMod.writeFileSync(credsPath, JSON.stringify(creds, null, 2));
+      writeCredentials(credsPath, creds);
       return true;
     } catch (e) {
       emit({
@@ -250,11 +408,19 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
    * (tRPC), this throws `FabAuthRequiredError` carrying the redirect URL.
    */
   const runEpicAuthCodeFlow = async (): Promise<boolean> => {
-    const redirectUrl = `https://www.epicgames.com/id/api/redirect?clientId=${LAUNCHER_CLIENT_ID}&responseType=code`;
     if (!opts.promptAuthCode) {
-      throw new FabAuthRequiredError(redirectUrl);
+      // Close the run that 'start' opened, or the UI keeps the sync busy.
+      emit({
+        action: 'enrich-fab',
+        phase: 'error',
+        processed: items.length,
+        total: 0,
+        currentName: null,
+        message: 'Epic sign-in required',
+      });
+      throw new FabAuthRequiredError(FAB_AUTH_REDIRECT_URL);
     }
-    const code = (await opts.promptAuthCode(redirectUrl)).trim().replace(/^"+|"+$/g, '');
+    const code = parseAuthorizationCode(await opts.promptAuthCode(FAB_AUTH_REDIRECT_URL));
     if (!code) {
       emit({
         action: 'enrich-fab',
@@ -266,52 +432,22 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
       });
       return false;
     }
-    const basic = Buffer.from(`${LAUNCHER_CLIENT_ID}:${LAUNCHER_CLIENT_SECRET}`).toString('base64');
-    const tokenUrl =
-      'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/token';
-    try {
-      const resp = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${basic}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: `grant_type=authorization_code&code=${encodeURIComponent(code)}`,
-      });
-      if (!resp.ok) {
-        emit({
-          action: 'enrich-fab',
-          phase: 'progress',
-          processed: 0,
-          total: 0,
-          currentName: null,
-          message: `token exchange failed: HTTP ${resp.status} ${(await resp.text()).slice(0, 250)}`,
-        });
-        return false;
-      }
-      const fresh = (await resp.json()) as {
-        access_token: string;
-        refresh_token: string;
-        account_id: string;
-        displayName?: string;
-      };
-      creds.access_token = fresh.access_token;
-      creds.refresh_token = fresh.refresh_token;
-      creds.account_id = fresh.account_id;
-      if (fresh.displayName) creds.displayName = fresh.displayName;
-      fsMod.writeFileSync(credsPath, JSON.stringify(creds, null, 2));
-      return true;
-    } catch (e) {
+    const connected = await exchangeEpicAuthCode(code, credsPath);
+    if (!connected.ok) {
       emit({
         action: 'enrich-fab',
         phase: 'progress',
         processed: 0,
         total: 0,
         currentName: null,
-        message: `token exchange network error: ${(e as Error).message}`,
+        message: `token exchange failed: ${connected.message}`,
       });
       return false;
     }
+    const fresh = readCredentials(credsPath);
+    if (!fresh) return false;
+    creds = fresh;
+    return true;
   };
 
   const base = `https://www.fab.com/e/accounts/${creds.account_id}/ue/library`;
@@ -506,7 +642,12 @@ export async function enrichFab(opts: EnrichFabOptions = {}): Promise<EnrichFabR
     // Prefer the "Featured" image, fall back to first.
     let thumbnailUrl: string | null = null;
     for (const img of item.images ?? []) {
-      if (img && typeof img === 'object' && img.type === 'Featured' && typeof img.url === 'string') {
+      if (
+        img &&
+        typeof img === 'object' &&
+        img.type === 'Featured' &&
+        typeof img.url === 'string'
+      ) {
         thumbnailUrl = img.url;
         break;
       }
