@@ -116,7 +116,7 @@ work that reached `main` through direct merges with no pull request, the commit.
   folders as "already running" failures, and the progress panel got two
   starts and two finishes. A second request now joins the running sweep. A
   sweep that reaches a folder whose own "Scan now" is still going waits for
-  that scan's result instead of failing it.
+  that scan's result instead of failing it. (#50)
 
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
