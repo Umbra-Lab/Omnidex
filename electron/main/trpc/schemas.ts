@@ -132,8 +132,9 @@ export const noteRequestSchema = z.object({
   asset_id: idSchema,
   note_text: z.string().nullable(),
   rating: z.number().min(0).max(5).nullable(),
-  tested_ue_versions: z.array(z.string()).nullable(),
-  reminders: z.array(z.string()).nullable(),
+  // Optional: omitted means "keep what is stored" (see NoteRequest).
+  tested_ue_versions: z.array(z.string()).nullable().optional(),
+  reminders: z.array(z.string()).nullable().optional(),
 });
 
 export const learnFilterSchema = z

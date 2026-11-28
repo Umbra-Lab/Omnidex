@@ -19,6 +19,12 @@ export interface NoteRequest {
   asset_id: number;
   note_text: string | null;
   rating: number | null;
-  tested_ue_versions: string[] | null;
-  reminders: string[] | null;
+  /**
+   * Omit to keep the stored list. The inspector edits only text and rating,
+   * and used to send null here, which erased lists the Unity ownership merge
+   * had carried over.
+   */
+  tested_ue_versions?: string[] | null;
+  /** Omit to keep the stored list (see `tested_ue_versions`). */
+  reminders?: string[] | null;
 }

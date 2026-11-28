@@ -110,6 +110,14 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- Inspector notes no longer lose or misplace edits. A note typed just before
+  leaving the screen is saved instead of dropped. The previous asset's text and
+  stars no longer show (and get saved) on the next asset while its note loads.
+  Reopening an asset within 30 seconds shows the saved text, not the old one,
+  and merely focusing the field no longer writes an empty note. Editing text or
+  stars also no longer erases the tested-version and reminder lists that the
+  Unity ownership merge carries over. (#49)
+
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would

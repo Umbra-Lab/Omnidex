@@ -11,10 +11,15 @@ export function getNoteForAsset(db: Database, assetId: number): AssetNote | null
 
 export function upsertNote(db: Database, req: NoteRequest): AssetNote {
   const now = new Date().toISOString();
-  const testedJson = req.tested_ue_versions ? JSON.stringify(req.tested_ue_versions) : null;
-  const remindersJson = req.reminders ? JSON.stringify(req.reminders) : null;
-
   const existing = getNoteForAsset(db, req.asset_id);
+  // An omitted list keeps the stored one; only an explicit array or null
+  // replaces it. A text or rating edit must not erase lists it never showed.
+  const testedJson =
+    req.tested_ue_versions === undefined
+      ? (existing?.tested_ue_versions ?? null)
+      : toJsonList(req.tested_ue_versions);
+  const remindersJson =
+    req.reminders === undefined ? (existing?.reminders ?? null) : toJsonList(req.reminders);
 
   if (existing) {
     db.prepare(
@@ -39,4 +44,8 @@ export function upsertNote(db: Database, req: NoteRequest): AssetNote {
 
 export function deleteNote(db: Database, assetId: number): void {
   db.prepare('DELETE FROM asset_notes WHERE asset_id = ?').run(assetId);
+}
+
+function toJsonList(list: string[] | null): string | null {
+  return list && list.length > 0 ? JSON.stringify(list) : null;
 }
