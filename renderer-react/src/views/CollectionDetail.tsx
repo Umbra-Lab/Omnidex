@@ -12,6 +12,7 @@ import { useAssetSelection } from '@/features/assets/useAssetSelection';
 import { type ContextMenuItem, useNativeContextMenu } from '@/hooks/useNativeContextMenu';
 import { trpc } from '@/ipc/trpc';
 import { formatCount } from '@/lib/format';
+import { revealLabel } from '@/runtime/useRuntime';
 import { useModals } from '@/stores/modals';
 
 export function CollectionDetail() {
@@ -76,7 +77,7 @@ export function CollectionDetail() {
     const menuItems: ContextMenuItem[] = [
       {
         id: 'reveal',
-        label: 'Reveal in Finder',
+        label: revealLabel(),
         enabled: Boolean(asset.file_path),
         onSelect: () => {
           if (asset.file_path) void window.omnidex?.shell?.openFileLocation(asset.file_path);

@@ -30,3 +30,14 @@ const getSnapshot = () => snapshot;
 export function useRuntime(): RuntimeInfo {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+
+/**
+ * The menu label for showing a file in the system file manager, in each
+ * platform's own words. "Reveal in Finder" on Windows names an app that isn't
+ * there.
+ */
+export function revealLabel(platform: string = snapshot.platform): string {
+  if (platform === 'darwin') return 'Reveal in Finder';
+  if (platform === 'win32') return 'Reveal in File Explorer';
+  return 'Open Containing Folder';
+}
