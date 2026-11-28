@@ -26,6 +26,22 @@ import { INSPECTOR_MAX_WIDTH, INSPECTOR_MIN_WIDTH, useUiStore } from '@/stores/u
 import { InspectorReadout } from './InspectorReadout';
 import { MatchPickerModal } from './MatchPickerModal';
 
+/**
+ * True while a Radix dialog, alert dialog, menu, listbox or popover is open.
+ * Their content carries `data-state="open"` and the matching role, and each
+ * handles its own Escape and arrow keys.
+ */
+const OPEN_OVERLAY = [
+  '[role="dialog"][data-state="open"]',
+  '[role="alertdialog"][data-state="open"]',
+  '[role="menu"][data-state="open"]',
+  '[role="listbox"][data-state="open"]',
+].join(',');
+
+function overlayOwnsKeys(): boolean {
+  return document.querySelector(OPEN_OVERLAY) != null;
+}
+
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   // YYYY-MM-DD prefix is enough for both ISO timestamps and SQLite TEXT dates.
@@ -144,6 +160,11 @@ export function InspectorPanel({ assetId, onClose }: InspectorPanelProps) {
       ) {
         return;
       }
+      // A dialog, menu or popover above the panel owns this Escape. This
+      // listener runs first (window capture), so without the check it closed
+      // the panel behind a confirm dialog and swallowed the key, and the
+      // dialog stayed open.
+      if (overlayOwnsKeys()) return;
       e.preventDefault();
       e.stopPropagation();
       onClose();
@@ -866,6 +887,8 @@ function Gallery({
       ) {
         return;
       }
+      // Arrow keys in an open menu or dialog move within it, not the gallery.
+      if (overlayOwnsKeys()) return;
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         goPrev();
