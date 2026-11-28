@@ -58,6 +58,23 @@ interface Worker {
   pending: ((line: string | null) => void) | null;
 }
 
+const GIB = 1024 ** 3;
+
+/**
+ * How many extractor children to run at once on this machine.
+ *
+ * A single `.uasset` parse can allocate over a gigabyte (see the retry note
+ * in `extractThumbnailsIsolated`), so four children can want 4+ GB at peak.
+ * On an 8 GB laptop that is swap, or the OS killing something it shouldn't.
+ * One lane per 4 GB of RAM, at most four, and never more than the cores
+ * left after the app's own process.
+ */
+export function thumbnailLanes(totalMemBytes: number, cpuCount: number): number {
+  const byMemory = Math.floor(totalMemBytes / (4 * GIB));
+  const byCpu = Math.max(1, cpuCount - 1);
+  return Math.max(1, Math.min(4, byMemory, byCpu));
+}
+
 export async function extractThumbnailsIsolated(opts: ThumbnailPoolOptions): Promise<void> {
   const { targets, outDir, size, onResult, onCrash, signal } = opts;
   if (targets.length === 0) return;

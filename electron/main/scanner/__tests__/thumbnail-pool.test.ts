@@ -2,7 +2,7 @@ import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { extractThumbnailsIsolated } from '../thumbnail-pool';
+import { extractThumbnailsIsolated, thumbnailLanes } from '../thumbnail-pool';
 
 /**
  * The child is swapped for a stub so these run without the native addon. The
@@ -130,5 +130,20 @@ describe('extractThumbnailsIsolated', () => {
     const { results, crashes } = await run(['a', 'KILL-always', 'b'], 2);
     expect(crashes).toEqual(['KILL-always']);
     expect(results).toContainEqual(['KILL-always', null]);
+  });
+});
+
+describe('thumbnailLanes', () => {
+  const GB = 1024 ** 3;
+  it('runs one extractor per 4 GB of RAM, up to four', () => {
+    expect(thumbnailLanes(4 * GB, 16)).toBe(1);
+    expect(thumbnailLanes(8 * GB, 16)).toBe(2);
+    expect(thumbnailLanes(16 * GB, 16)).toBe(4);
+    expect(thumbnailLanes(64 * GB, 16)).toBe(4);
+  });
+  it('leaves a core for the app and never drops to zero', () => {
+    expect(thumbnailLanes(64 * GB, 2)).toBe(1);
+    expect(thumbnailLanes(64 * GB, 3)).toBe(2);
+    expect(thumbnailLanes(2 * GB, 1)).toBe(1);
   });
 });
