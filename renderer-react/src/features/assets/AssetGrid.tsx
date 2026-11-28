@@ -78,6 +78,10 @@ export function AssetGrid({
     // Rows are measured, so a long two-line title, a wide column (taller 16:9
     // image) or a thumbnail that fails to load all get the height they need.
     measureElement: (el) => el.getBoundingClientRect().height,
+    // Measured heights are cached by key. Keyed by index, a new search or a
+    // column change would hand each row the height of whatever sat at that
+    // index before, so key by what the row holds.
+    getItemKey: (i) => `${columns}:${rows[i]?.[0]?.id ?? i}`,
     // Larger overscan keeps the wheel jank-free at the cost of a few extra
     // off-screen rows; the cards are cheap (image + 2 text spans).
     overscan: 12,
