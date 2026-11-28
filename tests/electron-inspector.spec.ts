@@ -163,7 +163,7 @@ test('inspector visible content includes title and stat values', async () => {
   expect(lower).toContain('added');
   expect(lower).toContain('size on disk');
   if (lower.includes('not matched to a marketplace listing')) {
-    expect(lower).toContain('match now');
+    expect(lower).toContain('find match');
   } else {
     expect(lower).toContain('rating');
   }

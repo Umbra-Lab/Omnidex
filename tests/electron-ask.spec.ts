@@ -85,7 +85,10 @@ test('a question streams an answer with working citations', async () => {
   // The local provider needs llama-swap; the claude-code provider needs only
   // the CLI, which the app feature-detects itself. Gate on what the badge says.
   const badge = await win.locator('.font-mono', { hasText: /Local ·|Claude Code/ }).innerText();
-  test.skip(badge.startsWith('Local') && !stackUp, 'local provider selected but llama-swap is down');
+  test.skip(
+    badge.startsWith('Local') && !stackUp,
+    'local provider selected but llama-swap is down',
+  );
   test.setTimeout(360_000);
 
   const input = win.locator('input[aria-label="Ask this course"]');
