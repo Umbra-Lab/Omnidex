@@ -324,37 +324,65 @@ export function MatchView() {
           />
         ) : null}
 
-        <footer className="flex shrink-0 items-center gap-3 border-t border-surface-800/60 bg-surface-925 px-5 py-3">
-          <Button
-            variant="primary"
-            size="md"
-            onClick={onAccept}
-            disabled={!best || match.isPending}
-          >
-            <Check size={14} />
-            Accept match
-          </Button>
-          <Key>A</Key>
-          <Button variant="outline" size="md" onClick={() => setManualOpen((v) => !v)}>
-            <Search size={14} />
-            Search manually
-          </Button>
-          <Key>S</Key>
-          {/* Two verbs, not one. "Skip" used to mean both and remembered
-              neither past a reload. */}
-          <Button variant="ghost" size="md" onClick={onReject} disabled={!best}>
-            <X size={14} />
-            Not this one
-          </Button>
-          <Key>R</Key>
-          <Button variant="ghost" size="md" onClick={onDismiss}>
-            <CircleSlash size={14} />
-            Not on Orbital
-          </Button>
-          <Key>D</Key>
-          <span className="ml-auto font-mono cap-11 text-surface-500">
-            {formatCount(accepted)} accepted this session
-          </span>
+        {/* A container, so the row answers to the pane's width, not the
+            window's: at 1024px the pane is ~640px and the fourth action ("Not
+            on Orbital") was clipped off the right edge. Under 48rem the key
+            hints hide (each button still names its key in its tooltip and
+            aria-keyshortcuts), and the row wraps rather than clip. */}
+        <footer className="@container/actions shrink-0 border-t border-surface-800/60 bg-surface-925 px-5 py-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <Button
+              variant="primary"
+              size="md"
+              onClick={onAccept}
+              disabled={!best || match.isPending}
+              title="Accept match (A)"
+              aria-keyshortcuts="A"
+            >
+              <Check size={14} />
+              Accept match
+            </Button>
+            <Key>A</Key>
+            <Button
+              variant="outline"
+              size="md"
+              onClick={() => setManualOpen((v) => !v)}
+              title="Search manually (S)"
+              aria-keyshortcuts="S"
+            >
+              <Search size={14} />
+              Search manually
+            </Button>
+            <Key>S</Key>
+            {/* Two verbs, not one. "Skip" used to mean both and remembered
+                neither past a reload. */}
+            <Button
+              variant="ghost"
+              size="md"
+              onClick={onReject}
+              disabled={!best}
+              title="Not this one (R)"
+              aria-keyshortcuts="R"
+            >
+              <X size={14} />
+              Not this one
+            </Button>
+            <Key>R</Key>
+            <Button
+              variant="ghost"
+              size="md"
+              onClick={onDismiss}
+              title="Not on Orbital (D)"
+              aria-keyshortcuts="D"
+            >
+              <CircleSlash size={14} />
+              Not on Orbital
+            </Button>
+            <Key>D</Key>
+            <span className="ml-auto whitespace-nowrap font-mono cap-11 text-surface-500">
+              {formatCount(accepted)} accepted this session
+            </span>
+          </div>
         </footer>
       </section>
     </div>
@@ -497,7 +525,14 @@ function Field({
 }
 
 function Key({ children }: { readonly children: React.ReactNode }) {
-  return <span className="-ml-1 mr-2 font-mono cap-11 text-surface-500">{children}</span>;
+  return (
+    <span
+      aria-hidden
+      className="-ml-1 mr-2 hidden font-mono cap-11 text-surface-500 @[48rem]/actions:inline"
+    >
+      {children}
+    </span>
+  );
 }
 
 function Centered({ children }: { readonly children: React.ReactNode }) {
