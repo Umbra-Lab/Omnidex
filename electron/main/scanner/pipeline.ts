@@ -14,8 +14,10 @@ import {
   parseCues,
 } from './course-manifest';
 import { scanDccLocation } from './dcc-index';
+import { decodeSubtitle } from './subtitles';
 import { findThumbnailSource } from './thumbnail-finder';
 import { extractThumbnailsIsolated } from './thumbnail-pool';
+import { BACKGROUND_THUMBNAIL_SQL } from './thumbnail-sql';
 import { scanUnityLocation } from './unity';
 import type { DetectedAssetFolder } from './walker';
 import { WALK_DIAGNOSTIC_KINDS, walkRootWithDiagnostics } from './walker';
@@ -168,9 +170,7 @@ async function scanLocation(
 
   const upsert = db.prepare(ASSET_UPSERT_SQL);
   const existsStmt = db.prepare('SELECT 1 AS present FROM assets WHERE file_path = ? LIMIT 1');
-  const thumbStmt = db.prepare(
-    'UPDATE assets SET thumbnail_path = ?, has_local_thumbnail = 1 WHERE file_path = ?',
-  );
+  const thumbStmt = db.prepare(BACKGROUND_THUMBNAIL_SQL);
   const needsThumbStmt = db.prepare(
     'SELECT thumbnail_path FROM assets WHERE file_path = ? LIMIT 1',
   );
@@ -242,7 +242,12 @@ async function scanLocation(
     // safe on a COMPLETE walk — an aborted scan has a partial `seenPaths` set
     // and would wrongly delete live rows, so skip the prune when aborted.
     if (!controller.signal.aborted) {
-      pruned = assetsRepo.pruneAssetsNotIn(db, locationId, seenPaths);
+      // A folder that failed to list is not a deleted one: keep what is under it.
+      const unreadable = diagnostics
+        .filter((d) => d.kind === 'unreadable-folder')
+        .map((d) => d.path);
+      for (const dir of unreadable) console.warn(`[scan] could not list ${dir}; kept its rows`);
+      pruned = assetsRepo.pruneAssetsNotIn(db, locationId, seenPaths, unreadable);
     }
 
     db.exec('COMMIT');
@@ -615,7 +620,7 @@ async function indexCourseManifests(
       const fileRow = fileIdOf.get(row.id, sub.relPath) as { id: number } | undefined;
       if (!fileRow) continue;
       try {
-        const text = await readFile(sub.absPath, 'utf8');
+        const text = decodeSubtitle(await readFile(sub.absPath));
         const parsed = parseCues(text);
         if (parsed.length === 0) continue;
         db.exec('BEGIN');
@@ -627,7 +632,7 @@ async function indexCourseManifests(
           db.exec('ROLLBACK');
         }
       } catch {
-        // Unreadable or non-UTF8 subtitle: skip this one, keep the course.
+        // Unreadable subtitle: skip this one, keep the course.
       }
     }
   }

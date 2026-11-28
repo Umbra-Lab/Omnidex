@@ -3,7 +3,7 @@ import type { AssetFilter } from '@omnidex/types/db';
 import type { Database } from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { countAssets, getAssetById, searchAssets } from '../assets';
-import { addAssetTags, getAssetTags, setAssetTags } from '../tags';
+import { addAssetTags, getAssetTags, searchTags, setAssetTags } from '../tags';
 
 /**
  * `setAssetTags` is the one tag path that crosses three stores at once:
@@ -295,5 +295,16 @@ describe('addAssetTags — bulk, additive', () => {
           .sort(),
       ).toEqual(['review', 'wip']);
     }
+  });
+});
+
+describe('searchTags', () => {
+  it('treats _ and % in the query literally', () => {
+    const id = seed(db, 'Pack');
+    addTag(db, id, 'low_poly', 'user');
+    addTag(db, id, 'lowXpoly', 'user');
+    addTag(db, id, '100%', 'user');
+    expect(searchTags(db, 'low_poly').map((t) => t.tag)).toEqual(['low_poly']);
+    expect(searchTags(db, '%').map((t) => t.tag)).toEqual(['100%']);
   });
 });

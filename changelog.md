@@ -112,6 +112,30 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 - Ask now says "Cancelled." when you stop an answer instead of blaming the model server, reports a Claude Code login failure as an error instead of showing it as the answer, keeps the last line of a streamed local answer, and rechecks for the Claude Code CLI after a slow first check (overnight).
 - Removed the unused renderer-callable uasset IPC handlers, so a bad `.uasset` path can no longer abort the main process (overnight).
+- A folder that briefly fails to open during a scan (permissions, a busy file,
+  a network share dropping out) no longer deletes the packs under it, with
+  their favourites and enrichment. The scan keeps them and lists the folder
+  under "Could not be read" in Library Health. (overnight)
+- A pack whose only `.umap`/`.uasset` sits past the 5,000-file walk cap is
+  stored as an Unreal pack, not a plain folder, and a pack of exactly 5,000
+  files no longer shows its size as partial. (overnight)
+- Cancelling a refresh of all locations now stops the location being scanned,
+  not only the ones after it. (overnight)
+- Oracle MCP: `search_lessons` now applies every term in SQL (matches past the first 2,000 rows were lost), matches non-ASCII titles case-insensitively, `limit` is validated on every tool, and a malformed JSON line gets a `-32700` reply instead of hanging the client (overnight).
+- Library fixes: thumbnails and files under folders containing `#` or `?` now
+  load; name sorting ignores case and pages no longer repeat or skip tied rows;
+  sidebar counts no longer include packs missing from disk; `_` and `%` in
+  search and tag filters match literally; clearing the thumbnail cache no
+  longer wipes course cover paths (overnight).
+- Courses keep their state across rescans: Resume returns to the lesson you
+  last played instead of an arbitrary one, a course cover found by the scan is
+  no longer replaced by a stray image from the background thumbnail job, and a
+  lesson whose duration could not be read is retried rather than kept unknown
+  forever. (overnight)
+- Subtitles: UTF-16 and Windows-1252 sidecars are decoded correctly instead of
+  giving no cues or replacement characters; a separator line holding only
+  spaces no longer merges two cues; CR-only files parse; and `Lesson.EN.srt`
+  pairs with `Lesson.mp4`. (overnight)
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers
