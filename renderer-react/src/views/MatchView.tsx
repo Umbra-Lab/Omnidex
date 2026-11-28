@@ -348,25 +348,40 @@ export function MatchView() {
           />
         ) : null}
 
-        <footer className="flex shrink-0 items-center gap-3 border-t border-surface-800/60 bg-surface-925 px-5 py-3">
+        {/* @container + flex-wrap: at the 1024px minimum window the pane is
+            ~640px wide and "Not on Orbital" ran off the edge. The key hints
+            go first (the shortcuts still work), then the row wraps. */}
+        <footer className="@container flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-surface-800/60 bg-surface-925 px-5 py-3">
           <Button
             variant="primary"
             size="md"
             onClick={onAccept}
             disabled={!best || match.isPending}
+            aria-keyshortcuts="A"
           >
             <Check size={14} />
             Accept match
           </Button>
           <Key>A</Key>
-          <Button variant="outline" size="md" onClick={() => setManualOpen((v) => !v)}>
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => setManualOpen((v) => !v)}
+            aria-keyshortcuts="S"
+          >
             <Search size={14} />
             Search manually
           </Button>
           <Key>S</Key>
           {/* Two verbs, not one. "Skip" used to mean both and remembered
               neither past a reload. */}
-          <Button variant="ghost" size="md" onClick={onReject} disabled={!best}>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={onReject}
+            disabled={!best}
+            aria-keyshortcuts="R"
+          >
             <X size={14} />
             Not this one
           </Button>
@@ -376,6 +391,7 @@ export function MatchView() {
             size="md"
             onClick={onDismiss}
             disabled={!searched}
+            aria-keyshortcuts="D"
             title={unreachable ? 'Orbital was not searched for this pack' : undefined}
           >
             <CircleSlash size={14} />
@@ -535,7 +551,14 @@ function Field({
 }
 
 function Key({ children }: { readonly children: React.ReactNode }) {
-  return <span className="-ml-1 mr-2 font-mono cap-11 text-surface-500">{children}</span>;
+  return (
+    <span
+      aria-hidden="true"
+      className="-ml-1 mr-2 hidden font-mono cap-11 text-surface-500 @3xl:inline"
+    >
+      {children}
+    </span>
+  );
 }
 
 function Centered({ children }: { readonly children: React.ReactNode }) {
