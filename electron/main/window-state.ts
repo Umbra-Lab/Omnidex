@@ -95,8 +95,8 @@ export interface Bounds {
  *   - The window is kept where it was only if its title bar strip has at least
  *     MIN_VISIBLE_TITLE_WIDTH px on one display's work area. It is then shrunk
  *     to that work area and nudged fully inside it.
- *   - Otherwise the position is dropped (Electron centres the window) and the
- *     size is shrunk to the primary display's work area.
+ *   - Otherwise the window is shrunk to the primary display's work area and
+ *     centred on it, with its top-left never above or left of the work area.
  *
  * Never below MIN_WIDTH × MIN_HEIGHT: the BrowserWindow enforces those anyway.
  */
@@ -112,11 +112,19 @@ export function fitBounds(
 
   if (saved.x !== undefined && saved.y !== undefined) {
     const { x, y } = saved;
-    const home = workAreas.find((wa) => {
+    // The display holding most of the title bar, not merely the first one
+    // that holds some: a window straddling two monitors stays on the one it
+    // was mostly on.
+    let home: Rectangle | undefined;
+    let bestOverlap = MIN_VISIBLE_TITLE_WIDTH - 1;
+    for (const wa of workAreas) {
       const overlap = Math.min(x + saved.width, wa.x + wa.width) - Math.max(x, wa.x);
       const titleOnScreen = y >= wa.y && y + TITLE_BAR_HEIGHT <= wa.y + wa.height;
-      return overlap >= MIN_VISIBLE_TITLE_WIDTH && titleOnScreen;
-    });
+      if (titleOnScreen && overlap > bestOverlap) {
+        home = wa;
+        bestOverlap = overlap;
+      }
+    }
     if (home) {
       const size = fitSize(home);
       const clamp = (v: number, lo: number, hi: number) =>
@@ -128,7 +136,16 @@ export function fitBounds(
       };
     }
   }
-  return fitSize(primaryWorkArea);
+  // Centre on the primary display ourselves rather than leaving it to
+  // Electron: when the minimum size is larger than the work area, plain
+  // centring puts the title bar above the screen. Pinning to the work-area
+  // origin keeps it reachable.
+  const size = fitSize(primaryWorkArea);
+  return {
+    ...size,
+    x: primaryWorkArea.x + Math.max(0, Math.round((primaryWorkArea.width - size.width) / 2)),
+    y: primaryWorkArea.y + Math.max(0, Math.round((primaryWorkArea.height - size.height) / 2)),
+  };
 }
 
 /**
@@ -138,10 +155,9 @@ export function fitBounds(
  * exists (maximize() must be called on the instance, not via the constructor).
  */
 export function getWindowBounds(): Bounds {
-  const saved = readState();
-  if (!saved) {
-    return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
-  }
+  // First launch goes through fitBounds too, so the default size is centred
+  // and shrunk on a screen smaller than 1280x800.
+  const saved = readState() ?? { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
   return fitBounds(
     saved,
     screen.getAllDisplays().map((d) => d.workArea),

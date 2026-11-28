@@ -37,19 +37,20 @@ describe('fitBounds', () => {
 
   it('drops the position when the monitor it was on is gone, and fits the primary', () => {
     const r = fitBounds({ width: 1800, height: 1000, x: 2700, y: 50 }, [laptop], laptop);
-    expect(r).toEqual({ width: 1366, height: 768 });
+    // 768 is the window minimum, taller than the 728px work area: pinned to
+    // the top rather than centred with its title bar off screen.
+    expect(r).toEqual({ width: 1366, height: 768, x: 0, y: 0 });
   });
 
   it('drops the position when only a sliver of the window is on screen', () => {
     // Overlaps the display by 40px: "visible", but there's nothing to grab.
     const r = fitBounds({ width: 1280, height: 800, x: 2520, y: 100 }, [desk], desk);
-    expect(r.x).toBeUndefined();
-    expect(r.y).toBeUndefined();
+    expect(r).toEqual({ width: 1280, height: 800, x: 640, y: 300 });
   });
 
   it('drops the position when the title bar is above the top of the screen', () => {
     const r = fitBounds({ width: 1280, height: 800, x: 100, y: -200 }, [desk], desk);
-    expect(r).toEqual({ width: 1280, height: 800 });
+    expect(r).toEqual({ width: 1280, height: 800, x: 640, y: 300 });
   });
 
   it('nudges a window hanging off the right edge back inside', () => {
@@ -62,6 +63,24 @@ describe('fitBounds', () => {
     expect(fitBounds({ width: 1280, height: 800 }, [tiny], tiny)).toEqual({
       width: 1024,
       height: 768,
+      x: 0,
+      y: 0,
     });
+  });
+
+  it('centres a first launch (no saved position) on the primary display', () => {
+    const offset = { x: -1920, y: 0, width: 1920, height: 1040 };
+    expect(fitBounds({ width: 1280, height: 800 }, [desk, offset], offset)).toEqual({
+      width: 1280,
+      height: 800,
+      x: -1920 + 320,
+      y: 120,
+    });
+  });
+
+  it('stays on the monitor holding most of a straddling window', () => {
+    // 160px on the left monitor, 1240px on the right one.
+    const r = fitBounds({ width: 1400, height: 900, x: 2400, y: 50 }, [desk, right], desk);
+    expect(r).toEqual({ width: 1400, height: 900, x: 2560, y: 50 });
   });
 });
