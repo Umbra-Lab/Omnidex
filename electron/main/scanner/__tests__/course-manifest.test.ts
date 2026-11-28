@@ -100,6 +100,114 @@ describe('buildCourseManifest', () => {
     expect(files.find((f) => f.relPath === 'README.pdf')?.chapter).toBeNull();
   });
 
+  // A course is one root over many sections, and a section often splits its
+  // files into subfolders. Keying the chapter on the immediate parent merged
+  // every section's "Videos" folder into one chapter and split each section's
+  // extras into their own.
+  it('keys the chapter on the section under the course root, not the parent folder', async () => {
+    const course = mkdtempSync(join(tmpdir(), 'omnidex-course-sections-'));
+    try {
+      for (const dir of ['01 - Intro/Videos', '01 - Intro/Exercises', '02 - Basics/Videos']) {
+        mkdirSync(join(course, dir), { recursive: true });
+      }
+      writeFileSync(join(course, '01 - Intro', 'Videos', '02 - Setup.mp4'), 'x');
+      writeFileSync(join(course, '01 - Intro', 'Videos', '01 - Welcome.mp4'), 'x');
+      writeFileSync(join(course, '01 - Intro', 'Exercises', '01 - Try it.mp4'), 'x');
+      writeFileSync(join(course, '01 - Intro', '00 - Overview.mp4'), 'x');
+      writeFileSync(join(course, '02 - Basics', 'Videos', '01 - Nodes.mp4'), 'x');
+
+      const files = await buildCourseManifest(course);
+      expect(files.map((f) => [f.chapter, f.relPath])).toEqual([
+        // Files directly in the section first, then each subfolder in order,
+        // then the author's numbering inside it.
+        ['01 - Intro', '01 - Intro/00 - Overview.mp4'],
+        ['01 - Intro', '01 - Intro/Exercises/01 - Try it.mp4'],
+        ['01 - Intro', '01 - Intro/Videos/01 - Welcome.mp4'],
+        ['01 - Intro', '01 - Intro/Videos/02 - Setup.mp4'],
+        ['02 - Basics', '02 - Basics/Videos/01 - Nodes.mp4'],
+      ]);
+    } finally {
+      rmSync(course, { recursive: true, force: true });
+    }
+  });
+
+  it('looks through a wrapper folder that holds the whole course', async () => {
+    const course = mkdtempSync(join(tmpdir(), 'omnidex-course-wrapper-'));
+    try {
+      mkdirSync(join(course, 'Niagara Masterclass', '01 - Intro'), { recursive: true });
+      mkdirSync(join(course, 'Niagara Masterclass', '02 - Emitters'), { recursive: true });
+      writeFileSync(join(course, 'Niagara Masterclass', '01 - Intro', '01 - Hi.mp4'), 'x');
+      writeFileSync(join(course, 'Niagara Masterclass', '02 - Emitters', '01 - Spawn.mp4'), 'x');
+      writeFileSync(join(course, 'cover.jpg'), 'x');
+
+      const files = await buildCourseManifest(course);
+      const chapterOf = (end: string) => files.find((f) => f.relPath.endsWith(end))?.chapter;
+      expect(chapterOf('01 - Hi.mp4')).toBe('01 - Intro');
+      expect(chapterOf('01 - Spawn.mp4')).toBe('02 - Emitters');
+      expect(chapterOf('cover.jpg')).toBeNull();
+    } finally {
+      rmSync(course, { recursive: true, force: true });
+    }
+  });
+
+  it('does not let a video beside the sections collapse them into one chapter', async () => {
+    const course = mkdtempSync(join(tmpdir(), 'omnidex-course-trailer-'));
+    try {
+      mkdirSync(join(course, 'Course', '01 - A'), { recursive: true });
+      mkdirSync(join(course, 'Course', '02 - B'), { recursive: true });
+      writeFileSync(join(course, 'Trailer.mp4'), 'x');
+      writeFileSync(join(course, 'Course', 'Intro.mp4'), 'x');
+      writeFileSync(join(course, 'Course', '01 - A', 'x.mp4'), 'x');
+      writeFileSync(join(course, 'Course', '02 - B', 'y.mp4'), 'x');
+      const files = await buildCourseManifest(course);
+      const chapterOf = (rel: string) => files.find((f) => f.relPath === rel)?.chapter;
+      expect(chapterOf('Course/01 - A/x.mp4')).toBe('01 - A');
+      expect(chapterOf('Course/02 - B/y.mp4')).toBe('02 - B');
+      expect(chapterOf('Course/Intro.mp4')).toBeNull();
+      expect(chapterOf('Trailer.mp4')).toBeNull();
+    } finally {
+      rmSync(course, { recursive: true, force: true });
+    }
+  });
+
+  it('treats a numbered folder as a section even when it is the only one', async () => {
+    const course = mkdtempSync(join(tmpdir(), 'omnidex-course-numbered-'));
+    try {
+      mkdirSync(join(course, '01 - Intro', 'Videos'), { recursive: true });
+      writeFileSync(join(course, '01 - Intro', 'Videos', 'a.mp4'), 'x');
+      const files = await buildCourseManifest(course);
+      expect(files[0]?.chapter).toBe('01 - Intro');
+    } finally {
+      rmSync(course, { recursive: true, force: true });
+    }
+  });
+
+  it('still sees through a numbered wrapper over numbered sections', async () => {
+    const course = mkdtempSync(join(tmpdir(), 'omnidex-course-dated-'));
+    try {
+      mkdirSync(join(course, '2024 Course', '01 - A'), { recursive: true });
+      mkdirSync(join(course, '2024 Course', '02 - B'), { recursive: true });
+      writeFileSync(join(course, '2024 Course', '01 - A', 'x.mp4'), 'x');
+      writeFileSync(join(course, '2024 Course', '02 - B', 'y.mp4'), 'x');
+      const chapters = (await buildCourseManifest(course)).map((f) => f.chapter);
+      expect(chapters).toEqual(['01 - A', '02 - B']);
+    } finally {
+      rmSync(course, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a single section as its own chapter', async () => {
+    const course = mkdtempSync(join(tmpdir(), 'omnidex-course-single-'));
+    try {
+      mkdirSync(join(course, 'Wrapper', '01 - Only'), { recursive: true });
+      writeFileSync(join(course, 'Wrapper', '01 - Only', '01 - A.mp4'), 'x');
+      const files = await buildCourseManifest(course);
+      expect(files[0]?.chapter).toBe('01 - Only');
+    } finally {
+      rmSync(course, { recursive: true, force: true });
+    }
+  });
+
   it('orders by the number in the filename, not lexically', async () => {
     const files = await buildCourseManifest(root);
     const intro = files

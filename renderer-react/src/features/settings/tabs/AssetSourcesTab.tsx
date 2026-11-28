@@ -1,6 +1,6 @@
 import type { ScanLocation } from '@omnidex/types/db';
 import { Folder, FolderPlus, MoreVertical, Pencil, RefreshCw, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -18,6 +18,7 @@ import { trpc } from '@/ipc/trpc';
 import { formatBytes, formatCount } from '@/lib/format';
 import { useModals } from '@/stores/modals';
 import { LibrarySummary } from './LibrarySummary';
+import { type CountPhrase, separatorBefore, summarizeRemoval } from './removalSummary';
 
 export function AssetSourcesTab() {
   const [addOpen, setAddOpen] = useState(false);
@@ -87,18 +88,54 @@ export function AssetSourcesTab() {
     refreshAll.mutate();
   }
 
-  function handleDelete(loc: ScanLocation) {
+  // AlertDialogDescription renders a <p>, so the body nests spans, not blocks.
+  // Removing a location cascades to its assets and everything the user added to
+  // them, so the confirm states exactly what goes. If the count can't be read,
+  // say so rather than show a reassuring zero.
+  async function handleDelete(loc: ScanLocation) {
     if (loc.id == null) return;
     const id = loc.id;
+    let summary: ReturnType<typeof summarizeRemoval> | null = null;
+    try {
+      summary = summarizeRemoval(await utils.scanLocations.removalImpact.fetch(id));
+    } catch {
+      summary = null;
+    }
+    const name = <span className="font-medium text-surface-100">{loc.name}</span>;
     openConfirm({
       title: 'Remove folder?',
-      body: (
-        <>
-          Remove <span className="font-medium text-surface-100">{loc.name}</span> from your scan
-          locations? Indexed assets stay in the library; the folder just won&apos;t be scanned
-          again.
-        </>
-      ),
+      body:
+        summary == null ? (
+          <>
+            Removing {name} also removes its assets from the library, with any notes, tags,
+            favorites, collection entries, watch progress and match decisions on them. Files on disk
+            aren&apos;t touched.
+          </>
+        ) : summary.assets == null ? (
+          <>
+            Remove {name} from your scan locations? Nothing from it is in the library yet. Files on
+            disk aren&apos;t touched.
+          </>
+        ) : (
+          <span className="flex flex-col gap-2">
+            <span>
+              Removing {name} also removes its <Counted phrase={summary.assets} /> from the library.
+              Files on disk aren&apos;t touched.
+            </span>
+            {summary.curation.length > 0 ? (
+              <span>
+                This deletes{' '}
+                {summary.curation.map((p, i) => (
+                  <Fragment key={p.label}>
+                    {separatorBefore(i, summary.curation.length)}
+                    <Counted phrase={p} />
+                  </Fragment>
+                ))}
+                . Adding the folder again brings the assets back, but not these.
+              </span>
+            ) : null}
+          </span>
+        ),
       confirmLabel: 'Remove',
       destructive: true,
       onConfirm: async () => {
@@ -304,4 +341,14 @@ function formatScannedAt(iso: string | null): string {
   if (elapsed < DAY) return `Scanned ${ago('hour', HOUR)}`;
   if (elapsed < 7 * DAY) return `Scanned ${ago('day', DAY)}`;
   return `Scanned ${new Date(then).toLocaleDateString()}`;
+}
+
+/** A counted phrase from the remove-folder summary, with only the number in mono. */
+function Counted({ phrase }: { phrase: CountPhrase }) {
+  return (
+    <span className="text-surface-100">
+      {phrase.before}
+      <span className="font-mono tabular-nums">{phrase.count}</span> {phrase.label}
+    </span>
+  );
 }

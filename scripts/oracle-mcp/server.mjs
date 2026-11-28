@@ -131,7 +131,10 @@ function lessonsStmtFor(n) {
   FROM course_files c
   JOIN assets a ON a.id = c.asset_id
   WHERE c.kind = 'video' ${likes}
-  ORDER BY a.name, c.chapter, c.order_index, c.rel_path
+  -- The rtrim keeps the folder part of rel_path, so a chapter's subfolders
+  -- (Videos/, Exercises/) stay together as they do in the Learn list.
+  ORDER BY a.name, c.chapter, rtrim(c.rel_path, replace(c.rel_path, '/', '')),
+           c.order_index, c.rel_path
   LIMIT ?
 `);
     lessonsStmts.set(n, stmt);

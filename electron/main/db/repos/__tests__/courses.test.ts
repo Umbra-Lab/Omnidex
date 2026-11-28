@@ -98,6 +98,25 @@ describe('listCourseFiles ordering', () => {
     ]);
   });
 
+  it('keeps each subfolder of a chapter together, files directly in it first', () => {
+    // A chapter is the section folder, so its Videos/ and Exercises/ share it.
+    // Sorting only by the filename number would interleave them.
+    replaceCourseManifest(db, courseId, [
+      file('01 - Intro/Videos/02 - Setup.mp4', 'video', '01 - Intro', 2),
+      file('01 - Intro/Exercises/03 - Again.mp4', 'video', '01 - Intro', 3),
+      file('01 - Intro/Exercises/01 - Try.mp4', 'video', '01 - Intro', 1),
+      file('01 - Intro/Videos/01 - Hi.mp4', 'video', '01 - Intro', 1),
+      file('01 - Intro/09 - Overview.mp4', 'video', '01 - Intro', 9),
+    ]);
+    expect(listCourseFiles(db, courseId).map((f) => f.rel_path)).toEqual([
+      '01 - Intro/09 - Overview.mp4',
+      '01 - Intro/Exercises/01 - Try.mp4',
+      '01 - Intro/Exercises/03 - Again.mp4',
+      '01 - Intro/Videos/01 - Hi.mp4',
+      '01 - Intro/Videos/02 - Setup.mp4',
+    ]);
+  });
+
   it('flags a video that has a subtitle sidecar with the same stem', () => {
     replaceCourseManifest(db, courseId, [
       file('c/01 - A.mp4', 'video', 'c'),

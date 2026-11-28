@@ -113,6 +113,40 @@ describe('assembleCourseContext', () => {
     expect(lesson?.videoFileId).toBe(ids.get('2 - Early/b.mp4'));
   });
 
+  it("keeps a chapter's subfolders together, as the Learn list does", () => {
+    const lesson = (dir: string, n: number): SeedFile[] => [
+      {
+        relPath: `01 - Intro/${dir}/${n}.mp4`,
+        kind: 'video',
+        chapter: '01 - Intro',
+        orderIndex: n,
+      },
+      {
+        relPath: `01 - Intro/${dir}/${n}.srt`,
+        kind: 'subtitle',
+        chapter: '01 - Intro',
+        orderIndex: n,
+        cues: [cue(0, `${dir} lesson ${n}`)],
+      },
+    ];
+    const { db } = makeDb([
+      ...lesson('Videos', 2),
+      ...lesson('Exercises', 3),
+      ...lesson('Exercises', 1),
+      ...lesson('Videos', 1),
+    ]);
+    const text = assembleCourseContext(db, 1, 100_000, 'lesson')?.text ?? '';
+    const order = [
+      'Exercises lesson 1',
+      'Exercises lesson 3',
+      'Videos lesson 1',
+      'Videos lesson 2',
+    ];
+    const positions = order.map((t) => text.indexOf(t));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+
   it('picks one subtitle per lesson, preferring English over translation folders', () => {
     const { db, ids } = makeDb([
       { relPath: 'A/lesson.mp4', kind: 'video', chapter: 'A' },
