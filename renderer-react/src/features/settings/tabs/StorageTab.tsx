@@ -251,7 +251,11 @@ function StorageRow({
         <div className="flex items-baseline-last gap-2">
           <span className="cap-12 text-surface-200">{label}</span>
           {value ? (
-            <span className="font-mono cap-11 tabular-nums text-surface-100">{value}</span>
+            // One line: a wrapped value would put its last line, not its first,
+            // level with the label.
+            <span className="shrink-0 whitespace-nowrap font-mono cap-11 tabular-nums text-surface-100">
+              {value}
+            </span>
           ) : null}
         </div>
         <span className="truncate font-mono cap-10 text-surface-500">{path ?? 'unavailable'}</span>
