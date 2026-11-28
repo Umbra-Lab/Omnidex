@@ -281,6 +281,14 @@
   content: none;
 }
 
+/* Flex rows and grids: the trim pseudo-elements are layout items there. */
+:is(.flex, .inline-flex):not(.flex-col, .flex-col-reverse)[class*="cap-"]:not([class*="before:"])::before,
+:is(.flex, .inline-flex):not(.flex-col, .flex-col-reverse)[class*="cap-"]:not([class*="after:"])::after,
+:is(.grid, .inline-grid)[class*="cap-"]:not([class*="before:"])::before,
+:is(.grid, .inline-grid)[class*="cap-"]:not([class*="after:"])::after {
+  content: none;
+}
+
 /* Body-size trim offsets as custom properties */
 :root {
   --cap-before-margin: -0.398em;
