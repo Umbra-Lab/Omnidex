@@ -101,7 +101,7 @@ ORDER BY rank
 
 | Table | Holds |
 |---|---|
-| `asset_tags` | `asset_id`, `tag`, `tag_type`, `confidence`, `source` |
+| `asset_tags` | `asset_id`, `tag`, `tag_type`, `confidence`, `source` (`user`, `ai`, or `official` for FAB categories). The one tag store: `assets.tags` is a JSON mirror for FTS and the tag filter, rebuilt from these rows by `tagMirrorWriter`. Never write the mirror directly. |
 | `asset_notes` | Free-text note per asset |
 | `collections` | `name`, `description`, `color`, `icon`, `is_smart`, `smart_filter` |
 | `collection_items` | Membership |

@@ -91,8 +91,8 @@ export const assetsRouter = router({
       Array.from(new Set(tagsRepo.getAssetTags(openDatabase(), input).map((t) => t.tag))),
     ),
 
-  // Replace the full user-tag set; re-serializes assets.tags so search + the
-  // tag filter see the change. Invalidate assets queries on the renderer after.
+  // Make the list the asset's whole tag set (any source); re-serializes
+  // assets.tags so search + the tag filter see the change. Invalidate assets queries on the renderer after.
   setTags: publicProcedure.input(setTagsSchema).mutation(({ input }) => {
     tagsRepo.setAssetTags(openDatabase(), input.assetId, input.tags);
     return true;

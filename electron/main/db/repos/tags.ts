@@ -50,42 +50,92 @@ export function removeTag(db: Database, assetId: number, tag: string): number {
 }
 
 /**
- * Replace the full user-tag set for one asset AND re-serialize `assets.tags`.
+ * Returns a function that rewrites one asset's `assets.tags` JSON mirror from
+ * its `asset_tags` rows (every source), in row order, de-duplicated.
  *
- * AI/official rows are preserved — only `source = 'user'` rows are swapped out —
- * so machine-generated tags stay searchable. The serialized `assets.tags` JSON
- * is the union of every remaining `asset_tags.tag` for the asset, written as a
- * plain `string[]` (`["a","b"]`) so it matches both the FTS index and the
- * `tags LIKE '%"tag"%'` filter in `assets.ts`, and the card's
- * `firstFromJsonArray` reader. `tags` is set to `NULL` when the union is empty.
- *
- * The `UPDATE assets SET tags = ?` fires the `assets_fts_au` trigger, so the
- * FTS index and the tag filter both see the new tags with no extra work. The
- * whole thing runs in one transaction so `asset_tags` rows and the JSON column
- * can never drift apart. `tag_type` is `'technical'` — a value permitted by the
- * `asset_tags` CHECK constraint (which does not allow `'user'`).
+ * `asset_tags` is the store; `assets.tags` is only a mirror that the FTS index
+ * (via the `assets_fts_au` trigger), the `tags LIKE '%"tag"%'` filter in
+ * `assets.ts` and the card's `firstFromJsonArray` read. Anything that changes
+ * tags writes rows and then calls this, so the two can never disagree. The
+ * mirror is a plain `string[]`, or `NULL` when the asset has no tags.
  */
-export function setAssetTags(db: Database, assetId: number, tags: string[]): void {
-  const cleaned = Array.from(new Set(tags.map((t) => t.trim()).filter((t) => t.length > 0)));
-  const deleteUser = db.prepare(`DELETE FROM asset_tags WHERE asset_id = ? AND source = 'user'`);
-  const insertUser = db.prepare(
-    `INSERT OR IGNORE INTO asset_tags (asset_id, tag, tag_type, confidence, source)
-     VALUES (?, ?, 'technical', NULL, 'user')`,
-  );
-  const selectAll = db.prepare(`SELECT tag FROM asset_tags WHERE asset_id = ?`);
-  const updateAssets = db.prepare(`UPDATE assets SET tags = ? WHERE id = ?`);
-
-  const tx = db.transaction(() => {
-    deleteUser.run(assetId);
-    for (const tag of cleaned) {
-      insertUser.run(assetId, tag);
-    }
+export function tagMirrorWriter(db: Database): (assetId: number) => void {
+  const selectAll = db.prepare('SELECT tag FROM asset_tags WHERE asset_id = ? ORDER BY id');
+  const updateAssets = db.prepare('UPDATE assets SET tags = ? WHERE id = ?');
+  return (assetId) => {
     const merged = Array.from(
       new Set((selectAll.all(assetId) as { tag: string }[]).map((r) => r.tag)),
     );
     updateAssets.run(merged.length > 0 ? JSON.stringify(merged) : null, assetId);
+  };
+}
+
+/**
+ * Make `tags` the asset's whole tag set, whatever source each tag came from.
+ *
+ * The tagging modal shows every tag on the asset (user, AI and FAB category
+ * tags alike, see `assets.getTags`) and saves the list it shows. So a tag
+ * missing from the list is one the person removed, and its row goes, whatever
+ * its source. Earlier this only swapped `source = 'user'` rows: removing an AI
+ * or FAB tag in the modal did nothing, and it came straight back.
+ *
+ * A tag that already has a row keeps it (and its source); a new one is added
+ * as a user tag. A FAB category tag removed here comes back on the next FAB
+ * sync, because the sync re-applies the listing's categories.
+ *
+ * One transaction, so the rows and the mirror never drift apart. `tag_type` is
+ * `'technical'`, a value the `asset_tags` CHECK constraint allows (it does not
+ * allow `'user'`).
+ */
+export function setAssetTags(db: Database, assetId: number, tags: string[]): void {
+  const cleaned = Array.from(new Set(tags.map((t) => t.trim()).filter((t) => t.length > 0)));
+  const deleteRemoved = db.prepare(
+    'DELETE FROM asset_tags WHERE asset_id = ? AND tag NOT IN (SELECT value FROM json_each(?))',
+  );
+  const insertNew = db.prepare(
+    `INSERT INTO asset_tags (asset_id, tag, tag_type, confidence, source)
+     SELECT ?, ?, 'technical', NULL, 'user'
+     WHERE NOT EXISTS (SELECT 1 FROM asset_tags WHERE asset_id = ? AND tag = ?)`,
+  );
+  const writeMirror = tagMirrorWriter(db);
+
+  const tx = db.transaction(() => {
+    deleteRemoved.run(assetId, JSON.stringify(cleaned));
+    for (const tag of cleaned) insertNew.run(assetId, tag, assetId, tag);
+    writeMirror(assetId);
   });
   tx();
+}
+
+/**
+ * Replace an asset's FAB category tags (`source = 'official'`) with `tags`, and
+ * rewrite the mirror. User and AI tags are left alone.
+ *
+ * The FAB sync used to write its category slugs straight into `assets.tags`,
+ * which dropped the person's own tags from search, the tag filter and the card
+ * (their rows were still there), and the next tag edit rebuilt the mirror from
+ * the rows and dropped the FAB tags instead. An empty `tags` leaves the
+ * existing official tags as they are, as the sync's old `COALESCE` did.
+ *
+ * The caller runs this inside its own transaction.
+ */
+export function officialTagsWriter(
+  db: Database,
+): (assetId: number, tags: readonly string[]) => void {
+  const deleteOfficial = db.prepare(
+    "DELETE FROM asset_tags WHERE asset_id = ? AND source = 'official'",
+  );
+  const insertOfficial = db.prepare(
+    `INSERT OR IGNORE INTO asset_tags (asset_id, tag, tag_type, confidence, source)
+     VALUES (?, ?, 'technical', NULL, 'official')`,
+  );
+  const writeMirror = tagMirrorWriter(db);
+  return (assetId, tags) => {
+    if (tags.length === 0) return;
+    deleteOfficial.run(assetId);
+    for (const tag of tags) insertOfficial.run(assetId, tag);
+    writeMirror(assetId);
+  };
 }
 
 /**
@@ -118,18 +168,14 @@ export function addAssetTags(db: Database, assetIds: number[], tags: string[]): 
     `INSERT OR IGNORE INTO asset_tags (asset_id, tag, tag_type, confidence, source)
      VALUES (?, ?, 'technical', NULL, 'user')`,
   );
-  const selectAll = db.prepare('SELECT tag FROM asset_tags WHERE asset_id = ?');
   // Re-writing the JSON mirror is what fires `assets_fts_au`, so search and the
   // tag filter see the change with no extra work — same contract as setAssetTags.
-  const updateAssets = db.prepare('UPDATE assets SET tags = ? WHERE id = ?');
+  const writeMirror = tagMirrorWriter(db);
 
   const tx = db.transaction(() => {
     for (const assetId of assetIds) {
       for (const tag of cleaned) insertUser.run(assetId, tag);
-      const merged = Array.from(
-        new Set((selectAll.all(assetId) as { tag: string }[]).map((r) => r.tag)),
-      );
-      updateAssets.run(merged.length > 0 ? JSON.stringify(merged) : null, assetId);
+      writeMirror(assetId);
     }
   });
   tx();
