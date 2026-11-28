@@ -60,10 +60,10 @@ export function exitCodeForFailures(failed: number): number {
 }
 
 /**
- * Exit code for `--enrich-orbital`. A failed row is marked attempted and never
- * retried, so one transient failure is not something a rerun can fix; failing
- * the run for it would leave a scheduled job red for good. Only an outage
- * (rows to do, none answered) exits 1. Partial failures are printed instead.
+ * Exit code for `--enrich-orbital` once the run finished (an interrupted run
+ * exits 1 before this). A failed row stays unattempted and the next run
+ * retries it, so a few transient failures don't fail a scheduled job. Only an
+ * outage (rows to do, none answered) exits 1. Partial failures are printed.
  */
 export function orbitalExitCode(r: {
   total: number;

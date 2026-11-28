@@ -53,7 +53,7 @@ Used by the Playwright suite so a spec can install its own data without a separa
 
 **One job per invocation.** Each flag runs its job and quits. They do not compose; run them in sequence.
 
-**Exit codes.** `0` on success. `1` when the job fails: a scan location failed, `enrich-fab` could not fetch the library or re-authorize, `enrich-orbital` got no answer for any pack (an outage), the job threw, or the database did not open. `enrich-orbital` exits `0` when only some packs failed and prints `N of M failed` to stderr: a failed pack is marked attempted and not retried, so a rerun could not fix it. A native abort surfaces as a platform code — `3221226505` (`0xC0000409`) on Windows is a Rust abort, not an application error. See [The uasset addon](../subsystems/native-uasset.md).
+**Exit codes.** `0` on success. `1` when the job fails: a scan location failed, `enrich-fab` could not fetch the library or re-authorize, `enrich-orbital` got no answer for any pack (an outage) or stopped early because Orbital kept failing, the job threw, or the database did not open. `enrich-orbital` exits `0` when only some packs failed and prints `N of M failed` to stderr; those packs stay unattempted, so the next run retries them. A native abort surfaces as a platform code — `3221226505` (`0xC0000409`) on Windows is a Rust abort, not an application error. See [The uasset addon](../subsystems/native-uasset.md).
 
 **No window.** These runs are headless. Progress goes to stdout, errors to stderr, and the `progressBus` still publishes even with no renderer attached. No modal dialog is shown, so nothing waits for a click.
 
