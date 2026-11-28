@@ -96,6 +96,45 @@ export function formatTaxonomyLabel(raw: string | null | undefined): string {
     .join(' ');
 }
 
+/**
+ * A length of time for lists and totals: "2h 05m", "14m", "45s".
+ *
+ * Under a minute shows seconds. It used to floor to "0m", which read as
+ * "empty" for the short intro and outro lessons most courses have.
+ */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '—';
+  const total = Math.round(seconds);
+  if (total < 60) return `${Math.max(1, total)}s`;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+}
+
+/**
+ * A position in a video, the way players show it: "4:07", or "1:02:03" past
+ * an hour (it used to print "62:03").
+ */
+export function formatClock(seconds: number): string {
+  const total = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
+const VIDEO_EXT = /\.(mp4|m4v|mkv|webm|mov|avi|wmv|flv|ts|mpg|mpeg)$/i;
+
+/**
+ * A lesson's name from its path inside the course: the file name without
+ * folders or a video extension ("1. Modeling a crate.mp4" → "1. Modeling a
+ * crate"). The player still shows the full file name.
+ */
+export function lessonTitle(relPath: string): string {
+  const name = relPath.split(/[\\/]/).pop() || relPath;
+  return name.replace(VIDEO_EXT, '') || name;
+}
+
 export function formatRating(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
   return n.toFixed(1);

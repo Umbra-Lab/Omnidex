@@ -67,8 +67,8 @@ test('a course row carries duration, video count and chapters', async () => {
 
   const sample = withVideos[0];
   expect(sample).toMatch(/\d+ videos/);
-  // Duration renders as "5h 05m" or "42m", never a bare number of seconds.
-  expect(sample).toMatch(/(\d+h \d{2}m|\d+m)/);
+  // Duration renders as "5h 05m", "42m", or "45s" under a minute.
+  expect(sample).toMatch(/(\d+h \d{2}m|\d+m|\d+s)/);
   // Exact counts only.
   expect(sample).not.toMatch(/\d+(\.\d)?K\b/);
 });

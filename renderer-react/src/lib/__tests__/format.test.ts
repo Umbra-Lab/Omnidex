@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatBytes,
+  formatClock,
   formatCount,
+  formatDuration,
   formatPrice,
   formatRating,
   formatSupportedVersions,
   formatTaxonomyLabel,
+  lessonTitle,
 } from '../format';
 
 describe('formatBytes', () => {
@@ -155,5 +158,50 @@ describe('formatTaxonomyLabel', () => {
     expect(formatTaxonomyLabel(null)).toBe('Unclassified');
     expect(formatTaxonomyLabel(undefined)).toBe('Unclassified');
     expect(formatTaxonomyLabel('   ')).toBe('Unclassified');
+  });
+});
+
+describe('formatDuration', () => {
+  it('shows seconds under a minute instead of "0m"', () => {
+    expect(formatDuration(45)).toBe('45s');
+    expect(formatDuration(0.4)).toBe('1s');
+  });
+  it('shows minutes, then hours with padded minutes', () => {
+    expect(formatDuration(60)).toBe('1m');
+    expect(formatDuration(14 * 60 + 29)).toBe('14m');
+    expect(formatDuration(2 * 3600 + 5 * 60)).toBe('2h 05m');
+  });
+  it('is a dash for nothing', () => {
+    expect(formatDuration(null)).toBe('—');
+    expect(formatDuration(0)).toBe('—');
+    expect(formatDuration(Number.NaN)).toBe('—');
+  });
+});
+
+describe('formatClock', () => {
+  it('is m:ss under an hour', () => {
+    expect(formatClock(0)).toBe('0:00');
+    expect(formatClock(247)).toBe('4:07');
+  });
+  it('is h:mm:ss past an hour, not 62:03', () => {
+    expect(formatClock(3723)).toBe('1:02:03');
+  });
+  it('treats junk as zero', () => {
+    expect(formatClock(-5)).toBe('0:00');
+    expect(formatClock(Number.NaN)).toBe('0:00');
+  });
+});
+
+describe('lessonTitle', () => {
+  it('drops folders and the video extension', () => {
+    expect(lessonTitle('01 Intro/1. Modeling a crate.mp4')).toBe('1. Modeling a crate');
+    expect(lessonTitle('Chapter 2\\03 - Bevels.MKV')).toBe('03 - Bevels');
+  });
+  it('keeps other dots and non-video extensions', () => {
+    expect(lessonTitle('v1.2 update notes.pdf')).toBe('v1.2 update notes.pdf');
+    expect(lessonTitle('Part 1.5 - UVs.webm')).toBe('Part 1.5 - UVs');
+  });
+  it('never returns an empty name', () => {
+    expect(lessonTitle('.mp4')).toBe('.mp4');
   });
 });

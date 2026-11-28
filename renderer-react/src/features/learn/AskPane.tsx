@@ -4,6 +4,7 @@ import { type AskContextInfo, useAskStream } from '@/hooks/useAskStream';
 import { trpc } from '@/ipc/trpc';
 import { splitAnswer } from '@/lib/citations';
 import { cn } from '@/lib/cn';
+import { formatClock } from '@/lib/format';
 
 /**
  * Ask this course — a question box under the player that answers from the
@@ -16,6 +17,8 @@ import { cn } from '@/lib/cn';
  */
 
 interface ThreadMessage {
+  /** Stable React key; messages are only ever appended. */
+  readonly id: number;
   readonly role: 'user' | 'assistant';
   readonly content: string;
 }
@@ -30,13 +33,6 @@ const FAILURE_TEXT: Record<string, string> = {
 const HISTORY_LIMIT = 12;
 const HISTORY_CHAR_LIMIT = 20_000;
 
-function formatClock(seconds: number): string {
-  const total = Math.max(0, Math.round(seconds));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
 export function AskPane({
   assetId,
   onSeek,
@@ -46,6 +42,7 @@ export function AskPane({
 }) {
   const status = trpc.ask.status.useQuery();
   const [thread, setThread] = useState<ThreadMessage[]>([]);
+  const nextId = useRef(0);
   const [input, setInput] = useState('');
   const [activeId, setActiveId] = useState<number | null>(null);
   const [contextInfo, setContextInfo] = useState<AskContextInfo | null>(null);
@@ -75,7 +72,10 @@ export function AskPane({
     if (stream.error) {
       setError(stream.error);
     } else if (stream.text) {
-      setThread((t) => [...t, { role: 'assistant', content: stream.text }]);
+      // Take the id outside the updater: StrictMode runs updaters twice.
+      const id = nextId.current++;
+      const content = stream.text;
+      setThread((t) => [...t, { id, role: 'assistant', content }]);
       setLastUsage(stream.usage);
     } else {
       // A completed request with no text and no error is still an outcome the
@@ -126,7 +126,8 @@ export function AskPane({
     const question = input.trim();
     if (!question || busy) return;
     setError(null);
-    setThread((t) => [...t, { role: 'user', content: question }]);
+    const id = nextId.current++;
+    setThread((t) => [...t, { id, role: 'user', content: question }]);
     setInput('');
     start.mutate({
       assetId,
@@ -184,9 +185,11 @@ export function AskPane({
         </p>
       ) : null}
 
-      {thread.map((m, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: append-only thread
-        <div key={i} className={cn('cap-13', m.role === 'user' ? 'text-surface-300' : 'text-surface-100')}>
+      {thread.map((m) => (
+        <div
+          key={m.id}
+          className={cn('cap-13', m.role === 'user' ? 'text-surface-300' : 'text-surface-100')}
+        >
           {m.role === 'user' ? (
             <span className="font-medium text-surface-200">You: {m.content}</span>
           ) : (

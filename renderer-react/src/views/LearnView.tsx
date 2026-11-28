@@ -6,7 +6,7 @@ import { AskPane } from '@/features/learn/AskPane';
 import { trpc } from '@/ipc/trpc';
 import { toAssetUrl } from '@/lib/assetUrl';
 import { cn } from '@/lib/cn';
-import { formatCount } from '@/lib/format';
+import { formatClock, formatCount, formatDuration, lessonTitle } from '@/lib/format';
 import { subtitlePairsWith } from '@/lib/subtitleStem';
 
 /**
@@ -28,21 +28,6 @@ import { subtitlePairsWith } from '@/lib/subtitleStem';
  */
 
 type ProgressFilter = 'all' | 'in_progress' | 'not_started' | 'completed';
-
-function formatDuration(seconds: number | null | undefined): string {
-  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '—';
-  const total = Math.round(seconds);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
-}
-
-function formatClock(seconds: number): string {
-  const total = Math.max(0, Math.round(seconds));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 export function LearnView() {
   const courses = trpc.courses.list.useQuery();
@@ -352,7 +337,7 @@ function CourseDetail({
             <span className="min-w-0">
               <span className="block truncate cap-14 text-surface-50">
                 {(resumeTarget.position_seconds ?? 0) > 0 ? 'Resume' : 'Start'} —{' '}
-                {resumeTarget.rel_path.split('/').pop()}
+                {lessonTitle(resumeTarget.rel_path)}
               </span>
               {(resumeTarget.position_seconds ?? 0) > 0 ? (
                 <span className="block font-mono cap-11 text-surface-400">
@@ -475,7 +460,9 @@ function ChapterList({
               ) : (
                 <Play size={12} className="shrink-0 text-surface-500" />
               )}
-              <span className="min-w-0 flex-1 truncate cap-14">{f.rel_path.split('/').pop()}</span>
+              <span className="min-w-0 flex-1 truncate cap-14" title={f.rel_path}>
+                {lessonTitle(f.rel_path)}
+              </span>
               {f.has_subtitle ? <Captions size={12} className="shrink-0 text-surface-500" /> : null}
               <span className="shrink-0 font-mono tabular-nums cap-11 text-surface-400">
                 {formatDuration(f.duration_seconds)}
