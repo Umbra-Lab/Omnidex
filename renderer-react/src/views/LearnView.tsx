@@ -164,7 +164,7 @@ export function LearnView() {
         </div>
       </nav>
 
-      <section className="flex w-[420px] shrink-0 flex-col border-r border-surface-800/60 bg-surface-935">
+      <section className="flex w-[clamp(280px,30vw,420px)] shrink-0 flex-col border-r border-surface-800/60 bg-surface-935">
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-surface-800/60 px-3">
           <Search size={14} className="shrink-0 text-surface-400" />
           <Input

@@ -110,6 +110,9 @@ work that reached `main` through direct merges with no pull request, the commit.
 
 ### Fixed
 
+- The Learn course list narrows with the window (280 to 420px), so at 1024px
+  the lesson pane is no longer squeezed beside a fixed 420px list. (#44)
+
 - Removing a scan location now says exactly what goes with it: how many assets
   leave the library, and how many notes, tagged assets, favorites and
   collection entries are deleted. The old dialog said the indexed assets would
