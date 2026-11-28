@@ -127,7 +127,9 @@ export function LibraryHealthView() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Five kinds: 3 + 2 at 1024px, one row from 1280px. Four columns left
+              "Could not be read" alone on a second row. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {KIND_ORDER.map((kind) => {
               const meta = KINDS[kind];
               const Icon = meta.icon;
