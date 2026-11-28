@@ -10,13 +10,17 @@
 -- written before that.
 
 -- 1. A tag that is in the mirror but has no row gets one, so the next edit
---    keeps it. It is a 'user' row, not 'official': the FAB sync replaces
---    official rows, so a hand-typed legacy tag stored as official would be
---    deleted by the next sync. A leftover FAB slug stored as user stays until
---    the person removes it, which is the safer way to be wrong. The nested CASE keeps json_each away from a mirror that is not
+--    keeps it. On a pack whose last FAB sync wrote categories
+--    (fab_owned = 1 and orbital_categories set), the sync had replaced the
+--    whole mirror with its category slugs, so those tags are 'official' and
+--    the next sync keeps them current. Anywhere else the tag is 'user': the
+--    FAB sync replaces official rows, so a hand-typed legacy tag stored as
+--    official would be deleted by the next sync. The nested CASE keeps json_each away from a mirror that is not
 --    a JSON array (json_each and json_type both raise on malformed JSON).
 INSERT OR IGNORE INTO asset_tags (asset_id, tag, tag_type, confidence, source)
-SELECT a.id, trim(j.value), 'technical', NULL, 'user'
+SELECT a.id, trim(j.value), 'technical', NULL,
+       CASE WHEN a.fab_owned = 1 AND a.orbital_categories IS NOT NULL
+            THEN 'official' ELSE 'user' END
 FROM assets a,
      json_each(
        COALESCE(

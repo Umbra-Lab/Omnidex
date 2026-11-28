@@ -326,6 +326,17 @@ describe('migration 20261128010000_unify_asset_tags', () => {
     expect(mirror(id)).toBe('["hand-typed","props"]');
   });
 
+  it('stores a FAB-synced pack’s mirror-only tags as official, so syncs keep them current', () => {
+    const id = seed(db, 'Synced Pack', '["props"]');
+    db.prepare(
+      'UPDATE assets SET fab_owned = 1, orbital_categories = \'["Props"]\' WHERE id = ?',
+    ).run(id);
+    db.exec(sql);
+    expect(getAssetTags(db, id).map((t) => `${t.tag}:${t.source}`)).toEqual(['props:official']);
+    officialTagsWriter(db)(id, ['environments']);
+    expect(mirror(id)).toBe('["environments"]');
+  });
+
   it('gives mirror-only tags a row, trimmed, skipping blanks and non-strings', () => {
     const id = seed(db, 'Old Pack', '[" stone ", "", 3, null, "stone"]');
     db.exec(sql);
