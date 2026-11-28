@@ -693,9 +693,7 @@ function LibraryHealthAside() {
         <Section title="Ecosystems">
           <div className="flex flex-col gap-1.5">
             {topEcosystems.map(([name, count]) => (
-              // items-center: `truncate` clips the label, and a clipped box's
-              // baseline is its bottom edge, which pushed the count down a line.
-              <div key={name} className="flex items-center justify-between gap-2">
+              <div key={name} className="flex items-baseline justify-between gap-2">
                 <span className="min-w-0 truncate cap-12 text-surface-300">
                   {formatTaxonomyLabel(name)}
                 </span>
