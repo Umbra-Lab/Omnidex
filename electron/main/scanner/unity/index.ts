@@ -589,6 +589,8 @@ export async function indexUnityPackage(
     const dir = join(thumbnailRoot, 'unity');
     await mkdir(dir, { recursive: true });
     thumbnail = join(dir, `${createHash('sha1').update(packagePath).digest('hex')}.png`);
+    // Always rewrite, never reuse an existing file: the startup sweep keeps a
+    // file younger than a day, so a fresh mtime is what protects it.
     await writeFile(thumbnail, contents.preview);
   }
   const folders = new Set(
