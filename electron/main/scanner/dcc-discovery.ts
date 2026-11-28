@@ -53,6 +53,22 @@ const formats: Record<string, [DccFileKind, AssetEcosystem]> = {
   '.bz2': ['archive', 'agnostic'],
   '.xz': ['archive', 'agnostic'],
 };
+/** The DCC kind and tool a file name maps to, or undefined when it is not a DCC format. */
+export function dccFormatOf(fileName: string): [DccFileKind, AssetEcosystem] | undefined {
+  const extension = extname(fileName).toLowerCase();
+  return Object.hasOwn(formats, extension) ? formats[extension] : undefined;
+}
+
+/** A texture named like one map of a material set: base colour, normal, roughness... */
+export function isTextureMapName(name: string): boolean {
+  return (
+    /\.(png|jpe?g|tiff?|exr|tga|bmp)$/i.test(name) &&
+    /(?:base.?colou?r|albedo|diffuse|normal|roughness|metallic|displacement|height|ambient.?occlusion|(?:^|[_ .-])ao(?:[_ .-]|\.))/i.test(
+      name,
+    )
+  );
+}
+
 const ignored = new Set([
   'node_modules',
   '.git',
@@ -91,12 +107,7 @@ export async function discoverDccFiles(root: string, signal?: AbortSignal): Prom
             ecosystem: format[1],
             size: (await stat(path)).size,
           });
-        else if (
-          /\.(png|jpe?g|tiff?|exr|tga|bmp)$/i.test(entry.name) &&
-          /(?:base.?colou?r|albedo|diffuse|normal|roughness|metallic|displacement|height|ambient.?occlusion|(?:^|[_ .-])ao(?:[_ .-]|\.))/i.test(
-            entry.name,
-          )
-        ) {
+        else if (isTextureMapName(entry.name)) {
           textureCount += 1;
           textureSize += (await stat(path)).size;
           textureNames.push(entry.name);

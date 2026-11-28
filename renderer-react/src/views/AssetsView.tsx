@@ -19,6 +19,7 @@ import { useAssetSelection } from '@/features/assets/useAssetSelection';
 import { useHotkey } from '@/hooks/useHotkey';
 import { buildAssetMenuItems, useNativeContextMenu } from '@/hooks/useNativeContextMenu';
 import { trpc } from '@/ipc/trpc';
+import { formatCount } from '@/lib/format';
 import { useModals } from '@/stores/modals';
 
 const VIEW_KEY = 'omnidex.assetView';
@@ -280,14 +281,14 @@ export function AssetsView() {
 
   const onBulkRemove = () =>
     openConfirm({
-      title: `Delete ${selectedIdList.length} assets?`,
+      title: `Delete ${formatCount(selectedIdList.length)} assets?`,
       body: 'They will be removed from your library. This does not delete the files on disk.',
       confirmLabel: 'Delete',
       destructive: true,
       onConfirm: async () => {
         await remove.mutateAsync(selectedIdList);
         forget(selectedIdList);
-        toast.success(`${selectedIdList.length} assets deleted`);
+        toast.success(`${formatCount(selectedIdList.length)} assets deleted`);
       },
     });
 

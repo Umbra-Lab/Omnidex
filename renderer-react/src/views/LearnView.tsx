@@ -7,7 +7,7 @@ import { trpc } from '@/ipc/trpc';
 import { toAssetUrl } from '@/lib/assetUrl';
 import { cn } from '@/lib/cn';
 import { formatCount } from '@/lib/format';
-import { subtitleStem, videoStem } from '@/lib/subtitleStem';
+import { subtitlePairsWith } from '@/lib/subtitleStem';
 
 /**
  * Learn — an index that knows what is inside.
@@ -346,7 +346,7 @@ function CourseDetail({
             }}
             className="flex items-center gap-3 rounded-md border border-surface-800 bg-surface-900 px-4 py-3 text-left transition-colors hover:border-accent-500/50"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-500 text-accent-on">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent-500 text-accent-on">
               <Play size={16} />
             </span>
             <span className="min-w-0">
@@ -373,7 +373,7 @@ function CourseDetail({
               // the same stem beside it. The shared stem helpers handle the
               // `lesson.mp4.srt` shape the Whisper backfill writes — stripping
               // a single extension from both sides never pairs those.
-              const target = videos.find((v) => videoStem(v.rel_path) === subtitleStem(h.rel_path));
+              const target = videos.find((v) => subtitlePairsWith(h.rel_path, v.rel_path));
               return (
                 <button
                   key={`${h.file_id}-${h.start_ms}`}

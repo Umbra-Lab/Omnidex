@@ -59,7 +59,7 @@ export function OnboardingModal() {
       <Dialog open={open} onOpenChange={(v) => (v ? setOpen(v) : dismiss())}>
         <DialogContent>
           <DialogHeader>
-            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-accent-500/15 text-accent-400">
+            <div className="mx-auto flex size-12 items-center justify-center rounded-md bg-accent-500/15 text-accent-400">
               <Sparkles size={22} strokeWidth={1.6} />
             </div>
             <DialogTitle className="text-center">Welcome to Omnidex</DialogTitle>

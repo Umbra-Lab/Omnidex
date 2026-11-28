@@ -1,4 +1,11 @@
-import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -51,6 +58,23 @@ describe('omnidex-asset path round-trip', () => {
 
   it('round-trips a Windows path with spaces (win32)', () => {
     const original = 'D:\\Game Assets\\Méga Pack (v2)\\thumb 01.png';
+    expect(decodeAssetPath(encodeAssetUrl(original), 'win32')).toBe(original);
+  });
+
+  it('round-trips # and ? in a path (they would otherwise start a fragment/query)', () => {
+    const original = '/home/u/Packs/Vol #2/what? ok/thumb.png';
+    const url = encodeAssetUrl(original);
+    expect(url).not.toMatch(/[#?]/);
+    expect(decodeAssetPath(url, 'linux')).toBe(original);
+  });
+
+  it('round-trips a literal % and %-escapes lookalikes', () => {
+    const original = '/home/u/100% Pack/%23 not hash/a%20b.png';
+    expect(decodeAssetPath(encodeAssetUrl(original), 'linux')).toBe(original);
+  });
+
+  it('round-trips # and ? in a Windows path (win32)', () => {
+    const original = 'C:\\Packs\\Vol #2\\q? é\\thumb.png';
     expect(decodeAssetPath(encodeAssetUrl(original), 'win32')).toBe(original);
   });
 
@@ -274,5 +298,17 @@ describe('parseRangeHeader', () => {
 
   it('handles a range covering exactly the last byte', () => {
     expect(parseRangeHeader('bytes=999-999', SIZE)).toEqual({ start: 999, end: 999 });
+  });
+});
+
+describe('preload fileUrl parity', () => {
+  it('uses the same encoding expression as encodeAssetUrl', () => {
+    const expr = /return `omnidex-asset:\/\/\/\$\{[^`]*\}`;/;
+    const main = readFileSync(join(__dirname, '..', 'asset-protocol.ts'), 'utf8').match(expr)?.[0];
+    const preload = readFileSync(join(__dirname, '..', '..', 'preload', 'index.ts'), 'utf8').match(
+      expr,
+    )?.[0];
+    expect(main).toBeTruthy();
+    expect(preload).toBe(main);
   });
 });

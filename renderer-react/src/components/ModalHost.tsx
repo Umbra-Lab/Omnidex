@@ -15,6 +15,7 @@ import { AddToCollectionDialog } from '@/features/collections/AddToCollectionDia
 import { TaggingModal } from '@/features/tagging/TaggingModal';
 import { trpc } from '@/ipc/trpc';
 import { cn } from '@/lib/cn';
+import { formatCount } from '@/lib/format';
 import { useModals } from '@/stores/modals';
 
 /**
@@ -181,7 +182,7 @@ function BulkTaggingHost() {
         if (!next) close();
       }}
       initialTags={[]}
-      title={`Add tags to ${ids.length} ${ids.length === 1 ? 'asset' : 'assets'}`}
+      title={`Add tags to ${formatCount(ids.length)} ${ids.length === 1 ? 'asset' : 'assets'}`}
       description="Press Enter to add. These are added to each selected asset; existing tags are kept."
       saveLabel="Add tags"
       requireTags

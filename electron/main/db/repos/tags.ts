@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3';
+import { escapeLike } from './row-helpers';
 
 /**
  * Tag operations. Mirrors `src-tauri/src/commands/tag_commands.rs` subset.
@@ -174,12 +175,12 @@ export interface TagSuggestion {
 }
 
 export function searchTags(db: Database, query: string, limit = 20): TagSuggestion[] {
-  const like = `%${query.toLowerCase()}%`;
+  const like = `%${escapeLike(query.toLowerCase())}%`;
   return db
     .prepare(
       `SELECT tag, COUNT(*) AS count, tag_type
        FROM asset_tags
-       WHERE LOWER(tag) LIKE ?
+       WHERE LOWER(tag) LIKE ? ESCAPE '\\'
        GROUP BY tag, tag_type
        ORDER BY count DESC
        LIMIT ?`,

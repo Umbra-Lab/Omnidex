@@ -13,7 +13,9 @@ export type ScanDiagnosticKind =
   /** Pack has `.uasset` files but thumbnail extraction produced nothing. */
   | 'thumbnail-failed'
   /** Pack contains paths close enough to Windows' 260-char `MAX_PATH` to break tools. */
-  | 'path-near-max-length';
+  | 'path-near-max-length'
+  /** A folder under the root failed to list mid-scan; its indexed rows were kept. */
+  | 'unreadable-folder';
 
 /** A diagnostic as emitted by the scanner, before it gets an id/timestamp. */
 export interface ScanDiagnostic {
