@@ -103,7 +103,7 @@ export function CollectionsView() {
           onRetry={() => void collections.refetch()}
         />
       ) : !collections.data || collections.data.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-surface-800 bg-surface-900/30 py-16 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-surface-800 bg-surface-900/30 py-16 text-center">
           <p className="font-display cap-14 font-medium text-surface-200">No collections yet</p>
           <p className="max-w-xs cap-12 text-surface-400">
             Group assets by project, theme, or workflow. Start with favorites and refine.
