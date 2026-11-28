@@ -23,8 +23,10 @@
 /** Below this many hits a search tries the next, looser step. */
 export const FEW = 5;
 
-// Dropped only from the OR step, where they would match most of the corpus and swamp
-// the ranking. The AND step keeps every word.
+// Dropped from the OR step, where they would match most of the corpus and swamp the
+// ranking, and from a prefix AND step that has other words: `"a"*` and `"do"*` match
+// almost every pack, so "do I have a sci fi pack" ranked on them and returned junk.
+// Exact transcript AND steps keep every word.
 const STOPWORDS = new Set(
   (
     'a an and are as at be but by can do does did for from had has have how i if in into ' +
@@ -37,6 +39,8 @@ const STOPWORDS = new Set(
   ).split(' '),
 );
 
+const ASSET_NOISE = new Set(['pack', 'packs', 'asset', 'assets']);
+
 /** Split a query into words, dropping FTS syntax characters that cannot be quoted away. */
 export function queryTerms(query) {
   return String(query ?? '')
@@ -45,9 +49,16 @@ export function queryTerms(query) {
     .filter(Boolean);
 }
 
+/** True for a common English word that carries no meaning in a search. */
+export function isStopword(term) {
+  return STOPWORDS.has(term.toLowerCase());
+}
+
 // Prefix only plain words: `"c++"*` would tokenize to `c*` and match everything with a c.
+// Never a stopword or a single letter, which as a prefix match most of the index.
 function quote(term, prefix) {
-  return `"${term}"${prefix && /^[\p{L}\p{N}]+$/u.test(term) ? '*' : ''}`;
+  const plain = /^[\p{L}\p{N}]{2,}$/u.test(term) && !isStopword(term);
+  return `"${term}"${prefix && plain ? '*' : ''}`;
 }
 
 export function andQuery(terms, prefix) {
@@ -59,12 +70,12 @@ export function orQuery(terms, prefix) {
 }
 
 /**
- * Words worth keeping in an OR query. None if every word is a stopword: an OR of only
- * common words would rank most of the transcript corpus (seconds at 4.6M cues) for
- * results that mean nothing.
+ * Words worth keeping in an OR query, without stopwords or the caller's `noise` words.
+ * None if every word is one: an OR of only common words would rank most of the
+ * transcript corpus (seconds at 4.6M cues) for results that mean nothing.
  */
-export function contentTerms(terms) {
-  return terms.filter((t) => !STOPWORDS.has(t.toLowerCase()));
+export function contentTerms(terms, noise) {
+  return terms.filter((t) => !isStopword(t) && !noise?.has(t.toLowerCase()));
 }
 
 /** Optimal string alignment distance: Levenshtein plus adjacent transpositions. */
@@ -284,10 +295,15 @@ export function createSearch(db, { legacy = false } = {}) {
    * Run `run(match, limit)` through the steps above. Rows are deduplicated by `key(row)`.
    * Returns { rows, notes }.
    */
-  function staged(ftsTable, query, limit, run, key, { prefix, orFallback }) {
+  function staged(ftsTable, query, limit, run, key, { prefix, orFallback, noise }) {
     let terms = queryTerms(query);
     if (terms.length === 0) return { rows: [], notes: [], empty: true };
     if (legacy) return { rows: run(andQuery(terms, false), limit), notes: [] };
+    if (prefix) {
+      // Common words only add prefix noise once there is something else to search for.
+      const kept = contentTerms(terms, noise);
+      if (kept.length > 0) terms = kept;
+    }
 
     let stems = new Map();
     let rows = run(andQuery(terms, prefix), limit);
@@ -306,7 +322,7 @@ export function createSearch(db, { legacy = false } = {}) {
     }
 
     if (orFallback) {
-      const loose = contentTerms(terms);
+      const loose = contentTerms(terms, noise);
       const strictQuery = build(terms, prefix, stems, ' AND ');
       const looseQuery = build(loose, prefix, stems, ' OR ');
       if (loose.length > 0 && looseQuery !== strictQuery) {
@@ -378,6 +394,9 @@ export function createSearch(db, { legacy = false } = {}) {
         {
           prefix: true,
           orFallback: true,
+          // Words an agent puts around a pack name ("do I have a corridor pack"). Few
+          // pack names hold them, so requiring them sank the pack that was asked for.
+          noise: ASSET_NOISE,
         },
       );
     },

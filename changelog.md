@@ -123,6 +123,13 @@ work that reached `main` through direct merges with no pull request, the commit.
   words inside them ("corridor", "scifi") in the search box and the Oracle. The
   pack scanner now writes a split copy of the name for search, and existing
   rows are filled once at startup instead of waiting for a rescan.
+- Subtitle files that separate cues with whitespace-only lines, doubled
+  carriage returns or no blank line at all were indexed as one cue holding the
+  whole transcript, which then crowded real cues out of search. Cues are now
+  read line by line. Rescan the library to re-index affected courses.
+- Oracle asset and docs searches no longer prefix-match common words: in
+  "do I have a corridor pack", `"a"*` and `"do"*` matched almost every pack, and
+  requiring "pack" hid packs whose names do not say it.
 - Windows: every local thumbnail was rejected by the `omnidex-asset://` handler
   because Chromium dropped the drive colon from the URL. (b6ea674)
 - Video seeking and Learn's resume-at-position: the asset protocol now answers

@@ -169,6 +169,23 @@ describe('Oracle staged search', () => {
     expect(createSearch(db).assets('c++', 20).rows).toEqual([]);
   });
 
+  it('ignores stopwords and "pack" around a pack name instead of prefix-matching them', () => {
+    // "do"* "i"* "have"* "a"* match almost anything, and few pack names say "pack": ANDing
+    // them all returned five packs that merely mention integration and hid the one asked for.
+    seedAsset(db, { name: 'Integration Toolkit', file_path: '/p/int' });
+    for (let i = 0; i < 5; i++) {
+      seedAsset(db, {
+        name: `Door Kit ${i}`,
+        file_path: `/p/door${i}`,
+        description: 'a pack I have for integration of doors',
+      });
+    }
+    const { rows } = createSearch(db).assets('do I have a integration pack', 20);
+    expect(names(rows)[0]).toBe('Integration Toolkit');
+    // A query of nothing but common words still searches them, exactly.
+    expect(names(createSearch(db).assets('pack', 20).rows)).toContain('Door Kit 0');
+  });
+
   it('reports an empty query', () => {
     expect(createSearch(db).assets('  "" ', 5).empty).toBe(true);
   });
